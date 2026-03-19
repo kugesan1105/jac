@@ -107,6 +107,8 @@ obj PrefetchedTypes {
         mapping_class: TypeBase | None = None,
         template_class: TypeBase | None = None,
         type_var_class: TypeBase | None = None,
+        param_spec_class: TypeBase | None = None,
+        type_var_tuple_class: TypeBase | None = None,
         classmethod_class: TypeBase | None = None,
         # Prefetch from typing.pyi file
         protocol_class: TypeBase | None = None,
@@ -185,6 +187,10 @@ obj TypeEvaluator {
     def is_any_type(ty: TypeBase) -> bool;
     # Check if a type is the TypeVar class itself (the callable used to create TypeVars).
     def is_typevar_class(ty: TypeBase) -> bool;
+    # Check if a type is the ParamSpec class itself (not a TypeVarType instance).
+    def is_paramspec_class(ty: TypeBase) -> bool;
+    # Check if a type is the TypeVarTuple class itself (not a TypeVarType instance).
+    def is_type_var_tuple_class(ty: TypeBase) -> bool;
     # Comments from pyright:
     # // Determines if the source type can be assigned to the dest type.
     # // If constraint are provided, type variables within the destType are
@@ -249,7 +255,6 @@ obj TypeEvaluator {
     def _get_enclosing_class(nd: uni.UniNode) -> uni.Archetype | None;
     def _get_type_of_self(node_: uni.SpecialVarRef) -> TypeBase;
     def _get_type_of_super(node_: uni.SpecialVarRef) -> TypeBase;
-    def _get_type_of_root(node_: uni.SpecialVarRef) -> TypeBase;
     def _convert_to_instance(jtype: TypeBase) -> TypeBase;
     def _type_in_list(ty: TypeBase, type_list: list[TypeBase]) -> bool;
     def _collect_unique_types(ty: TypeBase, result: list[TypeBase]) -> None;
@@ -283,6 +288,15 @@ obj TypeEvaluator {
         base_type: types.ClassType, member: str
     ) -> type_utils.ClassMember | None;
 
+    # Get bound member from a class type, handling type[T] subscripts.
+    def get_type_of_bound_member(
+        object_type: types.ClassType, member_name: str
+    ) -> type_utils.ClassMember | None;
+
+    # Check if ClassType is type[T] (builtin type with type args).
+    def _is_type_subscript(class_type: types.ClassType) -> bool;
+    # Get lookup type for member access (extracts T from type[T]).
+    def _get_type_for_member_lookup(object_type: types.ClassType) -> types.ClassType;
     def _get_getattr_return_type(base_type: types.ClassType) -> TypeBase | None;
     def match_args_to_params(
         arg_nodes: list[uni.Expr | uni.KWPair],
@@ -391,6 +405,7 @@ obj TypeEvaluator {
     def add_scope_narrowing(key: str, narrowed_type: types.TypeBase) -> None;
     def get_scope_narrowing(key: str) -> types.TypeBase | None;
     def get_narrowing_key(expr: uni.Expr) -> str | None;
+    def _find_symbol_by_key(key: str, condition: uni.Expr) -> uni.Symbol | None;
     def process_condition(condition: uni.Expr) -> None;
     # --- CFG-based narrowing (backward traversal) ---
     def get_narrowed_type(symbol: uni.Symbol, at_node: uni.UniNode) -> TypeBase | None;

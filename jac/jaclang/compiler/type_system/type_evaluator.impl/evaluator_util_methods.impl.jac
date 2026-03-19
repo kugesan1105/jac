@@ -130,6 +130,52 @@ impl TypeEvaluator._lookup_class_member(
     return None;
 }
 
+"""Check if a ClassType is the builtin 'type' class with type arguments (type[T])."""
+impl TypeEvaluator._is_type_subscript(class_type: types.ClassType) -> bool {
+    return (
+        class_type.is_builtin("type")
+        and class_type.private is not None
+        and class_type.private.type_args is not None
+        and len(class_type.private.type_args) >= 1
+    );
+}
+
+"""Get lookup type for member access. For type[T], returns T; otherwise returns original."""
+impl TypeEvaluator._get_type_for_member_lookup(
+    object_type: types.ClassType
+) -> types.ClassType {
+    if self._is_type_subscript(object_type) {
+        inner_type = object_type.private.type_args[0];
+        # TODO: Handle TypeVar case - should look up on TypeVar's bound/constraints
+        if isinstance(inner_type, types.ClassType) {
+            lookup_type = inner_type;
+            if not lookup_type.is_instantiable() {
+                lookup_type = lookup_type.clone_as_class();
+            }
+            return lookup_type;
+        }
+    }
+    return object_type;
+}
+
+"""Get bound member from a class type. Handles type[T] by looking up on T."""
+impl TypeEvaluator.get_type_of_bound_member(
+    object_type: types.ClassType, member_name: str
+) -> type_utils.ClassMember | None {
+    # TODO: Handle type[Any]/type[Unknown] - should return Any for member access
+    # TODO: Handle metaclass member lookups
+    # TODO: Handle descriptor protocol (__get__, __set__)
+    # TODO: Handle __getattr__ fallback when member not found
+    object_type_is_instantiable = object_type.is_instantiable();
+
+    if object_type_is_instantiable {
+        lookup_type = self._get_type_for_member_lookup(object_type);
+        return self._lookup_class_member(lookup_type, member_name);
+    } else {
+        return self._lookup_object_member(object_type, member_name);
+    }
+}
+
 """
 Get member type and specialize it with class type_args. (Pyright: getTypeOfMember)
 
@@ -611,13 +657,26 @@ impl TypeEvaluator._create_callable_type(
                 param_types.append(param_type);
             }
         } else {
-            # Invalid first argument - should be [...] or ...
-            self.emit_diag(E1071, first_arg);
-            # Try to recover by treating it as a single parameter type
-            # This handles cases like Callable[int, str] (incorrect but common mistake)
-            param_type = self.get_type_of_expression(first_arg);
-            param_type = self._convert_to_instance(param_type);
-            param_types.append(param_type);
+            # Check for valid Python 3.10+ Callable[P, T] where P is a ParamSpec/TypeVar.
+            # After ParamSpec("P") is evaluated, P has type TypeVarType(is_param_spec=True).
+            # After TypeVar("T") is evaluated, T has type TypeVarType.
+            # The raw ParamSpec/TypeVarTuple class can also appear in typeshed stubs.
+            resolved_first = self.get_type_of_expression(first_arg);
+            if isinstance(resolved_first, types.TypeVarType) {
+                # Callable[P, T] or Callable[T, T] — ParamSpec or TypeVar as first arg.
+                # Treat as gradual: full ParamSpec substitution is future work.
+                is_gradual = True;
+            } elif self.is_paramspec_class(resolved_first)
+            or self.is_type_var_tuple_class(resolved_first) {
+                # Raw ParamSpec/TypeVarTuple class used as first arg (common in typeshed stubs).
+                is_gradual = True;
+            } else {
+                # Genuinely invalid first argument — should be [...] or ...
+                self.emit_diag(E1071, first_arg);
+                # Recover by treating it as a single parameter type
+                param_type = self._convert_to_instance(resolved_first);
+                param_types.append(param_type);
+            }
         }
         # Second argument: return type
         if len(type_arg_values) >= 2 {

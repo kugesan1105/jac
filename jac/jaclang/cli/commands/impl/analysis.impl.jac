@@ -7,7 +7,6 @@ import from pathlib { Path }
 import from fnmatch { fnmatch }
 import from jaclang.cli.console { console }
 import from jaclang.cli.check_report {
-    print_file_progress,
     print_failures,
     print_failed_summary,
     print_final_summary
@@ -32,14 +31,16 @@ impl check(
     def process_file_result(file_path: str, idx: int, total: int) -> None {
         nonlocal total_files , total_errors , total_warnings , failed_files;
         total_files += 1;
-        (success, errs, warns, errors_list, warnings_list) = check_single_file(
+        (success, errs, warns, errors_list, warnings_list, file_time) = check_single_file(
             prog, file_path
         );
         total_errors += errs;
         total_warnings += warns;
 
-        # Print progress line
-        print_file_progress(file_path, success, idx, total);
+        # Print progress line with timing
+        status = "PASSED" if success else "FAILED";
+        percentage = int((idx / total) * 100);
+        console.print(f"{file_path} {status} [{percentage}%] ({file_time:.2f}s)");
 
         if not success {
             failed_files += 1;
@@ -54,22 +55,24 @@ impl check(
     failed_results: list[dict] = [];
     def check_single_file(
         prog: JacProgram, file_path: str
-    ) -> tuple[bool, int, int, list, list] {
+    ) -> tuple[bool, int, int, list, list, float] {
         path_obj = Path(file_path);
         if not path_obj.exists() {
             console.error(f"File '{file_path}' does not exist.");
-            return (False, 1, 0, [], []);
+            return (False, 1, 0, [], [], 0.0);
         }
         try {
             import from jaclang.jac0core.compile_options { CompileOptions }
             console.print(f"  Checking {file_path}...");
             (err_start, warn_start) = (len(prog.errors_had), len(prog.warnings_had));
+            file_start = time();
             prog.compile(
                 file_path=file_path,
                 options=CompileOptions(
                     type_check=not parse_only, no_cgen=True, force_target_program=True
                 )
             );
+            file_elapsed = time() - file_start;
             new_errors = prog.errors_had[err_start:];
             new_warnings = prog.warnings_had[warn_start:];
             # Filter out errors/warnings from ignored files and non-.jac files
@@ -96,11 +99,12 @@ impl check(
                 err_count,
                 warn_count,
                 filtered_errors,
-                filtered_warnings
+                filtered_warnings,
+                file_elapsed
             );
         } except Exception as e {
             console.error(f"Error checking '{file_path}': {e}");
-            return (False, 1, 0, [], []);
+            return (False, 1, 0, [], [], 0.0);
         }
     }
     total_files = failed_files=total_errors=total_warnings=0;

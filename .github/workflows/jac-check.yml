@@ -43,3 +43,18 @@ jobs:
       - name: Run jac check (using .jacignore)
         run: |
           jac check . --ignore tests checker_*.jac *_err.jac $(grep -v '^#' .jacignore | grep -v '^[[:space:]]*$' | tr '\n' ' ') --nowarn
+
+      - name: Install test dependencies
+        run: |
+          pip install pytest
+          pip install pytest-xdist
+
+      - name: Run checker tests
+        run: |
+          pytest -x -n auto \
+            jac/tests/compiler/passes/main/test_checker_bugs.jac \
+            jac/tests/compiler/passes/main/test_checker_gaps.jac \
+            jac/tests/compiler/passes/main/test_checker_pass.jac \
+            jac/tests/compiler/passes/main/test_checker_production.jac \
+            jac/tests/compiler/passes/main/test_checker_shortcomings.jac \
+            jac/tests/langserve/test_server.jac

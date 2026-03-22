@@ -32,7 +32,14 @@ jobs:
         pip install watchdog
 
     - name: Run Jac core tests
-      run: pytest -x jac -n auto
+      run: |
+        pytest -x jac -n auto \
+          --ignore=jac/tests/compiler/passes/main/test_checker_bugs.jac \
+          --ignore=jac/tests/compiler/passes/main/test_checker_gaps.jac \
+          --ignore=jac/tests/compiler/passes/main/test_checker_pass.jac \
+          --ignore=jac/tests/compiler/passes/main/test_checker_production.jac \
+          --ignore=jac/tests/compiler/passes/main/test_checker_shortcomings.jac \
+          --ignore=jac/tests/langserve/test_server.jac
 
   test-client:
     runs-on: ubuntu-latest

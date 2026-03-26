@@ -15,6 +15,7 @@
 - Automatically converts JAC walkers and functions into RESTful FastAPI endpoints
 - Built-in Swagger/OpenAPI documentation for easy API exploration and testing
 - Interactive API interface accessible at `/docs` endpoint
+- **Configurable Uvicorn workers** for improved concurrency and CPU utilization
 
 ### 3. Kubernetes Deployment & Auto-Scaling
 
@@ -473,6 +474,40 @@ async walker FetchData {
 ```
 
 ## Configuration Options
+
+### Server Configuration (jac.toml)
+
+Configure server settings in your `jac.toml` file under `[plugins.scale.server]`:
+
+```toml
+[plugins.scale.server]
+port = 8000
+host = "0.0.0.0"
+workers = 4          # Number of Uvicorn workers (default: 1)
+# workers = "auto"   # Auto-detect: 2 * CPU cores + 1
+```
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `port` | Server port | `8000` |
+| `host` | Server host | `0.0.0.0` |
+| `workers` | Number of Uvicorn workers. Use `"auto"` for CPU-based scaling (`2 * cores + 1`) | `1` |
+
+#### Workers (Local Mode Only)
+
+> **Note:** Workers only apply to **local mode** (`jac start`). When using `--scale`, Kubernetes handles scaling via pod replicas instead.
+
+| Environment | Recommended | Why |
+|-------------|-------------|-----|
+| Development | `workers = 1` | Easier debugging, simpler logs |
+| Production (local) | `workers = "auto"` | Maximizes CPU utilization |
+
+**CLI override:**
+
+```bash
+jac start app.jac --workers 4      # Explicit count
+jac start app.jac -w auto          # Auto-detect (2 * CPU + 1)
+```
 
 ### Optional Environment Variables
 

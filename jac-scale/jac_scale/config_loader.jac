@@ -33,5 +33,8 @@ class JacScaleConfig(PluginConfigBase) {
 
 glob _scale_config_instance: JacScaleConfig | None = None;
 
+"""Resolve workers value - supports int or 'auto'."""
+def _resolve_workers(value: int | str) -> int;
+
 def get_scale_config(project_dir: Path | None = None) -> JacScaleConfig;
 def reset_scale_config -> None;

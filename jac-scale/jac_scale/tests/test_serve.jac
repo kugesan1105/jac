@@ -1834,29 +1834,37 @@ test "pwa target uses jac-scale server" {
 
     with tempfile.TemporaryDirectory() as temp_dir {
         temp_path = Path(temp_dir);
-
         # Create minimal jac app
         main_jac = temp_path / "main.jac";
-        main_jac.write_text('cl { def:pub app -> JsxElement { return <div>Test</div>; } }');
-
+        main_jac.write_text(
+            'cl { def:pub app -> JsxElement { return <div>Test</div>; } }'
+        );
         jac_toml = temp_path / "jac.toml";
-        jac_toml.write_text('''[project]
+        jac_toml.write_text(
+            '''[project]
 name = "test-pwa"
 version = "1.0.0"
 
 [plugins.client.pwa]
 theme_color = "#000000"
-''');
-
+'''
+        );
         # Start server with --client pwa
         server = subprocess.Popen(
-            [str(jac_executable), "start", "--client", "pwa", "main.jac", "-p", str(port)],
+            [
+                str(jac_executable),
+                "start",
+                "--client",
+                "pwa",
+                "main.jac",
+                "-p",
+                str(port)
+            ],
             cwd=temp_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True
         );
-
         try {
             # Wait for server to start and verify /docs endpoint (jac-scale's FastAPI)
             for _ in range(30) {
@@ -1864,10 +1872,12 @@ theme_color = "#000000"
                     resp = requests.get(f"http://127.0.0.1:{port}/docs", timeout=2);
                     if resp.status_code == 200 {
                         # /docs exists = jac-scale's FastAPI server is running
-                        assert "swagger" in resp.text.lower() or "openapi" in resp.text.lower(), (
+                        assert "swagger" in resp.text.lower()
+                        or "openapi" in resp.text.lower() , (
                             "/docs should be FastAPI Swagger UI"
                         );
                         return;  # Test passed
+
                     }
                 } except (requests.ConnectionError, requests.Timeout) {
                     time.sleep(1);
@@ -1887,5 +1897,64 @@ theme_color = "#000000"
                 server.kill();
             }
         }
+    }
+}
+
+
+# =============================================================================
+# WORKERS CONFIGURATION TESTS
+# =============================================================================
+"""Test _resolve_workers handles int and 'auto' correctly."""
+test "workers config resolution" {
+    import multiprocessing;
+    import from jac_scale.config_loader { _resolve_workers }
+
+    # Integer values
+    assert _resolve_workers(1) == 1;
+    assert _resolve_workers(4) == 4;
+    assert _resolve_workers(0) == 1;  # Min is 1
+
+    # Auto mode
+    expected_auto = 2 * multiprocessing.cpu_count() + 1;
+    assert _resolve_workers("auto") == expected_auto;
+    assert _resolve_workers("AUTO") == expected_auto;
+}
+
+"""Test get_server_config returns workers with correct default."""
+test "server config includes workers" {
+    import from jac_scale.config_loader { get_scale_config, reset_scale_config }
+
+    reset_scale_config();
+    config = get_scale_config();
+    server_config = config.get_server_config();
+
+    assert "workers" in server_config;
+    assert "port" in server_config;
+    assert "host" in server_config;
+    assert server_config["workers"] >= 1;
+}
+
+"""Integration test: verify server starts correctly with --workers flag."""
+test "server starts with workers flag" {
+    fixtures_dir = Path(__file__).parent / "fixtures";
+    test_file = fixtures_dir / "test_api.jac";
+    port = get_free_port();
+    base_url = f"http://localhost:{port}";
+
+    _cleanup_db_files(fixtures_dir);
+
+    # Start server with workers=2
+    server_process: subprocess.Popen | None = None;
+    try {
+        server_process = _start_server(
+            fixtures_dir, test_file, port, base_url, extra_args=["--workers", "2"]
+        );
+
+        # Verify server responds
+        response = requests.get(f"{base_url}/docs", timeout=5);
+        assert response.status_code == 200 , "Server should respond with workers=2";
+    } finally {
+        _stop_server(server_process);
+        _cleanup_db_files(fixtures_dir);
     }
 }

@@ -56,6 +56,15 @@ impl JacAPIServerCore.postinit -> None {
         import from jac_scale.jserver.jfast_api { JFastApiServer }
         self.server = JFastApiServer();
     }
+    # Load workers from config, with CLI override taking precedence
+    import from jac_scale.plugin { get_cli_workers_override }
+    cli_workers = get_cli_workers_override();
+    if cli_workers is not None {
+        self.workers = cli_workers;
+    } else {
+        server_config = get_scale_config().get_server_config();
+        self.workers = server_config.get('workers', 1);
+    }
     self._api_key_manager = ApiKeyManager();
     self.server.app.add_middleware(
         CORSMiddleware,
@@ -255,7 +264,7 @@ impl JacAPIServerCore.start(
     if on_ready {
         on_ready(self.port);
     }
-    self.server.run_server(port=self.port);
+    self.server.run_server(port=self.port, workers=self.workers);
 }
 
 """Print startup banner with correct port."""
@@ -280,7 +289,12 @@ impl JacAPIServerCore._print_startup_banner(dev: bool, no_client: bool) -> None 
     # Print URLs with arrows (uses console.print_urls for consistency)
     console.print_urls(urls);
     console.print();
-    console.print("  🚀 Server ready", style="bold green");
+    # Show workers info when using multiple workers
+    if self.workers > 1 {
+        console.print(f"  🚀 Server ready ({self.workers} workers)", style="bold green");
+    } else {
+        console.print("  🚀 Server ready", style="bold green");
+    }
 }
 
 """Configure OpenAPI security scheme to only apply to walker endpoints that require auth."""

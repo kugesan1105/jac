@@ -62,7 +62,7 @@ impl JacScaleConfig.get_default_config(self: JacScaleConfig) -> dict[str, Any] {
             'liveness_failure_threshold': 80
         },
         'secrets': {},
-        'server': {'port': 8000, 'host': '0.0.0.0'},
+        'server': {'port': 8000, 'host': '0.0.0.0', 'workers': 1},
         'webhook': {
             'secret': 'webhook-secret-key',
             'signature_header': 'X-Webhook-Signature',
@@ -182,13 +182,31 @@ impl JacScaleConfig.get_kubernetes_config(self: JacScaleConfig) -> dict[str, Any
     return k8s_config_obj.to_dict();
 }
 
+"""Resolve workers value - supports int or 'auto'.
+
+'auto' resolves to (2 * cpu_count + 1) for optimal production performance.
+"""
+impl _resolve_workers(value: int | str) -> int {
+    import multiprocessing;
+    if isinstance(value, int) {
+        return max(1, value);
+    }
+    if isinstance(value, str) and value.lower() == 'auto' {
+        return 2 * multiprocessing.cpu_count() + 1;
+    }
+    # Default fallback
+    return 1;
+}
+
 """Get server configuration from jac.toml."""
 impl JacScaleConfig.get_server_config(self: JacScaleConfig) -> dict[str, Any] {
     config = self.load();
     server_config = config.get('server', {});
+    workers_raw = server_config.get('workers', 1);
     return {
         'port': int(server_config.get('port', 8000)),
-        'host': server_config.get('host', '0.0.0.0')
+        'host': server_config.get('host', '0.0.0.0'),
+        'workers': _resolve_workers(workers_raw)
     };
 }
 

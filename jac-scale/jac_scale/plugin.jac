@@ -21,8 +21,34 @@ import from .user_manager { JacScaleUserManager }
 import from jaclang.runtimelib.server { UserManager }
 import from jaclang.runtimelib.storage { Storage }
 
-"""Pre-hook for jac start command to handle --scale flag."""
+# Global storage for CLI workers override (accessed by server postinit)
+glob _cli_workers_override: int | None = None;
+
+"""Get CLI workers override (used by JacAPIServer postinit)."""
+def get_cli_workers_override -> int | None {
+    return _cli_workers_override;
+}
+
+"""Pre-hook for jac start command to handle --scale flag and workers override."""
 def _scale_pre_hook(context: HookContext) -> None {
+    global _cli_workers_override;
+    # Handle --workers CLI override for local server mode
+    workers_arg = context.get_arg("workers", "");
+    if workers_arg {
+        import multiprocessing;
+        if workers_arg.lower() == "auto" {
+            _cli_workers_override = 2 * multiprocessing.cpu_count() + 1;
+        } else {
+            try {
+                _cli_workers_override = max(1, int(workers_arg));
+            } except ValueError {
+                console.print(
+                    f"[bold red]Invalid workers value: {workers_arg}. Using default.[/bold red]"
+                );
+                _cli_workers_override = None;
+            }
+        }
+    }
     scale = context.get_arg("scale", False);
     if scale {
         filename = context.get_arg("filename");
@@ -233,6 +259,13 @@ class JacCmd {
                     default=False,
                     help="Enable HTTPS via Let's Encrypt (run after pointing your domain CNAME to the NLB)",
                     short=""
+                ),
+                Arg.create(
+                    "workers",
+                    typ=str,
+                    default="",
+                    help="Number of uvicorn workers (int or 'auto' for CPU-based). Overrides jac.toml setting.",
+                    short="w"
                 ),
 
             ],

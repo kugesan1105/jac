@@ -73,6 +73,7 @@ impl JFastApiServer.run_server(
     self: JFastApiServer,
     host: str = '0.0.0.0',
     port: int = 8000,
+    workers: int = 1,
     max_retries: int = 10
 ) -> None {
     import from jaclang.cli.console { console }
@@ -123,7 +124,18 @@ impl JFastApiServer.run_server(
                     style="warning"
                 );
             }
-            uvicorn.run(app, host=host, port=current_port, log_config=log_config);
+            # Only pass workers if > 1 (single worker is uvicorn's default)
+            if workers > 1 {
+                uvicorn.run(
+                    app,
+                    host=host,
+                    port=current_port,
+                    workers=workers,
+                    log_config=log_config
+                );
+            } else {
+                uvicorn.run(app, host=host, port=current_port, log_config=log_config);
+            }
             return;
         } except SystemExit as e {
             # uvicorn raises SystemExit when port is in use

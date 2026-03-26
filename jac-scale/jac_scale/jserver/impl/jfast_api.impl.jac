@@ -126,40 +126,17 @@ impl JFastApiServer.run_server(
             }
             # Use gunicorn for multi-worker mode, uvicorn for single worker
             if workers > 1 {
-                # Store app in module for gunicorn workers to import
+                # Store app in module for uvicorn workers to import
                 import from jac_scale.jserver { _worker_app_holder }
                 _worker_app_holder.app = app;
-                # Run with gunicorn + uvicorn workers
-                import from gunicorn.app.base { BaseApplication }
-
-                class GunicornApp(BaseApplication) {
-                    def init(self: GunicornApp, options: dict) -> None {
-                        self.options = options;
-                        super.init();
-                    }
-
-                    def load_config(self: GunicornApp) -> None {
-                        for (key, value) in self.options.items() {
-                            if key in self.cfg.settings and value is not None {
-                                self.cfg.set(key.lower(), value);
-                            }
-                        }
-                    }
-
-                    def load(self: GunicornApp) -> Any {
-                        return _worker_app_holder.app;
-                    }
-                }
-
-                gunicorn_options = {
-                    "bind": f"{host}:{current_port}",
-                    "workers": workers,
-                    "worker_class": "uvicorn.workers.UvicornWorker",
-                    "accesslog": "-",
-                    "errorlog": "-",
-                    "loglevel": "warning"
-                };
-                GunicornApp(gunicorn_options).run();
+                # Pass import string to uvicorn for multi-worker mode
+                uvicorn.run(
+                    "jac_scale.jserver._worker_app_holder:app",
+                    host=host,
+                    port=current_port,
+                    workers=workers,
+                    log_config=log_config
+                );
             } else {
                 uvicorn.run(app, host=host, port=current_port, log_config=log_config);
             }

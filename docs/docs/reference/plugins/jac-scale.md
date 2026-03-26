@@ -35,7 +35,7 @@ jac start app.jac
 | `--no_client` `-n` | Skip client bundling/serving (API only) | false |
 | `--profile` | Configuration profile to load (e.g. prod, staging) | - |
 | `--client` | Client build target for dev server (web, desktop, pwa) | - |
-| `--workers` `-w` | Number of Uvicorn workers (int or "auto"). Local mode only. | 1 |
+| `--workers` `-w` | Number of Uvicorn workers per process (int or "auto") | 1 |
 | `--scale` | Deploy to a target platform instead of running locally | false |
 | `--build` `-b` | Build and push Docker image (with --scale) | false |
 | `--experimental` `-e` | Use experimental mode (install from repo instead of PyPI) | false |
@@ -61,7 +61,7 @@ jac start app.jac --faux
 # Production with profile
 jac start app.jac --port 8000 --profile prod
 
-# Multiple workers for better concurrency (local mode only)
+# Multiple workers for better concurrency
 jac start app.jac --workers 4
 jac start app.jac -w auto  # Auto-detect: 2 * CPU + 1
 ```
@@ -95,7 +95,7 @@ workers = 1        # Number of Uvicorn workers
 | `host` | 0.0.0.0 | Server bind address |
 | `workers` | 1 | Uvicorn worker processes. Use `"auto"` for `2 * CPU + 1` |
 
-> **Note:** Workers only apply to **local mode** (`jac start`). When using `--scale`, Kubernetes handles scaling via pod replicas.
+> **Note:** In Kubernetes, workers combine with pod replicas for hybrid scaling (e.g., 4 workers × 3 pods = 12 concurrent processes).
 
 ---
 

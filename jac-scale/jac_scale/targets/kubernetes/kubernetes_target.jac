@@ -245,8 +245,9 @@ obj KubernetesTarget(DeploymentTarget) {
             "printf 'import from jac_scale.factories.sandbox_factory { SandboxFactory }\\nimport from jac_scale.providers.sandbox.kubernetes_sandbox { KubernetesSandbox }\\nimport from jac_scale.providers.sandbox.local_sandbox { LocalSandbox }\\nimport from jac_scale.providers.sandbox.docker_sandbox { DockerSandbox }\\n' > /tmp/_precompile.jac && jac run /tmp/_precompile.jac > /dev/null 2>&1 || true"
         );
 
-        # Start the application
-        commands.append(f"jac start {app_config.file_name}");
+        # Start the application with workers configuration
+        workers_flag = f" --workers {config.workers}" if config.workers != 1 else "";
+        commands.append(f"jac start {app_config.file_name}{workers_flag}");
 
         # Join all commands
         full_command = ' && '.join(commands);

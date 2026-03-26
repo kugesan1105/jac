@@ -60,7 +60,9 @@ obj KubernetesConfig(BaseConfig) {
         ingress_node_port: int = 30080,
         # Domain / TLS configuration
         domain: str = "",
-        cert_manager_email: str = "";
+        cert_manager_email: str = "",
+        # Server workers configuration
+        workers: int | str = 1;
 
     override def to_dict -> dict[str, Any] {
         base = super.to_dict();
@@ -124,7 +126,9 @@ obj KubernetesConfig(BaseConfig) {
                 'ingress_node_port': self.ingress_node_port,
                 # Domain / TLS configuration
                 'domain': self.domain,
-                'cert_manager_email': self.cert_manager_email
+                'cert_manager_email': self.cert_manager_email,
+                # Server workers configuration
+                'workers': self.workers
             }
         );
         return base;
@@ -187,7 +191,8 @@ obj KubernetesConfig(BaseConfig) {
             redis_password=config.get('redis_password', 'password'),
             ingress_node_port=config.get('ingress_node_port', 30080),
             domain=config.get('domain', ''),
-            cert_manager_email=config.get('cert_manager_email', '')
+            cert_manager_email=config.get('cert_manager_email', ''),
+            workers=config.get('workers', 1)
         );
     }
 }

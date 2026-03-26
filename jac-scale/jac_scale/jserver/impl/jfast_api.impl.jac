@@ -55,16 +55,6 @@ def _convert_transport_response_to_json_response(
     return JSONResponse(status_code=status, content=response_body);
 }
 
-"""Custom logging handler that routes logs to jac-super console."""
-class ConsoleLogHandler(logging.Handler) {
-    """A logging handler that forwards log messages to jac-super's console."""
-    def emit(self: ConsoleLogHandler, record: logging.LogRecord) -> None {
-        import from jaclang.cli.console { console }
-        message = self.format(record);
-        console.print(f"  {message}");
-    }
-}
-
 """Run the FastAPI server using Uvicorn.
 
 If the specified port is in use, tries subsequent ports up to max_retries times.
@@ -80,17 +70,13 @@ impl JFastApiServer.run_server(
 ) -> None {
     import from jaclang.cli.console { console }
     app = self.create_server();
-    # Create custom handler for console logging
-    console_handler = ConsoleLogHandler();
-    console_handler.setFormatter(logging.Formatter("%(message)s"));
-    # Suppress startup logs but route access logs through jac-super console
+    # Logging config uses class path (picklable for multi-worker mode)
     log_config = {
         "version": 1,
         "disable_existing_loggers": False,
         "formatters": {
             "default": {"format": "%(message)s"},
-            "access": {"format": "%(message)s"},
-
+            "access": {"format": "%(message)s"}
         },
         "handlers": {
             "default": {
@@ -98,8 +84,10 @@ impl JFastApiServer.run_server(
                 "class": "logging.StreamHandler",
                 "stream": "ext://sys.stderr"
             },
-            "access": {"()": lambda : console_handler },
-
+            "access": {
+                "formatter": "access",
+                "class": "jac_scale.jserver._console_log_handler.ConsoleLogHandler"
+            }
         },
         "loggers": {
             "uvicorn": {
@@ -112,10 +100,8 @@ impl JFastApiServer.run_server(
                 "handlers": ["access"],
                 "level": "INFO",
                 "propagate": False
-            },
-
-        },
-
+            }
+        }
     };
     current_port = port;
     for _ in range(max_retries) {
@@ -127,25 +113,28 @@ impl JFastApiServer.run_server(
                 );
             }
             if workers > 1 {
+                # Pre-import to compile and cache before workers spawn
+                import jac_scale.jserver._worker_app_holder;
+                import jac_scale.jserver._console_log_handler;
                 # Set env vars for worker factory to recreate the app
                 import os;
                 os.environ["JAC_WORKER_MODULE"] = module_name;
                 os.environ["JAC_WORKER_BASE_PATH"] = base_path or os.getcwd();
-                # Use factory function - each worker creates its own app
-                # Note: log_config contains lambda, can't be pickled for multiprocessing
+                # Factory mode: each worker creates its own app instance
                 uvicorn.run(
                     "jac_scale.jserver._worker_app_holder:create_app",
                     factory=True,
                     host=host,
                     port=current_port,
-                    workers=workers
+                    workers=workers,
+                    log_config=log_config
                 );
             } else {
                 uvicorn.run(app, host=host, port=current_port, log_config=log_config);
             }
             return;
         } except SystemExit as e {
-            # gunicorn/uvicorn raises SystemExit when port is in use
+            # uvicorn raises SystemExit when port is in use
             # errno 98 = EADDRINUSE (Linux), errno 10048 = WSAEADDRINUSE (Windows)
             if "Address already in use" in str(e)
             or "address already in use" in str(e) {

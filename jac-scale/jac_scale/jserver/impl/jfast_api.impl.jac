@@ -55,6 +55,14 @@ def _convert_transport_response_to_json_response(
     return JSONResponse(status_code=status, content=response_body);
 }
 
+"""Logging handler for jac-scale console (picklable for multi-worker mode)."""
+class ConsoleLogHandler(logging.Handler) {
+    def emit(self: ConsoleLogHandler, record: logging.LogRecord) -> None {
+        import from jaclang.cli.console { console }
+        console.print(f"  {self.format(record)}");
+    }
+}
+
 """Run the FastAPI server using Uvicorn.
 
 If the specified port is in use, tries subsequent ports up to max_retries times.
@@ -86,7 +94,7 @@ impl JFastApiServer.run_server(
             },
             "access": {
                 "formatter": "access",
-                "class": "jac_scale.jserver._console_log_handler.ConsoleLogHandler"
+                "class": "jac_scale.jserver.jfast_api.ConsoleLogHandler"
             }
         },
         "loggers": {
@@ -115,7 +123,6 @@ impl JFastApiServer.run_server(
             if workers > 1 {
                 # Pre-import to compile and cache before workers spawn
                 import jac_scale.jserver._worker_app_holder;
-                import jac_scale.jserver._console_log_handler;
                 # Set env vars for worker factory to recreate the app
                 import os;
                 os.environ["JAC_WORKER_MODULE"] = module_name;

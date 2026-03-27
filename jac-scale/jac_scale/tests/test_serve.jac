@@ -1379,7 +1379,7 @@ test "websocket functionality" {
 glob dm_fixtures_dir: Path = Path(__file__).parent / "fixtures",
      dm_test_file: Path = dm_fixtures_dir / "test_api.jac",
      dm_vite_port: int = get_free_port(),
-     dm_api_port: int = dm_vite_port + 1,
+     dm_api_port: int = get_free_port(),
      dm_base_url: str = f"http://localhost:{dm_api_port}";
 
 """Extract data from TransportResponse envelope for dev mode."""
@@ -1409,6 +1409,8 @@ def setup_dev_mode_server -> subprocess.Popen {
         str(dm_test_file),
         "--port",
         str(dm_vite_port),
+        "--api_port",
+        str(dm_api_port),
         "--dev"
     ];
 

@@ -165,3 +165,10 @@ class JFastApiServer(JServer[FastAPI]) {
         max_retries: int = 10
     ) -> None;
 }
+
+"""Factory function for creating FastAPI app instances.
+
+Used by uvicorn import string to create app instances in worker processes.
+Reads JAC_WORKER_MODULE and JAC_WORKER_BASE_PATH from environment variables.
+"""
+def create_app -> FastAPI;

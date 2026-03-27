@@ -154,6 +154,42 @@ impl JacAPIServerCore.postinit -> None {
     }
 }
 
+"""Register all API endpoints. Called by start() and can be reused by factory functions."""
+impl JacAPIServerCore._setup_endpoints(dev: bool = False) -> None {
+    self.register_create_user_endpoint();
+    self.register_login_endpoint();
+    self.register_page_endpoint();
+    self.register_refresh_token_endpoint();
+    self.register_sso_endpoints();
+    self.register_client_js_endpoint();
+    self.register_static_file_endpoint();
+    self.register_update_username_endpoint();
+    self.register_update_password_endpoint();
+    self.register_api_key_endpoints();
+    self.register_graph_endpoint();
+    self.register_admin_endpoints();
+    self.register_llm_telemetry_endpoints();
+    self.register_scheduler_endpoints();
+    # Use dynamic routing for HMR support, static routing for production
+    if dev {
+        self.register_dynamic_walker_endpoint();
+        self.register_dynamic_function_endpoint();
+        self.register_dynamic_introspection_endpoints();
+        self.register_dynamic_webhook_endpoint();
+        self.register_dynamic_websocket_endpoint();
+    } else {
+        self.register_walkers_endpoints();
+        self.register_functions_endpoints();
+        self.register_webhook_endpoints();
+        self.register_websocket_endpoints();
+    }
+    self.register_root_asset_endpoint();
+    self._register_client_error_endpoint();
+    self._configure_openapi_security();
+    self.user_manager.create_user(Con.GUEST.value, '__no_password__');
+    self._setup_scheduler();
+}
+
 impl JacAPIServerCore.start(
     dev: bool = False,
     no_client: bool = False,
@@ -209,37 +245,6 @@ impl JacAPIServerCore.start(
             }
         }
     }
-    self.register_create_user_endpoint();
-    self.register_login_endpoint();
-    self.register_page_endpoint();
-    self.register_refresh_token_endpoint();
-    self.register_sso_endpoints();
-    self.register_client_js_endpoint();
-    self.register_static_file_endpoint();
-    self.register_update_username_endpoint();
-    self.register_update_password_endpoint();
-    self.register_api_key_endpoints();
-    self.register_graph_endpoint();
-    self.register_admin_endpoints();
-    self.register_llm_telemetry_endpoints();
-    # Use dynamic routing for HMR support, static routing for production
-    if dev {
-        self.register_dynamic_walker_endpoint();
-        self.register_dynamic_function_endpoint();
-        self.register_dynamic_introspection_endpoints();
-        self.register_dynamic_webhook_endpoint();
-        self.register_dynamic_websocket_endpoint();
-    } else {
-        self.register_walkers_endpoints();
-        self.register_functions_endpoints();
-        self.register_webhook_endpoints();
-        self.register_websocket_endpoints();
-    }
-    self.register_root_asset_endpoint();
-    self._register_client_error_endpoint();
-    self._configure_openapi_security();
-    self.user_manager.create_user(Con.GUEST.value, '__no_password__');
-    self._setup_scheduler();
     # Find an available port (may differ from requested if port is in use)
     original_port = self.port;
     self.port = _find_available_port(self.port);
@@ -255,6 +260,11 @@ impl JacAPIServerCore.start(
     if on_ready {
         on_ready(self.port);
     }
+    # Set environment variables for the factory function (used by import string)
+    import os;
+    os.environ["JAC_WORKER_MODULE"] = self.module_name;
+    os.environ["JAC_WORKER_BASE_PATH"] = self.base_path;
+    os.environ["JAC_WORKER_DEV_MODE"] = "1" if dev else "0";
     self.server.run_server(port=self.port);
 }
 

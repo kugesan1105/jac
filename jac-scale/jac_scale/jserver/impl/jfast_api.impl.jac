@@ -65,9 +65,9 @@ class ConsoleLogHandler(logging.Handler) {
     }
 }
 
-"""Run the FastAPI server using Uvicorn.
+"""Run the FastAPI server using Uvicorn with import string (production-grade approach).
 
-If the specified port is in use, tries subsequent ports up to max_retries times.
+Uses factory pattern to create app instances, enabling future multi-worker support.
 """
 impl JFastApiServer.run_server(
     self: JFastApiServer,
@@ -75,19 +75,13 @@ impl JFastApiServer.run_server(
     port: int = 8000,
     max_retries: int = 10
 ) -> None {
-    import from jaclang.cli.console { console }
-    app = self.create_server();
-    # Create custom handler for console logging
-    console_handler = ConsoleLogHandler();
-    console_handler.setFormatter(logging.Formatter("%(message)s"));
-    # Suppress startup logs but route access logs through jac-super console
+    # Suppress uvicorn startup logs
     log_config = {
         "version": 1,
         "disable_existing_loggers": False,
         "formatters": {
             "default": {"format": "%(message)s"},
-            "access": {"format": "%(message)s"},
-
+            "access": {"format": "  %(message)s"}
         },
         "handlers": {
             "default": {
@@ -95,8 +89,10 @@ impl JFastApiServer.run_server(
                 "class": "logging.StreamHandler",
                 "stream": "ext://sys.stderr"
             },
-            "access": {"()": lambda : console_handler },
-
+            "access": {
+                "formatter": "access",
+                "class": "jac_scale.jserver.jfast_api.ConsoleLogHandler"
+            }
         },
         "loggers": {
             "uvicorn": {
@@ -109,41 +105,17 @@ impl JFastApiServer.run_server(
                 "handlers": ["access"],
                 "level": "INFO",
                 "propagate": False
-            },
-
-        },
-
-    };
-    current_port = port;
-    for _ in range(max_retries) {
-        try {
-            if current_port != port {
-                console.print(
-                    f"  Port {port} is in use, using port {current_port} instead",
-                    style="warning"
-                );
-            }
-            uvicorn.run(app, host=host, port=current_port, log_config=log_config);
-            return;
-        } except SystemExit as e {
-            # uvicorn raises SystemExit when port is in use
-            # errno 98 = EADDRINUSE (Linux), errno 10048 = WSAEADDRINUSE (Windows)
-            if "Address already in use" in str(e)
-            or "address already in use" in str(e) {
-                current_port += 1;
-            } else {
-                raise;
-            }
-        } except OSError as e {
-            if e.errno in (98, 10048) or "Address already in use" in str(e) {
-                current_port += 1;
-            } else {
-                raise;
             }
         }
-    }
-    raise OSError(
-        f"Could not find an available port after trying {port}-{current_port}"
+    };
+    # Use import string with factory pattern (production-grade approach)
+    # This enables multi-worker support and proper process isolation
+    uvicorn.run(
+        "jac_scale.jserver.jfast_api:create_app",
+        factory=True,
+        host=host,
+        port=port,
+        log_config=log_config
     );
 }
 
@@ -881,4 +853,29 @@ impl JFastApiServer.init(
         }
     }
     self.app.middleware('http')(request_context_middleware);
+}
+
+"""Factory function for creating FastAPI app instances.
+
+Used by uvicorn import string to create app instances in worker processes.
+Reads JAC_WORKER_MODULE, JAC_WORKER_BASE_PATH, and JAC_WORKER_DEV_MODE from environment variables.
+"""
+impl create_app -> FastAPI {
+    import os;
+    import from jaclang.jac0core.runtime { JacRuntime as Jac }
+
+    module_name = os.environ.get("JAC_WORKER_MODULE", "__main__");
+    base_path = os.environ.get("JAC_WORKER_BASE_PATH", os.getcwd());
+    dev_mode = os.environ.get("JAC_WORKER_DEV_MODE", "0") == "1";
+
+    # Import the jac module to load walker/function definitions
+    Jac.jac_import(target=module_name, base_path=base_path, override_name="__main__");
+
+    # Create server and setup all endpoints
+    import from jac_scale.serve { JacAPIServer }
+    server = JacAPIServer(module_name=module_name, base_path=base_path);
+    server.introspector.load();
+    server._setup_endpoints(dev=dev_mode);
+
+    return server.server.create_server();
 }

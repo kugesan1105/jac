@@ -63,6 +63,7 @@ def _get_network_ips -> list[str];
 """Core auth, user management, JWT, API keys, server start/postinit."""
 obj JacAPIServerCore {
     def postinit -> None;
+    def _setup_endpoints(dev: bool = False) -> None;
     def start(
         dev: bool = False,
         no_client: bool = False,

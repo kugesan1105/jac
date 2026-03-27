@@ -2,7 +2,9 @@
 
 This document provides a summary of new features, improvements, and bug fixes in each version of **Jac-Scale**. For details on changes that might require updates to your existing code, please refer to the [Breaking Changes](../breaking-changes.md) page.
 
-## jac-scale 0.2.9 (Unreleased)
+## jac-scale 0.2.10 (Unreleased)
+
+## jac-scale 0.2.9 (Latest Release)
 
 - **Server Architecture: Import String for Uvicorn**: Server startup now uses uvicorn's import string pattern (`factory=True`) instead of passing the app object directly. This is the production-grade approach that enables future multi-worker support with proper process isolation.
 - **Performance: MongoBackend.batch_get()**: New `batch_get(ids)` uses `find({_id: {$in: [...]}})` so edge traversals hit MongoDB with 2-3 queries instead of one per anchor. On cold starts with 100 edges this cuts 201 round-trips down to 3.
@@ -11,7 +13,7 @@ This document provides a summary of new features, improvements, and bug fixes in
 - **Fix: HPA config ignored on redeployment**: `create_hpa` silently swallowed 409 Conflict errors when the HPA already existed, so updated `min_replicas`, `max_replicas`, and `cpu_utilization_target` values in `jac.toml` were never applied on subsequent deploys. Changed to a replace-first, create-on-404 pattern consistent with how Ingress and ConfigMap resources are managed, ensuring HPA configuration is always kept in sync with `jac.toml`.
 - **Sandbox Security Hardening**: Hardened K8s sandbox pods by dropping all Linux capabilities (`drop: ALL`), enabling seccomp `RuntimeDefault` profile (~44 dangerous syscalls blocked), disabling service account token automounting (prevents K8s API access from inside sandboxes), and adding a configurable `/app` emptyDir size limit (`app_storage_limit`, default 1Gi) to prevent node disk exhaustion. Applied consistently to both on-demand and warm pool pods. The sandbox base Dockerfile now creates a dedicated non-root user (`jac`, UID 1000) and installs Bun system-wide so it's accessible under the security context.
 
-## jac-scale 0.2.8 (Latest Release)
+## jac-scale 0.2.8
 
 - 1 small changes.
 

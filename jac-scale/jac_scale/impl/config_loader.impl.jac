@@ -198,15 +198,25 @@ impl _resolve_workers(value: int | str) -> int {
     return 1;
 }
 
+"""Set CLI workers override (takes precedence over jac.toml)."""
+impl JacScaleConfig.set_cli_workers(self: JacScaleConfig, workers: int) -> None {
+    self._cli_workers = workers;
+}
+
 """Get server configuration from jac.toml."""
 impl JacScaleConfig.get_server_config(self: JacScaleConfig) -> dict[str, Any] {
     config = self.load();
     server_config = config.get('server', {});
-    workers_raw = server_config.get('workers', 1);
+    # CLI override takes precedence over config
+    if self._cli_workers is not None {
+        workers = self._cli_workers;
+    } else {
+        workers = _resolve_workers(server_config.get('workers', 1));
+    }
     return {
         'port': int(server_config.get('port', 8000)),
         'host': server_config.get('host', '0.0.0.0'),
-        'workers': _resolve_workers(workers_raw)
+        'workers': workers
     };
 }
 

@@ -56,15 +56,8 @@ impl JacAPIServerCore.postinit -> None {
         import from jac_scale.jserver.jfast_api { JFastApiServer }
         self.server = JFastApiServer();
     }
-    # Load workers from config, with CLI override taking precedence
-    import from jac_scale.plugin { get_cli_workers_override }
-    cli_workers = get_cli_workers_override();
-    if cli_workers is not None {
-        self.workers = cli_workers;
-    } else {
-        server_config = get_scale_config().get_server_config();
-        self.workers = server_config.get('workers', 1);
-    }
+    # Load workers from config (CLI override already applied if present)
+    self.workers = get_scale_config().get_server_config().get('workers', 1);
     self._api_key_manager = ApiKeyManager();
     self.server.app.add_middleware(
         CORSMiddleware,

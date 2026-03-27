@@ -16,8 +16,11 @@ Provides access to jwt, sso, database, kubernetes, server and webhook configurat
 from the [plugins.scale] section of jac.toml.
 """
 class JacScaleConfig(PluginConfigBase) {
+    has _cli_workers: int | None = None;
+
     override def get_plugin_name(self: JacScaleConfig) -> str;
     override def get_default_config(self: JacScaleConfig) -> dict[str, Any];
+    def set_cli_workers(self: JacScaleConfig, workers: int) -> None;
     def get_jwt_config(self: JacScaleConfig) -> dict[str, Any];
     def get_sso_config(self: JacScaleConfig) -> dict[str, Any];
     def get_database_config(self: JacScaleConfig) -> dict[str, Any];

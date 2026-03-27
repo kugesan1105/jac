@@ -21,33 +21,22 @@ import from .user_manager { JacScaleUserManager }
 import from jaclang.runtimelib.server { UserManager }
 import from jaclang.runtimelib.storage { Storage }
 
-# Global storage for CLI workers override (accessed by server postinit)
-glob _cli_workers_override: int | None = None;
-
-"""Get CLI workers override (used by JacAPIServer postinit)."""
-def get_cli_workers_override -> int | None {
-    return _cli_workers_override;
-}
-
 """Pre-hook for jac start command to handle --scale flag and workers override."""
 def _scale_pre_hook(context: HookContext) -> None {
-    global _cli_workers_override;
     # Handle --workers CLI override for local server mode
     workers_arg = context.get_arg("workers", "");
     if workers_arg {
         import multiprocessing;
         if workers_arg.lower() == "auto" {
-            _cli_workers_override = 2 * multiprocessing.cpu_count() + 1;
+            workers = 2 * multiprocessing.cpu_count() + 1;
+        } elif workers_arg.isdigit() and int(workers_arg) >= 1 {
+            workers = int(workers_arg);
         } else {
-            try {
-                _cli_workers_override = max(1, int(workers_arg));
-            } except ValueError {
-                console.print(
-                    f"[bold red]Invalid workers value: {workers_arg}. Using default.[/bold red]"
-                );
-                _cli_workers_override = None;
-            }
+            raise ValueError(
+                f"--workers must be a positive integer or 'auto', got: '{workers_arg}'"
+            );
         }
+        get_scale_config().set_cli_workers(workers);
     }
     scale = context.get_arg("scale", False);
     if scale {

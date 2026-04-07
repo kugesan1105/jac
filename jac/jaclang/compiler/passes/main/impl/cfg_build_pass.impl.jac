@@ -156,13 +156,21 @@ impl CoalesceBBPass._node_label(nd: uni.UniNode) -> str {
     return nd.unparse();
 }
 
-"""Enter BasicBlockStmt nodes."""
+"""Enter CFG nodes (statements, archetypes, and expression-level CFGExpr)."""
 impl CoalesceBBPass.enter_node(nd: uni.UniNode) -> None {
     is_cfg_node = False;
     if isinstance(nd, (uni.CodeBlockStmt, uni.Archetype))
     and not isinstance(nd, uni.Semi)
     and not _is_structural_child(nd) {
         is_cfg_node = True;
+    }
+    # CFGExpr leaf nodes (not wrapping a nested BoolExpr) are CFG participants.
+    # Container CFGExprs that wrap a BoolExpr are pass-throughs — the inner
+    # operand CFGExprs carry the actual edges.
+    if isinstance(nd, uni.CFGExpr) and (nd.bb_in or nd.bb_out) {
+        if _unwrap_to_bool(nd) is None {
+            is_cfg_node = True;
+        }
     }
     if (is_cfg_node) {
         for bbs in self.basic_blocks.values() {
@@ -327,11 +335,25 @@ impl CFGBuildPass._connect_tails(parent: uni.UniNode, target: uni.UniCFGNode) ->
     }
 }
 
+"""Unwrap a CFGExpr to find a nested BoolExpr (through AtomUnit parens)."""
+def _unwrap_to_bool(cfg: uni.CFGExpr) -> uni.BoolExpr | None {
+    inner = cfg.expr;
+    while isinstance(inner, uni.AtomUnit) and isinstance(inner.value, uni.Expr) {
+        inner = inner.value;
+    }
+    if isinstance(inner, uni.BoolExpr) {
+        return inner;
+    }
+    return None;
+}
+
 """Wire short-circuit boolean flow through CFGExpr operands.
 For AND: each operand's true edge goes to the next operand (or true_target);
          each operand's false edge goes to false_target.
 For OR:  each operand's false edge goes to the next operand (or false_target);
          each operand's true edge goes to true_target.
+When an operand wraps a nested BoolExpr, recursively wires through the inner
+operands so that the CFG edges connect directly to leaf expressions.
 Returns the first CFGExpr (the entry point into the chain)."""
 impl CFGBuildPass._wire_bool_operands(
     values: list[uni.CFGExpr],
@@ -340,25 +362,160 @@ impl CFGBuildPass._wire_bool_operands(
     false_target: (uni.UniCFGNode | None)
 ) -> uni.CFGExpr {
     import from jaclang.compiler.symbol_utils { collect_narrowing_symbols }
+    import from jaclang.jac0core.constant { Tokens as Tok }
     n = len(values);
+    # Collect (entry_node, cfg_to_wire) pairs — entry_node is the first
+    # CFGExpr that should receive incoming edges (may differ from cfg when
+    # cfg wraps a nested BoolExpr whose inner operands are the real nodes).
+    entries: list[uni.CFGExpr] = [];
     for i in range(n) {
         cfg = values[i];
         cfg.affected_symbols.update(collect_narrowing_symbols(cfg.expr));
-        if op_is_and {
-            cfg.sc_true_target = values[i + 1] if i < n - 1 else true_target;
-            cfg.sc_false_target = false_target;
+        nested = _unwrap_to_bool(cfg);
+        if nested is not None and len(nested.values) >= 2 {
+            # Recursively wire the inner BoolExpr, passing our targets for
+            # the last operand. The continuation target (next OR/AND operand)
+            # will be patched below after we know all entries.
+            inner_is_and = isinstance(nested.op, uni.Token) and nested.op.name == Tok.KW_AND;
+            inner_entry = self._wire_bool_operands(
+                nested.values, inner_is_and, None, None
+            );
+            entries.append(inner_entry);
         } else {
-            cfg.sc_true_target = true_target;
-            cfg.sc_false_target = values[i + 1] if i < n - 1 else false_target;
-        }
-        if cfg.sc_true_target {
-            self.link_bbs(cfg, cfg.sc_true_target);
-        }
-        if cfg.sc_false_target {
-            self.link_bbs(cfg, cfg.sc_false_target);
+            entries.append(cfg);
         }
     }
-    return values[0];
+    # Now wire the chain using the resolved entry points.
+    for i in range(n) {
+        cfg = values[i];
+        nested = _unwrap_to_bool(cfg);
+        if nested is not None and len(nested.values) >= 2 {
+            # For nested BoolExpr, patch the last inner operand's external
+            # target to point to the next operand or the overall target.
+            inner_is_and = isinstance(nested.op, uni.Token) and nested.op.name == Tok.KW_AND;
+            last_inner = nested.values[-1];
+            next_entry = entries[i + 1] if i < n - 1 else None;
+            if inner_is_and {
+                # AND chain: last operand's true → next entry or overall true_target
+                last_inner.sc_true_target = next_entry if (op_is_and and next_entry) else (true_target if op_is_and else next_entry);
+                if not op_is_and {
+                    # Inside OR: AND-true → overall true_target
+                    last_inner.sc_true_target = true_target;
+                    # AND-false → next OR operand or overall false_target
+                    last_inner.sc_false_target = next_entry if next_entry else false_target;
+                } else {
+                    # Inside AND: AND-true → next AND operand or overall true_target
+                    last_inner.sc_true_target = next_entry if next_entry else true_target;
+                    last_inner.sc_false_target = false_target;
+                }
+                # Also patch all inner operands' false target for AND
+                for iv in nested.values {
+                    if not iv.sc_false_target {
+                        if op_is_and {
+                            iv.sc_false_target = false_target;
+                        } else {
+                            iv.sc_false_target = next_entry if next_entry else false_target;
+                        }
+                    }
+                    if iv.sc_false_target {
+                        self.link_bbs(iv, iv.sc_false_target);
+                    }
+                }
+            } else {
+                # OR chain nested inside another expr
+                last_inner = nested.values[-1];
+                if op_is_and {
+                    last_inner.sc_true_target = next_entry if next_entry else true_target;
+                    last_inner.sc_false_target = false_target;
+                } else {
+                    last_inner.sc_true_target = true_target;
+                    last_inner.sc_false_target = next_entry if next_entry else false_target;
+                }
+                for iv in nested.values {
+                    if not iv.sc_true_target {
+                        if not op_is_and {
+                            iv.sc_true_target = true_target;
+                        } else {
+                            iv.sc_true_target = next_entry if next_entry else true_target;
+                        }
+                    }
+                    if iv.sc_true_target {
+                        self.link_bbs(iv, iv.sc_true_target);
+                    }
+                }
+            }
+            if last_inner.sc_true_target {
+                self.link_bbs(last_inner, last_inner.sc_true_target);
+            }
+            if last_inner.sc_false_target {
+                self.link_bbs(last_inner, last_inner.sc_false_target);
+            }
+            # Link the container CFGExpr to the inner entry for bb_in propagation
+            self.link_bbs(cfg, entries[i]);
+        } else {
+            next_entry = entries[i + 1] if i < n - 1 else None;
+            if op_is_and {
+                cfg.sc_true_target = next_entry if next_entry else true_target;
+                cfg.sc_false_target = false_target;
+            } else {
+                cfg.sc_true_target = true_target;
+                cfg.sc_false_target = next_entry if next_entry else false_target;
+            }
+            if cfg.sc_true_target {
+                self.link_bbs(cfg, cfg.sc_true_target);
+            }
+            if cfg.sc_false_target {
+                self.link_bbs(cfg, cfg.sc_false_target);
+            }
+        }
+    }
+    return entries[0];
+}
+
+"""Wire CFGExpr operands for standalone BoolExpr (not a condition of if/while).
+Standalone BoolExprs still need internal narrowing edges between operands."""
+impl CFGBuildPass.exit_bool_expr(nd: uni.BoolExpr) -> None {
+    import from jaclang.jac0core.constant { Tokens as Tok }
+    # Skip if already wired as a condition of if/while/elif
+    if isinstance(nd.parent, (uni.IfStmt, uni.WhileStmt, uni.ElseIf))
+    and nd is nd.parent.condition {
+        return;
+    }
+    if len(nd.values) < 2 {
+        return;
+    }
+    op_is_and = isinstance(nd.op, uni.Token) and nd.op.name == Tok.KW_AND;
+    # No external true/false targets — just wire internal chain
+    self._wire_bool_operands(nd.values, op_is_and, None, None);
+}
+
+"""Wire CFGExpr branches for IfElseExpr (ternary).
+condition's true edge → value, false edge → else_value.
+Also wires continuation edges into nested IfElseExpr/BoolExpr so that
+narrowing from outer conditions propagates inward."""
+impl CFGBuildPass.exit_if_else_expr(nd: uni.IfElseExpr) -> None {
+    import from jaclang.compiler.symbol_utils { collect_narrowing_symbols }
+    import from jaclang.jac0core.constant { Tokens as Tok }
+    nd.condition.affected_symbols.update(collect_narrowing_symbols(nd.condition.expr));
+    nd.condition.sc_true_target = nd.value;
+    nd.condition.sc_false_target = nd.else_value;
+    self.link_bbs(nd.condition, nd.value);
+    self.link_bbs(nd.condition, nd.else_value);
+    # Wire continuation into nested expressions: if value/else_value wraps
+    # another IfElseExpr or BoolExpr, link this branch CFGExpr to the inner
+    # entry point so narrowing propagates through nested ternaries.
+    for branch in [nd.value, nd.else_value] {
+        # Unwrap AtomUnit (parentheses) to find the actual expression
+        inner = branch.expr;
+        while isinstance(inner, uni.AtomUnit) and isinstance(inner.value, uni.Expr) {
+            inner = inner.value;
+        }
+        if isinstance(inner, uni.IfElseExpr) {
+            self.link_bbs(branch, inner.condition);
+        } elif isinstance(inner, uni.BoolExpr) and len(inner.values) > 0 {
+            self.link_bbs(branch, inner.values[0]);
+        }
+    }
 }
 
 """Check if a node is a terminal (no control flow continues past it)."""

@@ -758,7 +758,7 @@ impl UniCFGNode.get_tail -> UniCFGNode {
         and not isinstance(
             nd, (InForStmt, IterForStmt, WhileStmt, ConditionalNode)
         )
-        and not isinstance(nd.bb_out[0], (InForStmt, IterForStmt, WhileStmt))
+        and not isinstance(nd.bb_out[0], (InForStmt, IterForStmt, WhileStmt, ConditionalNode))
         and nd.bb_out[0].bb_in
         and (len(nd.bb_out[0].bb_in) == 1)
     ) {

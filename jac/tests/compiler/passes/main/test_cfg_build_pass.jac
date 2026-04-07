@@ -120,8 +120,28 @@ test "cfg raise terminal" {
 
 test "cfg boolean short circuit" {
     dot = cfg_dot_from_file(file_name=os.path.join(FIXTURES, "cfg_bool_expr.jac"));
+    # With expression-level CFG, each BoolExpr operand is a separate CFGExpr
+    # node. For `(a and b) or (c and d)`:
+    #   a --true--> b --true--> body
+    #   a --false--> c
+    #   b --false--> c
+    #   c --true--> d --true--> body
     expected_dot = (
-        "digraph G {\n" + '  0 [label="BB0\\nx = 5 ;\\nif\\n( x < 3 and x < 10 ) or ( x > 20 and x < 30 )", shape=box];\n' + '  1 [label="BB1\\nprint ( x ) ;\\nx = x + 1 ;", shape=box];\n' + "  0 -> 1;\n" + "}\n"
+        "digraph G {\n"
+        + '  0 [label="BB0\\nx = 5 ;\\nif", shape=box];\n'
+        + '  1 [label="BB1\\nx < 3", shape=box];\n'
+        + '  2 [label="BB2\\nx < 10", shape=box];\n'
+        + '  3 [label="BB3\\nx > 20", shape=box];\n'
+        + '  4 [label="BB4\\nx < 30", shape=box];\n'
+        + '  5 [label="BB5\\nprint ( x ) ;\\nx = x + 1 ;", shape=box];\n'
+        + "  0 -> 1;\n"
+        + "  1 -> 2;\n"
+        + "  1 -> 3;\n"
+        + "  2 -> 3;\n"
+        + "  2 -> 5;\n"
+        + "  3 -> 4;\n"
+        + "  4 -> 5;\n"
+        + "}\n"
     );
     assert dot == expected_dot;
 }

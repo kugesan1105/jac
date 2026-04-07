@@ -50,6 +50,9 @@ obj CFGBuildPass(UniPass) {
     def enter_assert_stmt(nd: uni.AssertStmt) -> None;
     def enter_match_stmt(nd: uni.MatchStmt) -> None;
     # -- Edge building (exit) --
+    # Expression-level CFG
+    def exit_bool_expr(nd: uni.BoolExpr) -> None;
+    def exit_if_else_expr(nd: uni.IfElseExpr) -> None;
     # Branch
     def exit_if_stmt(nd: uni.IfStmt) -> None;
     def exit_else_if(nd: uni.ElseIf) -> None;

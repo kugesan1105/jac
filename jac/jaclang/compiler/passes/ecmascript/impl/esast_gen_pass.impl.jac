@@ -1798,6 +1798,11 @@ impl EsastGenPass.exit_compare_expr(nd: uni.CompareExpr) -> None {
     }
 }
 
+"""CFGExpr: propagate inner expression's generated ES AST."""
+impl EsastGenPass.exit_c_f_g_expr(nd: uni.CFGExpr) -> None {
+    nd.gen.es_ast = nd.expr.gen.es_ast;
+}
+
 """Process boolean expression (and/or)."""
 impl EsastGenPass.exit_bool_expr(nd: uni.BoolExpr) -> None {
     if (not nd.values or (len(nd.values) < 2)) {

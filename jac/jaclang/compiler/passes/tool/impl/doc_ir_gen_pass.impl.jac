@@ -1204,16 +1204,22 @@ impl DocIRGenPass.exit_unary_expr(nd: uni.UnaryExpr) -> None {
     nd.gen.doc_ir = self.group(self.concat(parts, ast_node=nd), ast_node=nd);
 }
 
+"""CFGExpr: propagate inner expression's DocIR."""
+impl DocIRGenPass.exit_c_f_g_expr(nd: uni.CFGExpr) -> None {
+    nd.gen.doc_ir = nd.expr.gen.doc_ir;
+}
+
 """Generate DocIR for boolean expressions (and/or)."""
 impl DocIRGenPass.exit_bool_expr(nd: uni.BoolExpr) -> None {
     exprs: list[uni.UniNode] = [];
     parts: list[doc.DocType] = [];
     def __flatten_bool_expr(expr: uni.Expr) -> list[uni.UniNode] {
-        if isinstance(expr, uni.BoolExpr) {
+        inner = expr.expr if isinstance(expr, uni.CFGExpr) else expr;
+        if isinstance(inner, uni.BoolExpr) {
             out: list[uni.UniNode] = [];
-            for val in expr.values {
+            for val in inner.values {
                 out += __flatten_bool_expr(val);
-                out.append(expr.op);
+                out.append(inner.op);
             }
             out.pop();
             return out;

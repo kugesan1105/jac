@@ -827,6 +827,11 @@ impl UnparsePass.exit_compare_expr(nd: uni.CompareExpr) -> None {
     nd.gen.jac = result;
 }
 
+"""CFGExpr: propagate inner expression's unparsed source."""
+impl UnparsePass.exit_c_f_g_expr(nd: uni.CFGExpr) -> None {
+    nd.gen.jac = nd.expr.gen.jac;
+}
+
 """BoolExpr: expr1 op expr2 op expr3."""
 impl UnparsePass.exit_bool_expr(nd: uni.BoolExpr) -> None {
     sep = " " + nd.op.gen.jac + " ";

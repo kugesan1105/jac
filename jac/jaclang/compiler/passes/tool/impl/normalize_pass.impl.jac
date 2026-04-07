@@ -1083,6 +1083,11 @@ impl NormalizePass.enter_compare_expr(nd: uni.CompareExpr) -> None {
     nd.set_kids(nodes=new_kid);
 }
 
+"""Normalize CFGExpr kid list."""
+impl NormalizePass.enter_c_f_g_expr(nd: uni.CFGExpr) -> None {
+    nd.set_kids(nodes=[nd.expr]);
+}
+
 """Normalize BoolExpr kid list."""
 impl NormalizePass.enter_bool_expr(nd: uni.BoolExpr) -> None {
     new_kid: list[uni.UniNode] = [];

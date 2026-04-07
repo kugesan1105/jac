@@ -148,6 +148,10 @@ impl CoalesceBBPass._node_label(nd: uni.UniNode) -> str {
         }
         return kw;
     }
+    # -- CFGExpr: show inner expression --
+    if isinstance(nd, uni.CFGExpr) {
+        return nd.expr.unparse();
+    }
     # -- Fallback: compact unparse --
     return nd.unparse();
 }
@@ -323,26 +327,38 @@ impl CFGBuildPass._connect_tails(parent: uni.UniNode, target: uni.UniCFGNode) ->
     }
 }
 
-"""Wire short-circuit boolean flow for BoolExpr conditions.
-Sets sc_true_target/sc_false_target on the BoolExpr and links it to targets.
-Intra-operand narrowing is handled separately via _narrow_prev chains
-(see enter_bool_expr)."""
-impl CFGBuildPass._wire_bool_condition(
-    expr: uni.BoolExpr,
+"""Wire short-circuit boolean flow through CFGExpr operands.
+For AND: each operand's true edge goes to the next operand (or true_target);
+         each operand's false edge goes to false_target.
+For OR:  each operand's false edge goes to the next operand (or false_target);
+         each operand's true edge goes to true_target.
+Returns the first CFGExpr (the entry point into the chain)."""
+impl CFGBuildPass._wire_bool_operands(
+    values: list[uni.CFGExpr],
+    op_is_and: bool,
     true_target: (uni.UniCFGNode | None),
     false_target: (uni.UniCFGNode | None)
-) -> uni.UniCFGNode {
+) -> uni.CFGExpr {
     import from jaclang.compiler.symbol_utils { collect_narrowing_symbols }
-    expr.sc_true_target = true_target;
-    expr.sc_false_target = false_target;
-    expr.affected_symbols.update(collect_narrowing_symbols(expr));
-    if true_target {
-        self.link_bbs(expr, true_target);
+    n = len(values);
+    for i in range(n) {
+        cfg = values[i];
+        cfg.affected_symbols.update(collect_narrowing_symbols(cfg.expr));
+        if op_is_and {
+            cfg.sc_true_target = values[i + 1] if i < n - 1 else true_target;
+            cfg.sc_false_target = false_target;
+        } else {
+            cfg.sc_true_target = true_target;
+            cfg.sc_false_target = values[i + 1] if i < n - 1 else false_target;
+        }
+        if cfg.sc_true_target {
+            self.link_bbs(cfg, cfg.sc_true_target);
+        }
+        if cfg.sc_false_target {
+            self.link_bbs(cfg, cfg.sc_false_target);
+        }
     }
-    if false_target {
-        self.link_bbs(expr, false_target);
-    }
-    return expr;
+    return values[0];
 }
 
 """Check if a node is a terminal (no control flow continues past it)."""
@@ -461,8 +477,10 @@ impl CFGBuildPass.exit_if_stmt(nd: uni.IfStmt) -> None {
         if not false_target and not nd.else_body and nd.parent {
             false_target = self._find_next_cfg_stmt_after(nd.parent, nd);
         }
+        import from jaclang.jac0core.constant { Tokens as Tok }
         cond_bool: uni.BoolExpr = nd.condition;
-        entry = self._wire_bool_condition(cond_bool, true_target, false_target);
+        op_is_and = isinstance(cond_bool.op, uni.Token) and cond_bool.op.name == Tok.KW_AND;
+        entry = self._wire_bool_operands(cond_bool.values, op_is_and, true_target, false_target);
         if entry {
             self.link_bbs(nd, entry);
         }
@@ -513,8 +531,10 @@ impl CFGBuildPass.exit_while_stmt(nd: uni.WhileStmt) -> None {
     has_bool_sc = isinstance(nd.condition, uni.BoolExpr);
 
     if has_bool_sc and true_target {
+        import from jaclang.jac0core.constant { Tokens as Tok }
         cond_bool: uni.BoolExpr = nd.condition;
-        entry = self._wire_bool_condition(cond_bool, true_target, false_target);
+        op_is_and = isinstance(cond_bool.op, uni.Token) and cond_bool.op.name == Tok.KW_AND;
+        entry = self._wire_bool_operands(cond_bool.values, op_is_and, true_target, false_target);
         if entry {
             self.link_bbs(nd, entry);
         }

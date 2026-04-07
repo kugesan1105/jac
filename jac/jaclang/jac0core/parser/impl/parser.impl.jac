@@ -72,7 +72,7 @@ import from jaclang.jac0core.unitree {
     CompareExpr,
     BoolExpr,
     IfElseExpr,
-    CFGExpr
+    CfgExpr
 }
 import from jaclang.jac0core.unitree {
     AtomTrailer,
@@ -813,9 +813,9 @@ impl Parser.parse_expression -> Expr {
         condition = self.parse_expression();
         else_uni = self.consume_uni(TokenKind.KW_ELSE);
         else_value = self.parse_expression();
-        cond_cfg = CFGExpr(expr=condition, kid=[condition]);
-        val_cfg = CFGExpr(expr=expr, kid=[expr]);
-        else_cfg = CFGExpr(expr=else_value, kid=[else_value]);
+        cond_cfg = CfgExpr(expr=condition, kid=[condition]);
+        val_cfg = CfgExpr(expr=expr, kid=[expr]);
+        else_cfg = CfgExpr(expr=else_value, kid=[else_value]);
         return IfElseExpr(
             condition=cond_cfg,
             value=val_cfg,
@@ -931,7 +931,7 @@ impl Parser.parse_logical_or -> Expr {
                 break;
             }
         }
-        cfg_values = [CFGExpr(expr=v, kid=[v]) for v in values];
+        cfg_values = [CfgExpr(expr=v, kid=[v]) for v in values];
         kid: list = [];
         for (i, cv) in enumerate(cfg_values) {
             kid.append(cv);
@@ -955,7 +955,7 @@ impl Parser.parse_logical_and -> Expr {
                 break;
             }
         }
-        cfg_values = [CFGExpr(expr=v, kid=[v]) for v in values];
+        cfg_values = [CfgExpr(expr=v, kid=[v]) for v in values];
         kid: list = [];
         for (i, cv) in enumerate(cfg_values) {
             kid.append(cv);

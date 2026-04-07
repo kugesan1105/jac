@@ -3,8 +3,8 @@ impl TypeEvaluator._get_type_of_expression_core(
     expr: uni.Expr, expected_type: TypeBase | None = None
 ) -> TypeBase {
     match expr {
-        # CFGExpr: transparent wrapper — delegate to inner expression.
-        case uni.CFGExpr():
+        # CfgExpr: transparent wrapper — delegate to inner expression.
+        case uni.CfgExpr():
             return self._get_type_of_expression_core(expr.expr, expected_type);
 
         # ----------------------------------------------------------------------
@@ -499,7 +499,7 @@ impl TypeEvaluator._get_type_of_expression_core(
             base_type = self.get_type_of_expression(expr.target);
 
             # Narrowing for Name targets via single-tier CFG backward walk.
-            # CFGExpr nodes in BoolExpr/IfElseExpr provide expression-level resolution.
+            # CfgExpr nodes in BoolExpr/IfElseExpr provide expression-level resolution.
             if isinstance(expr.target, uni.Name) and expr.target.sym {
                 if narrowed := self.get_narrowed_type(expr.target.sym, expr) {
                     base_type = narrowed;
@@ -1384,7 +1384,7 @@ impl TypeEvaluator._get_type_of_expression_core(
 
         case uni.IfElseExpr():
             # Evaluate condition, then both branches.
-            # Branch narrowing comes via CFGExpr edges wired by the CFG pass.
+            # Branch narrowing comes via CfgExpr edges wired by the CFG pass.
             self.get_type_of_expression(expr.condition.expr);
             true_type = self.get_type_of_expression(expr.value.expr);
             false_type = self.get_type_of_expression(expr.else_value.expr);
@@ -1404,7 +1404,7 @@ impl TypeEvaluator._get_type_of_expression_core(
         case uni.BoolExpr():
             # AND/OR return operand values, not bool: `x and y` → y if x truthy, else x
             # The type should be the union of all operand types (Python semantics).
-            # Progressive narrowing comes via CFGExpr edges wired by the CFG pass.
+            # Progressive narrowing comes via CfgExpr edges wired by the CFG pass.
             is_or = isinstance(expr.op, uni.Token) and expr.op.name == Tok.KW_OR;
             operand_types: list[TypeBase] = [];
             num_values = len(expr.values);
@@ -2767,7 +2767,7 @@ impl TypeEvaluator.get_type_of_expression(
     if isinstance(node_, uni.Ability) {
         return self.get_type_of_ability(node_);
     }
-    # Expression-level narrowing handled via CFGExpr nodes in the CFG.
+    # Expression-level narrowing handled via CfgExpr nodes in the CFG.
     # Single-tier backward walk in get_narrowed_type{,_for_expr}.
     # Use cached result if available, UNLESS expected_type is provided
     # for a container literal that could benefit from bidirectional inference.
@@ -3009,7 +3009,7 @@ impl TypeEvaluator.postinit -> None {
 # Type narrowing support (CFG-based, flow-sensitive)
 # Pyright-style implementation with affected_symbols optimization.
 # -------------------------------------------------------------------------
-"""Find the nearest enclosing CFG node (CFGExpr or CodeBlockStmt)."""
+"""Find the nearest enclosing CFG node (CfgExpr or CodeBlockStmt)."""
 def _find_cfg_node_for(at_node: uni.UniNode) -> uni.UniCFGNode | None {
     cur: uni.UniNode | None = at_node;
     while cur is not None {
@@ -3022,7 +3022,7 @@ def _find_cfg_node_for(at_node: uni.UniNode) -> uni.UniCFGNode | None {
 }
 
 """Entry point: get the CFG-based narrowed type for a symbol at a given AST node.
-Single-tier: finds the nearest CFG node (CFGExpr or CodeBlockStmt) and walks bb_in."""
+Single-tier: finds the nearest CFG node (CfgExpr or CodeBlockStmt) and walks bb_in."""
 impl TypeEvaluator.get_narrowed_type(
     symbol: uni.Symbol, at_node: uni.UniNode
 ) -> TypeBase | None {
@@ -3053,7 +3053,7 @@ impl TypeEvaluator.get_narrowed_type(
 }
 
 """Entry point: get the CFG-based narrowed type for an expression (e.g., obj.attr) at a given node.
-Single-tier: finds the nearest CFG node (CFGExpr or CodeBlockStmt) and walks bb_in."""
+Single-tier: finds the nearest CFG node (CfgExpr or CodeBlockStmt) and walks bb_in."""
 impl TypeEvaluator.get_narrowed_type_for_expr(
     expr: uni.Expr, declared_type: TypeBase, at_node: uni.UniNode
 ) -> TypeBase | None {
@@ -3153,10 +3153,10 @@ impl TypeEvaluator._compute_narrowed_at(
         # Recursively get predecessor's narrowed type.
         pred_narrowed = self._compute_narrowed_at(target, pred, visited);
 
-        # Check if predecessor is a CFGExpr (expression-level branch point).
-        # Each BoolExpr operand and IfElseExpr branch is a CFGExpr with
+        # Check if predecessor is a CfgExpr (expression-level branch point).
+        # Each BoolExpr operand and IfElseExpr branch is a CfgExpr with
         # sc_true_target/sc_false_target edges.
-        if isinstance(pred, uni.CFGExpr) {
+        if isinstance(pred, uni.CfgExpr) {
             predicate = self._find_predicate_for(target, pred.expr);
             if predicate is not None {
                 is_true_edge = stmt is pred.sc_true_target;
@@ -3179,9 +3179,9 @@ impl TypeEvaluator._compute_narrowed_at(
 
         # Check if predecessor is a conditional with a narrowing predicate.
         # Note: ElseIf extends IfStmt, so this handles both.
-        # Skip when successor is a CFGExpr (IfStmt → chain entry edge,
-        # not a true/false branch — narrowing happens at the CFGExpr level).
-        if isinstance(pred, uni.IfStmt) and not isinstance(stmt, uni.CFGExpr) {
+        # Skip when successor is a CfgExpr (IfStmt → chain entry edge,
+        # not a true/false branch — narrowing happens at the CfgExpr level).
+        if isinstance(pred, uni.IfStmt) and not isinstance(stmt, uni.CfgExpr) {
             predicate = self._find_predicate_for(target, pred.condition);
             if predicate is not None {
                 edge_kind = self._classify_edge(pred, stmt);
@@ -3508,8 +3508,8 @@ impl TypeEvaluator._find_predicate_for(
         NarrowingTarget
     }
     key = target.key;
-    # Unwrap CFGExpr transparently.
-    if isinstance(condition, uni.CFGExpr) {
+    # Unwrap CfgExpr transparently.
+    if isinstance(condition, uni.CfgExpr) {
         return self._find_predicate_for(target, condition.expr);
     }
     # Pattern 0: Unwrap parenthesized expressions (AtomUnit)

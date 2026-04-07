@@ -721,8 +721,8 @@ impl ConditionalNode.postinit -> None {
     UniCFGNode.postinit(self);
 }
 
-"""Initialize CFGExpr (expression-level CFG wrapper)."""
-impl CFGExpr.postinit -> None {
+"""Initialize CfgExpr (expression-level CFG wrapper)."""
+impl CfgExpr.postinit -> None {
     UniNode.postinit(self);
     Expr.postinit(self);
     ConditionalNode.postinit(self);

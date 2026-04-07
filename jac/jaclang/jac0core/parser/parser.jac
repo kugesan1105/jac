@@ -123,7 +123,7 @@ import from jaclang.jac0core.unitree {
     CompareExpr,
     BoolExpr,
     IfElseExpr,
-    CFGExpr
+    CfgExpr
 }
 import from jaclang.jac0core.unitree {
     AtomTrailer,

@@ -45,7 +45,7 @@ impl NaIRGenPass._codegen_expr(nd: (uni.UniNode | None)) -> (ir.Value | None) {
     if isinstance(nd, uni.AtomTrailer) {
         return self._codegen_atom_trailer(nd);
     }
-    if isinstance(nd, uni.CFGExpr) {
+    if isinstance(nd, uni.CfgExpr) {
         return self._codegen_expr(nd.expr);
     }
     if isinstance(nd, uni.BoolExpr) {

@@ -753,7 +753,7 @@ impl GrammarExtractPass.has_early_return(stmts: list) -> bool {
 
 """Check if condition is a negated check pattern."""
 impl GrammarExtractPass.is_negated_check(cond: uni.Expr) -> bool {
-    if isinstance(cond, uni.CFGExpr) {
+    if isinstance(cond, uni.CfgExpr) {
         return self.is_negated_check(cond.expr);
     }
     if isinstance(cond, uni.UnaryExpr) {
@@ -1452,7 +1452,7 @@ impl GrammarExtractPass._merge_or_conditions(exprs: list) -> ConditionResult | N
     found_method: str | None = None;
     found_kind: str | None = None;
     for raw_val in exprs {
-        val = raw_val.expr if isinstance(raw_val, uni.CFGExpr) else raw_val;
+        val = raw_val.expr if isinstance(raw_val, uni.CfgExpr) else raw_val;
         if isinstance(val, uni.FuncCall) {
             m = self.get_self_method(val.target);
             if m is not None {
@@ -1489,8 +1489,8 @@ impl GrammarExtractPass._merge_or_conditions(exprs: list) -> ConditionResult | N
 
 """Analyze condition. Returns ConditionResult or None."""
 impl GrammarExtractPass.interpret_condition(cond: uni.Expr) -> ConditionResult | None {
-    # Unwrap CFGExpr transparently
-    if isinstance(cond, uni.CFGExpr) {
+    # Unwrap CfgExpr transparently
+    if isinstance(cond, uni.CfgExpr) {
         return self.interpret_condition(cond.expr);
     }
     # Unwrap parenthesized expressions (AtomUnit wraps inner expr in parens)

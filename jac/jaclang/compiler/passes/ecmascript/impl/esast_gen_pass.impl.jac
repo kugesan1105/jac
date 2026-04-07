@@ -1798,8 +1798,8 @@ impl EsastGenPass.exit_compare_expr(nd: uni.CompareExpr) -> None {
     }
 }
 
-"""CFGExpr: propagate inner expression's generated ES AST."""
-impl EsastGenPass.exit_c_f_g_expr(nd: uni.CFGExpr) -> None {
+"""CfgExpr: propagate inner expression's generated ES AST."""
+impl EsastGenPass.exit_cfg_expr(nd: uni.CfgExpr) -> None {
     nd.gen.es_ast = nd.expr.gen.es_ast;
 }
 

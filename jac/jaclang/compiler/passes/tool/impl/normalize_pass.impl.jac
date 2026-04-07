@@ -1083,8 +1083,8 @@ impl NormalizePass.enter_compare_expr(nd: uni.CompareExpr) -> None {
     nd.set_kids(nodes=new_kid);
 }
 
-"""Normalize CFGExpr kid list."""
-impl NormalizePass.enter_c_f_g_expr(nd: uni.CFGExpr) -> None {
+"""Normalize CfgExpr kid list."""
+impl NormalizePass.enter_cfg_expr(nd: uni.CfgExpr) -> None {
     nd.set_kids(nodes=[nd.expr]);
 }
 

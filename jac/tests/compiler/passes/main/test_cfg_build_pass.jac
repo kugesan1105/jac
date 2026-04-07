@@ -120,7 +120,7 @@ test "cfg raise terminal" {
 
 test "cfg boolean short circuit" {
     dot = cfg_dot_from_file(file_name=os.path.join(FIXTURES, "cfg_bool_expr.jac"));
-    # With expression-level CFG, each BoolExpr operand is a separate CFGExpr
+    # With expression-level CFG, each BoolExpr operand is a separate CfgExpr
     # node. For `(a and b) or (c and d)`:
     #   a --true--> b --true--> body
     #   a --false--> c

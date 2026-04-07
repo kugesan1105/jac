@@ -148,15 +148,15 @@ impl CoalesceBBPass._node_label(nd: uni.UniNode) -> str {
         }
         return kw;
     }
-    # -- CFGExpr: show inner expression --
-    if isinstance(nd, uni.CFGExpr) {
+    # -- CfgExpr: show inner expression --
+    if isinstance(nd, uni.CfgExpr) {
         return nd.expr.unparse();
     }
     # -- Fallback: compact unparse --
     return nd.unparse();
 }
 
-"""Enter CFG nodes (statements, archetypes, and expression-level CFGExpr)."""
+"""Enter CFG nodes (statements, archetypes, and expression-level CfgExpr)."""
 impl CoalesceBBPass.enter_node(nd: uni.UniNode) -> None {
     is_cfg_node = False;
     if isinstance(nd, (uni.CodeBlockStmt, uni.Archetype))
@@ -164,10 +164,10 @@ impl CoalesceBBPass.enter_node(nd: uni.UniNode) -> None {
     and not _is_structural_child(nd) {
         is_cfg_node = True;
     }
-    # CFGExpr leaf nodes (not wrapping a nested BoolExpr) are CFG participants.
-    # Container CFGExprs that wrap a BoolExpr are pass-throughs — the inner
-    # operand CFGExprs carry the actual edges.
-    if isinstance(nd, uni.CFGExpr) and (nd.bb_in or nd.bb_out) {
+    # CfgExpr leaf nodes (not wrapping a nested BoolExpr) are CFG participants.
+    # Container CfgExprs that wrap a BoolExpr are pass-throughs — the inner
+    # operand CfgExprs carry the actual edges.
+    if isinstance(nd, uni.CfgExpr) and (nd.bb_in or nd.bb_out) {
         if _unwrap_to_bool(nd) is None {
             is_cfg_node = True;
         }
@@ -335,8 +335,8 @@ impl CFGBuildPass._connect_tails(parent: uni.UniNode, target: uni.UniCFGNode) ->
     }
 }
 
-"""Unwrap a CFGExpr to find a nested BoolExpr (through AtomUnit parens)."""
-def _unwrap_to_bool(cfg: uni.CFGExpr) -> uni.BoolExpr | None {
+"""Unwrap a CfgExpr to find a nested BoolExpr (through AtomUnit parens)."""
+def _unwrap_to_bool(cfg: uni.CfgExpr) -> uni.BoolExpr | None {
     inner = cfg.expr;
     while isinstance(inner, uni.AtomUnit) and isinstance(inner.value, uni.Expr) {
         inner = inner.value;
@@ -347,27 +347,27 @@ def _unwrap_to_bool(cfg: uni.CFGExpr) -> uni.BoolExpr | None {
     return None;
 }
 
-"""Wire short-circuit boolean flow through CFGExpr operands.
+"""Wire short-circuit boolean flow through CfgExpr operands.
 For AND: each operand's true edge goes to the next operand (or true_target);
          each operand's false edge goes to false_target.
 For OR:  each operand's false edge goes to the next operand (or false_target);
          each operand's true edge goes to true_target.
 When an operand wraps a nested BoolExpr, recursively wires through the inner
 operands so that the CFG edges connect directly to leaf expressions.
-Returns the first CFGExpr (the entry point into the chain)."""
+Returns the first CfgExpr (the entry point into the chain)."""
 impl CFGBuildPass._wire_bool_operands(
-    values: list[uni.CFGExpr],
+    values: list[uni.CfgExpr],
     op_is_and: bool,
     true_target: (uni.UniCFGNode | None),
     false_target: (uni.UniCFGNode | None)
-) -> uni.CFGExpr {
+) -> uni.CfgExpr {
     import from jaclang.compiler.symbol_utils { collect_narrowing_symbols }
     import from jaclang.jac0core.constant { Tokens as Tok }
     n = len(values);
     # Collect (entry_node, cfg_to_wire) pairs — entry_node is the first
-    # CFGExpr that should receive incoming edges (may differ from cfg when
+    # CfgExpr that should receive incoming edges (may differ from cfg when
     # cfg wraps a nested BoolExpr whose inner operands are the real nodes).
-    entries: list[uni.CFGExpr] = [];
+    entries: list[uni.CfgExpr] = [];
     for i in range(n) {
         cfg = values[i];
         cfg.affected_symbols.update(collect_narrowing_symbols(cfg.expr));
@@ -450,7 +450,7 @@ impl CFGBuildPass._wire_bool_operands(
             if last_inner.sc_false_target {
                 self.link_bbs(last_inner, last_inner.sc_false_target);
             }
-            # Link the container CFGExpr to the inner entry for bb_in propagation
+            # Link the container CfgExpr to the inner entry for bb_in propagation
             self.link_bbs(cfg, entries[i]);
         } else {
             next_entry = entries[i + 1] if i < n - 1 else None;
@@ -472,7 +472,7 @@ impl CFGBuildPass._wire_bool_operands(
     return entries[0];
 }
 
-"""Wire CFGExpr operands for standalone BoolExpr (not a condition of if/while).
+"""Wire CfgExpr operands for standalone BoolExpr (not a condition of if/while).
 Standalone BoolExprs still need internal narrowing edges between operands."""
 impl CFGBuildPass.exit_bool_expr(nd: uni.BoolExpr) -> None {
     import from jaclang.jac0core.constant { Tokens as Tok }
@@ -489,7 +489,7 @@ impl CFGBuildPass.exit_bool_expr(nd: uni.BoolExpr) -> None {
     self._wire_bool_operands(nd.values, op_is_and, None, None);
 }
 
-"""Wire CFGExpr branches for IfElseExpr (ternary).
+"""Wire CfgExpr branches for IfElseExpr (ternary).
 condition's true edge → value, false edge → else_value.
 Also wires continuation edges into nested IfElseExpr/BoolExpr so that
 narrowing from outer conditions propagates inward."""
@@ -502,7 +502,7 @@ impl CFGBuildPass.exit_if_else_expr(nd: uni.IfElseExpr) -> None {
     self.link_bbs(nd.condition, nd.value);
     self.link_bbs(nd.condition, nd.else_value);
     # Wire continuation into nested expressions: if value/else_value wraps
-    # another IfElseExpr or BoolExpr, link this branch CFGExpr to the inner
+    # another IfElseExpr or BoolExpr, link this branch CfgExpr to the inner
     # entry point so narrowing propagates through nested ternaries.
     for branch in [nd.value, nd.else_value] {
         # Unwrap AtomUnit (parentheses) to find the actual expression

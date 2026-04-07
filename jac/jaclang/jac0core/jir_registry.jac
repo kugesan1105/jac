@@ -315,7 +315,7 @@ glob NODE_SPECS: tuple = (
          ),
          NodeSpec(
              type_idx=24,
-             class_name="CFGExpr",
+             class_name="CfgExpr",
              is_scope=False,
              is_cfg=True,
              is_name_atom=False,
@@ -1661,7 +1661,7 @@ glob NODE_SPECS: tuple = (
          "Bool": 21,
          "BoolExpr": 22,
          "BuiltinType": 23,
-         "CFGExpr": 24,
+         "CfgExpr": 24,
          "ClientBlock": 25,
          "CodeBlockStmt": 26,
          "CommentToken": 27,

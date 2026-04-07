@@ -1059,8 +1059,8 @@ impl JacAutoLintPass._convert_ternary_to_or(if_else_node: uni.IfElseExpr) -> boo
             pos_start=0,
             pos_end=2
         );
-        cfg_val = uni.CFGExpr(expr=if_else_node.value.expr, kid=[if_else_node.value.expr]);
-        cfg_else = uni.CFGExpr(expr=if_else_node.else_value.expr, kid=[if_else_node.else_value.expr]);
+        cfg_val = uni.CfgExpr(expr=if_else_node.value.expr, kid=[if_else_node.value.expr]);
+        cfg_else = uni.CfgExpr(expr=if_else_node.else_value.expr, kid=[if_else_node.else_value.expr]);
         replacement = uni.BoolExpr(
             op=or_token,
             values=[cfg_val, cfg_else],
@@ -1085,17 +1085,17 @@ impl JacAutoLintPass._convert_ternary_to_or(if_else_node: uni.IfElseExpr) -> boo
         }
     } elif isinstance(parent, uni.IfElseExpr) {
         if parent.value.expr is if_else_node {
-            parent.value = uni.CFGExpr(expr=replacement, kid=[replacement]);
+            parent.value = uni.CfgExpr(expr=replacement, kid=[replacement]);
         } elif parent.condition.expr is if_else_node {
-            parent.condition = uni.CFGExpr(expr=replacement, kid=[replacement]);
+            parent.condition = uni.CfgExpr(expr=replacement, kid=[replacement]);
         } elif parent.else_value.expr is if_else_node {
-            parent.else_value = uni.CFGExpr(expr=replacement, kid=[replacement]);
+            parent.else_value = uni.CfgExpr(expr=replacement, kid=[replacement]);
         }
     } elif isinstance(parent, uni.BoolExpr) {
-        new_values: list[uni.CFGExpr] = [];
+        new_values: list[uni.CfgExpr] = [];
         for val in parent.values {
             if val.expr is if_else_node {
-                new_values.append(uni.CFGExpr(expr=replacement, kid=[replacement]));
+                new_values.append(uni.CfgExpr(expr=replacement, kid=[replacement]));
             } else {
                 new_values.append(val);
             }

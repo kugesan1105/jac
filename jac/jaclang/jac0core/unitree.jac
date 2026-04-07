@@ -271,7 +271,7 @@ obj UniCFGNode(UniNode) {
 }
 
 """A CFG node that branches on a condition with true/false targets.
-Used by CFGExpr wrappers inside BoolExpr operands and IfElseExpr branches."""
+Used by CfgExpr wrappers inside BoolExpr operands and IfElseExpr branches."""
 obj ConditionalNode(UniCFGNode) {
     has sc_true_target: (UniCFGNode | None) = None,
         sc_false_target: (UniCFGNode | None) = None;
@@ -329,7 +329,7 @@ obj Expr(UniNode) {
 """Wrapper that promotes an expression to a CFG-participating conditional node.
 Used for each BoolExpr operand and each IfElseExpr branch so that type
 narrowing can be resolved with a single backward CFG walk."""
-obj CFGExpr(Expr, ConditionalNode) {
+obj CfgExpr(Expr, ConditionalNode) {
     has expr: Expr;
 
     def postinit -> None;
@@ -980,11 +980,11 @@ obj CompareExpr(Expr) {
 }
 
 """BoolExpr node type for Jac Ast.
-Each operand is wrapped in a CFGExpr so that short-circuit evaluation
+Each operand is wrapped in a CfgExpr so that short-circuit evaluation
 is modeled at the expression level in the CFG."""
 obj BoolExpr(Expr) {
     has op: Token,
-        values: list[CFGExpr];
+        values: list[CfgExpr];
 
     def postinit -> None;
 }
@@ -1006,12 +1006,12 @@ obj UnaryExpr(Expr) {
 }
 
 """IfElseExpr node type for Jac Ast.
-Each branch is wrapped in a CFGExpr so that conditional evaluation
+Each branch is wrapped in a CfgExpr so that conditional evaluation
 is modeled at the expression level in the CFG."""
 obj IfElseExpr(Expr) {
-    has condition: CFGExpr,
-        value: CFGExpr,
-        else_value: CFGExpr;
+    has condition: CfgExpr,
+        value: CfgExpr,
+        else_value: CfgExpr;
 
     def postinit -> None;
 }

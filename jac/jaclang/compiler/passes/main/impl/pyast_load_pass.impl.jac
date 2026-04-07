@@ -1507,9 +1507,9 @@ impl PyastBuildPass.proc_if_exp(nd: py_ast.IfExp) -> uni.IfElseExpr {
         and isinstance(body, uni.Expr)
         and isinstance(orelse, uni.Expr)
     ) {
-        cond_cfg = uni.CFGExpr(expr=test, kid=[test]);
-        val_cfg = uni.CFGExpr(expr=body, kid=[body]);
-        else_cfg = uni.CFGExpr(expr=orelse, kid=[orelse]);
+        cond_cfg = uni.CfgExpr(expr=test, kid=[test]);
+        val_cfg = uni.CfgExpr(expr=body, kid=[body]);
+        else_cfg = uni.CfgExpr(expr=orelse, kid=[orelse]);
         return uni.IfElseExpr(
             value=val_cfg, condition=cond_cfg, else_value=else_cfg,
             kid=[val_cfg, cond_cfg, else_cfg]
@@ -1978,7 +1978,7 @@ impl PyastBuildPass.proc_bool_op(nd: py_ast.BoolOp) -> uni.AtomUnit {
         if isinstance(value, uni.Expr)
     ];
     if (isinstance(op, uni.Token) and (len(valid) == len(values))) {
-        cfg_vals = [uni.CFGExpr(expr=v, kid=[v]) for v in valid];
+        cfg_vals = [uni.CfgExpr(expr=v, kid=[v]) for v in valid];
         expr = uni.BoolExpr(op=op, values=cfg_vals, kid=[op, *cfg_vals]);
         return uni.AtomUnit(
             value=expr,

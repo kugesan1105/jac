@@ -37,11 +37,11 @@ obj CFGBuildPass(UniPass) {
     ) -> (uni.UniCFGNode | None);
 
     def _wire_bool_operands(
-        values: list[uni.CFGExpr],
+        values: list[uni.CfgExpr],
         op_is_and: bool,
         true_target: (uni.UniCFGNode | None),
         false_target: (uni.UniCFGNode | None)
-    ) -> uni.CFGExpr;
+    ) -> uni.CfgExpr;
 
     # -- Symbol collection (enter) --
     def enter_node(nd: uni.UniNode) -> None;

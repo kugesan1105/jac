@@ -16,6 +16,13 @@ impl cfg_dot_from_file(file_name: str) -> str {
 """Generate dot graph for CFG."""
 impl CoalesceBBPass.printgraph_cfg -> str {
     cfg: dict = {};
+    # Save tail/head nodes before bb_stmts gets mutated to strings below.
+    bb_tails: dict = {};
+    bb_heads: dict = {};
+    for (key, bb) in self.basic_blocks.items() {
+        bb_tails[key] = bb['bb_stmts'][-1] if bb['bb_stmts'] else None;
+        bb_heads[key] = bb['bb_stmts'][0] if bb['bb_stmts'] else None;
+    }
     dot = 'digraph G {\n';
     for (key, bb) in self.basic_blocks.items() {
         cfg[key] = {
@@ -49,8 +56,31 @@ impl CoalesceBBPass.printgraph_cfg -> str {
     }
     for (key, value) in cfg.items() {
         if value.get('bb_out') {
+            # Use saved tail/head nodes (bb_stmts was mutated to strings above).
+            tail = bb_tails[key];
             for out_id in value['bb_out'] {
-                dot += f"  {key} -> {out_id};\n";
+                label = "";
+                if isinstance(tail, uni.CfgExpr) {
+                    out_head = bb_heads[out_id];
+                    if tail.sc_true_target is out_head {
+                        label = ' [label="T"]';
+                    } elif tail.sc_false_target is out_head {
+                        label = ' [label="F"]';
+                    }
+                } elif isinstance(tail, (uni.IfStmt, uni.WhileStmt)) {
+                    out_head = bb_heads[out_id];
+                    if tail.body and out_head is tail.body[0] {
+                        label = ' [label="T"]';
+                    } elif tail.else_body {
+                        if isinstance(tail.else_body, uni.ElseIf) and out_head is tail.else_body {
+                            label = ' [label="F"]';
+                        } elif isinstance(tail.else_body, uni.ElseStmt)
+                        and tail.else_body.body and out_head is tail.else_body.body[0] {
+                            label = ' [label="F"]';
+                        }
+                    }
+                }
+                dot += f"  {key} -> {out_id}{label};\n";
             }
         }
     }

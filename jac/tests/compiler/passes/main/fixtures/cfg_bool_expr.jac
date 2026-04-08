@@ -4,4 +4,5 @@ with entry {
         print(x);
         x = x + 1;
     }
+    print("done");
 }

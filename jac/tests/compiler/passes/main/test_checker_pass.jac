@@ -1988,10 +1988,10 @@ test "match_case_reassign_reset" {
     assert len(program.errors_had) == 4 , f"Expected 4 type errors, but got " + f"{len(
         program.errors_had
     )}:\n" + "\n---\n".join(err.pretty_print() for err in program.errors_had);
-    assert 'Cannot assign int to Expr' in program.errors_had[0].pretty_print();
+    assert 'Cannot assign int to Shape' in program.errors_had[0].pretty_print();
     for i in [1, 2, 3] {
         msg = program.errors_had[i].pretty_print();
-        assert 'has no attribute "strings"' in msg , f"Expected attribute error at index {i}, got: {msg}";
+        assert 'has no attribute "sides"' in msg , f"Expected attribute error at index {i}, got: {msg}";
     }
 }
 

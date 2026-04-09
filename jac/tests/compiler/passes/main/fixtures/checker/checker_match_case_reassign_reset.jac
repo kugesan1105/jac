@@ -1,35 +1,34 @@
 """Match-case narrowing must be killed by a later assignment."""
 
-class UniNode {
-    has parent: UniNode | None = None;
+class Node {
+    has parent: Node | None = None;
 }
 
-class Expr(UniNode) {}
+class Shape(Node) {}
 
-class MultiString(Expr) {
-    has strings: list[str] = [];
+class Polygon(Shape) {
+    has sides: list[int] = [];
 }
 
-class SubTag(UniNode) {}
-class FuncSignature(UniNode) {}
+class Frame(Node) {}
+class Group(Node) {}
 
 obj Checker {
-    def check(expr: Expr) {
-        match expr {
-            case MultiString():
-                # expr is narrowed to MultiString here.
-                if isinstance(expr.parent, (SubTag, FuncSignature)) {
-                    expr.strings;
+    def check(shape: Shape) {
+        match shape {
+            case Polygon():
+                # shape is narrowed to Polygon here.
+                if isinstance(shape.parent, (Frame, Group)) {
+                    shape.sides;
                 }
-                expr = 90;  # error: cannot assign int to Expr
-                # The barrier resets expr to the declared type for the
+                shape = 90;  # error: cannot assign int to Shape
+                # The barrier resets shape to the declared type for the
                 # rest of this case body, so each access below errors.
-                expr.strings;  # error
+                shape.sides;  # error
                 if (
-                    isinstance(expr.parent, (SubTag, FuncSignature))
-                    and expr.strings  # error
+                    isinstance(shape.parent, (Frame, Group)) and shape.sides  # error
                 ) {
-                    expr.strings;  # error
+                    shape.sides;  # error
                 }
 
         }

@@ -3213,12 +3213,17 @@ impl TypeEvaluator._get_type_from_flow_node(
             }
         }
 
-        # Check if predecessor is an Assignment that assigns to this target.
-        # a: int | None = None; a = 90; -> narrows 'a' to int
-        # Also handles AtomTrailer: bmw.speed = 0 -> narrows 'bmw.speed' to int
-        # Only narrow if the assigned type is strictly narrower than the declared type.
+        # Assignment predecessor: BARRIER. An assignment that targets our
+        # reference key terminates the narrowing chain on this edge — we
+        # never fall through to propagate the pre-assignment narrowing.
+        #
+        # - If the assigned type is a strict narrowing of the declared type
+        #   (e.g. `x: int | None; x = 5` → int), use it as the edge's type.
+        # - Otherwise (invalid assignment, equivalent type, or widening),
+        #   reset this edge to the declared type (has_unnarrowed_pred).
         if isinstance(pred, uni.Assignment) and pred.value {
-            found_assignment = False;
+            target_key_matched = False;
+            narrowed_from_assignment: TypeBase | None = None;
             for t in pred.target {
                 target_key: str | None = None;
                 if isinstance(t, uni.Name) {
@@ -3227,28 +3232,38 @@ impl TypeEvaluator._get_type_from_flow_node(
                     target_key = self.create_key_for_reference(t);
                 }
                 if target_key is not None and target_key == key {
-                    # Get the type of the assigned value
+                    target_key_matched = True;
+                    # Evaluate the assigned expression. Even if the assignment
+                    # is a type error (reported elsewhere), touching our key
+                    # kills any pre-assignment narrowing along this edge.
                     assigned_type = self.get_type_of_expression(pred.value);
-                    if assigned_type
-                    and not isinstance(assigned_type, types.UnknownType) {
+                    if (
+                        assigned_type
+                        and not isinstance(assigned_type, types.UnknownType)
+                    ) {
                         declared_type = target.declared_type;
-                        # Only narrow if:
-                        # 1. assigned_type is assignable to declared_type (valid assignment)
-                        # 2. declared_type is NOT assignable to assigned_type (narrowing, not equivalent)
-                        # This ensures we only narrow for cases like int|None -> int,
-                        # not for cases like list[int] -> list[] (which would widen).
+                        # Narrow only for strictly-narrower, valid assignments
+                        # (e.g. `int | None` → `int`). Widening and invalid
+                        # assignments both reset to the declared type.
                         if (
                             self.assign_type(assigned_type, declared_type)
                             and not self.assign_type(declared_type, assigned_type)
                         ) {
-                            incoming_types.append(assigned_type);
-                            found_assignment = True;
-                            break;
+                            narrowed_from_assignment = assigned_type;
                         }
                     }
+                    break;
                 }
             }
-            if found_assignment {
+            if target_key_matched {
+                if narrowed_from_assignment is not None {
+                    incoming_types.append(narrowed_from_assignment);
+                } else {
+                    # Assignment barrier with no narrowing: this edge
+                    # contributes the declared type, so the merge widens.
+                    has_unnarrowed_pred = True;
+                }
+                # Barrier: do not fall through to predecessor-propagation.
                 continue;
             }
         }

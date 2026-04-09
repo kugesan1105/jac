@@ -1947,6 +1947,36 @@ test "assignment_narrowing" {
     )}:\n" + "\n---\n".join(err.pretty_print() for err in program.errors_had);
 }
 
+"""Regression: assignment is a narrowing barrier.
+
+An assignment that targets a reference must terminate the narrowing chain
+on that edge — even when the assignment itself is a type error. Inside a
+`case MultiString():` body, `expr` is narrowed to MultiString, but after
+`expr = 90` (invalid int → Expr) every subsequent `.strings` access must
+fall back to the declared type `Expr` and error.
+"""
+test "match_case_reassign_reset" {
+    program = JacProgram();
+    mod = program.compile(
+        os.path.join(CHECKER_FIXTURES, "checker_match_case_reassign_reset.jac"),
+        options=NO_TC
+    );
+    TypeCheckPass(ir_in=mod, prog=program);
+
+    assert len(program.errors_had) == 4 , f"Expected 4 type errors, but got " + f"{len(
+        program.errors_had
+    )}:\n" + "\n---\n".join(err.pretty_print() for err in program.errors_had);
+
+    # 1. The invalid reassignment itself.
+    assert 'Cannot assign int to Expr' in program.errors_had[0].pretty_print();
+
+    # 2-4. Every `.strings` access after the barrier must error.
+    for i in [1, 2, 3] {
+        msg = program.errors_had[i].pretty_print();
+        assert 'has no attribute "strings"' in msg , f"Expected attribute error at index {i}, got: {msg}";
+    }
+}
+
 """Test truthiness guard narrowing for member access."""
 test "guard_narrowing" {
     program = JacProgram();

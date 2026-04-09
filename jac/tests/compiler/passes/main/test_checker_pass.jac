@@ -1947,17 +1947,7 @@ test "assignment_narrowing" {
     )}:\n" + "\n---\n".join(err.pretty_print() for err in program.errors_had);
 }
 
-"""Regression: parenthesized BoolExpr conditions wire short-circuit CFG.
-
-Before the fix, `if (a and b):` was treated as a non-BoolExpr condition
-(because the parens wrapped the BoolExpr in an AtomUnit), so exit_if_stmt
-fell back to simple edges and never wired the CfgExpr operand chain.
-That left the operand CfgExprs with empty bb_in, so the backward walker
-starting from `expr.strings` inside the `and` couldn't find the upstream
-match-case narrowing and widened to the declared type. Now the condition
-is AtomUnit-peeled before the BoolExpr check, and narrowing flows through
-the parenthesized condition exactly as through the bare form.
-"""
+"""Parenthesized BoolExpr conditions wire the short-circuit CFG."""
 test "parenthesized_bool_cond" {
     program = JacProgram();
     mod = program.compile(
@@ -1965,32 +1955,21 @@ test "parenthesized_bool_cond" {
         options=NO_TC
     );
     TypeCheckPass(ir_in=mod, prog=program);
-
-    # All three shapes (no parens, if-with-parens, while-with-parens) must
-    # narrow cleanly to MultiString inside the match case.
     assert len(program.errors_had) == 0 , f"Expected 0 type errors, but got " + f"{len(
         program.errors_had
     )}:\n" + "\n---\n".join(err.pretty_print() for err in program.errors_had);
 }
 
-"""Regression: assignment is a narrowing barrier (widening edge).
-
-Pins down the three shapes of the barrier: strict narrowing succeeds,
-valid widening resets to the declared type, and a narrowed re-assignment
-inside a branch stays narrowed. The widening case is what catches
-regressions of the barrier discipline — it's the one place where the
-fix's behavior is visible without an upstream type error.
-"""
+"""Assignment barrier: strict narrowing, widening reset, in-branch re-narrow."""
 test "assignment_barrier" {
     program = JacProgram();
     mod = program.compile(
         os.path.join(CHECKER_FIXTURES, "checker_assignment_barrier.jac"), options=NO_TC
     );
     TypeCheckPass(ir_in=mod, prog=program);
-
-    # Exactly one error: the widening reassignment inside
-    # `widen_via_reassign` must reset `x` back to `int | None` so that
-    # `return x` fails against the `int` return type.
+    # The widening reassignment in `widen_via_reassign` resets `x` to
+    # `int | None`, so `return x` against the `int` return type is the
+    # only expected error.
     assert len(program.errors_had) == 1 , f"Expected 1 type error, but got " + f"{len(
         program.errors_had
     )}:\n" + "\n---\n".join(err.pretty_print() for err in program.errors_had);
@@ -1998,14 +1977,7 @@ test "assignment_barrier" {
     assert 'Cannot return int | NoneType' in msg , f"Expected widening-reset error, got: {msg}";
 }
 
-"""Regression: assignment is a narrowing barrier.
-
-An assignment that targets a reference must terminate the narrowing chain
-on that edge — even when the assignment itself is a type error. Inside a
-`case MultiString():` body, `expr` is narrowed to MultiString, but after
-`expr = 90` (invalid int → Expr) every subsequent `.strings` access must
-fall back to the declared type `Expr` and error.
-"""
+"""Match-case narrowing is killed by a later assignment to the subject."""
 test "match_case_reassign_reset" {
     program = JacProgram();
     mod = program.compile(
@@ -2013,15 +1985,10 @@ test "match_case_reassign_reset" {
         options=NO_TC
     );
     TypeCheckPass(ir_in=mod, prog=program);
-
     assert len(program.errors_had) == 4 , f"Expected 4 type errors, but got " + f"{len(
         program.errors_had
     )}:\n" + "\n---\n".join(err.pretty_print() for err in program.errors_had);
-
-    # 1. The invalid reassignment itself.
     assert 'Cannot assign int to Expr' in program.errors_had[0].pretty_print();
-
-    # 2-4. Every `.strings` access after the barrier must error.
     for i in [1, 2, 3] {
         msg = program.errors_had[i].pretty_print();
         assert 'has no attribute "strings"' in msg , f"Expected attribute error at index {i}, got: {msg}";

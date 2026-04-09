@@ -296,13 +296,11 @@ impl CFGBuildPass._link_sequential(body: Sequence[uni.CodeBlockStmt]) -> None {
             continue;
         }
         has_else = prev?.else_body and prev.else_body is not None;
-        # Check if prev has a short-circuit BoolExpr condition (already wired
-        # in exit handler). Peel AtomUnit (parentheses) so that
-        # `(a and b)` is recognized the same as `a and b`.
+        # Did the exit handler already wire a short-circuit chain? Peel
+        # parentheses so `(a and b)` matches `a and b`.
         has_bool_sc = False;
         if isinstance(prev, (uni.IfStmt, uni.ElseIf, uni.WhileStmt)) {
-            unwrapped = _unwrap_parens(prev.condition);
-            has_bool_sc = isinstance(unwrapped, uni.BoolExpr);
+            has_bool_sc = isinstance(_unwrap_parens(prev.condition), uni.BoolExpr);
         }
         if has_else
         and isinstance(
@@ -616,13 +614,12 @@ impl CFGBuildPass.exit_if_stmt(nd: uni.IfStmt) -> None {
         }
     }
 
-    # Short-circuit boolean conditions: peel AtomUnit (parentheses) so that
-    # `if (a and b)` is recognized as a BoolExpr the same as `if a and b`.
+    # Peel parens so `if (a and b)` wires the same as `if a and b`.
     unwrapped = _unwrap_parens(nd.condition);
     cond_bool = unwrapped if isinstance(unwrapped, uni.BoolExpr) else None;
 
     if cond_bool is not None and true_target {
-        # For if-without-else, find the next sibling as false fallthrough target
+        # For if-without-else, the false path falls through to the next sibling.
         if not false_target and not nd.else_body and nd.parent {
             false_target = self._find_next_cfg_stmt_after(nd.parent, nd);
         }
@@ -676,8 +673,7 @@ impl CFGBuildPass.exit_while_stmt(nd: uni.WhileStmt) -> None {
         false_target = self._find_next_cfg_stmt_after(nd.parent, nd);
     }
 
-    # Short-circuit boolean conditions: peel AtomUnit (parentheses) so that
-    # `while (a and b)` is recognized the same as `while a and b`.
+    # Peel parens so `while (a and b)` wires the same as `while a and b`.
     unwrapped = _unwrap_parens(nd.condition);
     cond_bool = unwrapped if isinstance(unwrapped, uni.BoolExpr) else None;
 

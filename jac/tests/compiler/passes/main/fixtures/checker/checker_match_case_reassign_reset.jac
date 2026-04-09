@@ -1,11 +1,4 @@
-"""Regression: match-case narrowing must be killed by a later assignment.
-
-Inside a `case MultiString():` body, the subject `expr` is narrowed to
-MultiString. A subsequent `expr = 90` (invalid — int is not an Expr) must
-act as a barrier that resets the narrowing to the declared type `Expr` for
-every access that follows in the same case body. Accessing `.strings`
-after the reassignment must error, because `Expr` has no `strings`.
-"""
+"""Match-case narrowing must be killed by a later assignment."""
 
 class UniNode {
     has parent: UniNode | None = None;
@@ -24,20 +17,19 @@ obj Checker {
     def check(expr: Expr) {
         match expr {
             case MultiString():
-                # Narrowed to MultiString here — OK.
+                # expr is narrowed to MultiString here.
                 if isinstance(expr.parent, (SubTag, FuncSignature)) {
-                    expr.strings;  # OK (MultiString)
+                    expr.strings;
                 }
-                # Barrier: this assignment is an error (int → Expr) but must
-                # still reset narrowing on the edges that follow.
-                expr = 90;  # <-- Error: Cannot assign int to Expr
-                # These must all error: expr is now back to declared `Expr`.
-                expr.strings;  # <-- Error (no attribute "strings")
+                expr = 90;  # error: cannot assign int to Expr
+                # The barrier resets expr to the declared type for the
+                # rest of this case body, so each access below errors.
+                expr.strings;  # error
                 if (
                     isinstance(expr.parent, (SubTag, FuncSignature))
-                    and expr.strings  # <-- Error (no attribute "strings")
+                    and expr.strings  # error
                 ) {
-                    expr.strings;  # <-- Error (no attribute "strings")
+                    expr.strings;  # error
                 }
 
         }

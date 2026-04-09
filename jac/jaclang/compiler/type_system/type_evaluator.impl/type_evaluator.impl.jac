@@ -3070,18 +3070,19 @@ impl TypeEvaluator.get_narrowed_type_for_expr(
     }
 }
 
-"""Demand-driven backward CFG walk that returns the flow-sensitive type
-of a reference at the given flow node. Uses an affected-symbols optimization
-to skip predecessor branches where the target is not touched.
+"""Flow-sensitive type of a reference at the given flow node.
+
+Backward walk over bb_in with an affected_symbols fast path: predecessors
+that neither narrow nor assign the target are skipped without recursion.
 """
 impl TypeEvaluator._get_type_from_flow_node(
     target: NarrowingTarget, flow_node: uni.UniCFGNode, visited: set
 ) -> TypeBase | None {
     import from jaclang.compiler.type_system.type_evaluator { NarrowingTarget }
     key = target.key;
-    # Use symbol identity for cache key when available (different scoped symbols
-    # with the same name must not share cache entries), fall back to string key
-    # for expression-based narrowing (no symbol).
+    # Keyed by (flow_node, symbol) when a symbol is available so that
+    # different scopes with the same name don't collide; otherwise keyed
+    # by the reference string (expression-based narrowing).
     cache_key = (id(flow_node), id(target.symbol))
         if target.symbol is not None
         else (id(flow_node), key);
@@ -3090,22 +3091,22 @@ impl TypeEvaluator._get_type_from_flow_node(
     }
     flow_node_id = id(flow_node);
     if flow_node_id in visited {
-        return None;  # Cycle (back-edge in loop) -- conservative
-
+        # Cycle (loop back-edge): conservative None.
+        return None;
     }
-    # Depth limit to prevent very deep recursion in large modules.
+    # Cap recursion depth in pathological graphs.
     if len(visited) > 64 {
         self._flow_node_type_cache[cache_key] = None;
         return None;
     }
     visited.add(flow_node_id);
-    # No predecessors means entry point - no narrowing available.
     if not flow_node.bb_in {
         self._flow_node_type_cache[cache_key] = None;
         visited.discard(flow_node_id);
         return None;
     }
-    # Ignore back-edges from loop body to preserve pre-loop narrowing.
+    # Loop headers: skip back-edges from the loop body so pre-loop
+    # narrowing survives the join.
     is_loop_header: bool = isinstance(
         flow_node, (uni.InForStmt, uni.IterForStmt, uni.WhileStmt)
     );
@@ -3116,7 +3117,6 @@ impl TypeEvaluator._get_type_from_flow_node(
             has_unnarrowed_pred = True;
             continue;
         }
-        # Skip back-edges from loop body.
         if is_loop_header {
             ancestor: uni.UniNode | None = None;
             if isinstance(flow_node, uni.InForStmt) {
@@ -3131,18 +3131,15 @@ impl TypeEvaluator._get_type_from_flow_node(
             }
         }
 
-        # Fast-path: skip branches where target is not affected.
-        # If the predecessor doesn't narrow or assign this target, we can
-        # skip the expensive recursive walk and just mark as unnarrowed.
+        # Fast path: predecessor neither narrows nor assigns this key.
         if key not in pred.affected_symbols {
             has_unnarrowed_pred = True;
             continue;
         }
 
-        # Recursively get predecessor's narrowed type.
         pred_narrowed = self._get_type_from_flow_node(target, pred, visited);
 
-        # CfgExpr predecessor: expression-level branch point.
+        # CfgExpr predecessor: expression-level short-circuit branch.
         if isinstance(pred, uni.CfgExpr) {
             predicate = self._find_predicate_for(target, pred.expr);
             if predicate is not None {
@@ -3164,8 +3161,8 @@ impl TypeEvaluator._get_type_from_flow_node(
             }
         }
 
-        # IfStmt predecessor (covers ElseIf via inheritance). Skip CfgExpr
-        # successor edges — those are entry edges, not true/false branches.
+        # IfStmt predecessor (covers ElseIf). Skip when the successor is a
+        # CfgExpr: that's a condition-entry edge, not a true/false branch.
         if isinstance(pred, uni.IfStmt) and not isinstance(flow_node, uni.CfgExpr) {
             predicate = self._find_predicate_for(target, pred.condition);
             if predicate is not None {
@@ -3197,12 +3194,10 @@ impl TypeEvaluator._get_type_from_flow_node(
         # The CFG builds correct links but type checker sees different node instances.
         # This is a future PR task.
 
-        # Check if predecessor is an AssertStmt with isinstance narrowing.
-        # assert isinstance(x, T) narrows x to T for subsequent statements.
+        # AssertStmt predecessor: a passed assert narrows along the true branch.
         if isinstance(pred, uni.AssertStmt) {
             predicate = self._find_predicate_for(target, pred.condition);
             if predicate is not None {
-                # Assert passed means condition is true
                 narrowed = self._apply_narrowing(predicate, pred_narrowed, True, target);
                 if narrowed is not None {
                     incoming_types.append(narrowed);
@@ -3213,14 +3208,11 @@ impl TypeEvaluator._get_type_from_flow_node(
             }
         }
 
-        # Assignment predecessor: BARRIER. An assignment that targets our
-        # reference key terminates the narrowing chain on this edge — we
-        # never fall through to propagate the pre-assignment narrowing.
-        #
-        # - If the assigned type is a strict narrowing of the declared type
-        #   (e.g. `x: int | None; x = 5` → int), use it as the edge's type.
-        # - Otherwise (invalid assignment, equivalent type, or widening),
-        #   reset this edge to the declared type (has_unnarrowed_pred).
+        # Assignment predecessor: barrier. An assignment whose target matches
+        # the reference key kills any pre-assignment narrowing on this edge.
+        # On a strict narrowing (e.g. `int | None` = `int`) the assigned type
+        # becomes the edge's contribution; otherwise the edge resets to the
+        # declared type. Either way, we never fall through.
         if isinstance(pred, uni.Assignment) and pred.value {
             target_key_matched = False;
             narrowed_from_assignment: TypeBase | None = None;
@@ -3233,18 +3225,12 @@ impl TypeEvaluator._get_type_from_flow_node(
                 }
                 if target_key is not None and target_key == key {
                     target_key_matched = True;
-                    # Evaluate the assigned expression. Even if the assignment
-                    # is a type error (reported elsewhere), touching our key
-                    # kills any pre-assignment narrowing along this edge.
                     assigned_type = self.get_type_of_expression(pred.value);
                     if (
                         assigned_type
                         and not isinstance(assigned_type, types.UnknownType)
                     ) {
                         declared_type = target.declared_type;
-                        # Narrow only for strictly-narrower, valid assignments
-                        # (e.g. `int | None` → `int`). Widening and invalid
-                        # assignments both reset to the declared type.
                         if (
                             self.assign_type(assigned_type, declared_type)
                             and not self.assign_type(declared_type, assigned_type)
@@ -3259,21 +3245,16 @@ impl TypeEvaluator._get_type_from_flow_node(
                 if narrowed_from_assignment is not None {
                     incoming_types.append(narrowed_from_assignment);
                 } else {
-                    # Assignment barrier with no narrowing: this edge
-                    # contributes the declared type, so the merge widens.
                     has_unnarrowed_pred = True;
                 }
-                # Barrier: do not fall through to predecessor-propagation.
                 continue;
             }
         }
 
-        # Check if predecessor is a MatchStmt and narrow based on pattern.
+        # MatchStmt predecessor: narrow by the pattern of the enclosing case.
         if isinstance(pred, uni.MatchStmt) {
-            # Check if match target matches our key
             match_key = self.create_key_for_reference(pred.target);
             if match_key is not None and match_key == key {
-                # Find which MatchCase contains the current flow_node
                 match_case: uni.MatchCase | None;
                 if isinstance(flow_node, uni.MatchCase) {
                     match_case = flow_node;

@@ -516,6 +516,21 @@ impl CFGBuildPass.exit_if_else_expr(nd: uni.IfElseExpr) -> None {
         self.link_bbs(nd.condition, nd.else_value);
     }
 
+    # Connect the ternary sub-CFG to its nearest enclosing CFG node so
+    # that narrowing established upstream flows into the condition and
+    # branches. For a top-level ternary this is the enclosing statement
+    # (CodeBlockStmt); for a nested ternary it is the outer ternary's
+    # branch CfgExpr, which correctly carries the outer ternary's own
+    # narrowing (skipping past it would lose the enclosing narrowing).
+    # Without this edge the sub-CFG is orphaned from surrounding flow
+    # and patterns like
+    # `if x is None { return } return x.m() if isinstance(x, T) else x.m()`
+    # bottom out with the declared type.
+    enclosing_flow = nd.find_parent_of_type(uni.UniCFGNode);
+    if enclosing_flow is not None {
+        self.link_bbs(enclosing_flow, nd.condition);
+    }
+
     for branch in [nd.value, nd.else_value] {
         inner = _unwrap_parens(branch.expr);
         if isinstance(inner, uni.IfElseExpr) {

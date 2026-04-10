@@ -22,6 +22,7 @@ This document provides a summary of new features, improvements, and bug fixes in
 - **Fix: Tuple-Unpacking Assignment Is a Narrowing Barrier**: `(x, _) = f()` now resets type narrowing on the reassigned names, just like a plain assignment does.
 - **Fix: Starred-Unpack Assignment Is a Narrowing Barrier**: `(head, *rest) = f()` now resets type narrowing on the starred name too. Closes a leak where prior narrowing on `rest` could survive past the unpack.
 - **Fix: Ternary Narrowing Through `and`/`or` Conditions**: `x if a and b else y` now narrows its branches the same way as the equivalent `if a and b:` statement.
+- **Fix: Pre-Statement Narrowing Reaches Inside Ternary Expressions**: A ternary's branches now see the narrowing established by earlier statements (e.g. `if x is None: return`), so access on the narrowed type works the same inside `x.m() if cond else x.m()` as it does in a plain `if`/`else`.
 - **Removed: W2052 Broad Exception Warning**: Removed the `W2052` warning that flagged `except Exception` as overly broad. Catching `Exception` is a legitimate and common pattern at system boundaries (e.g., LLM calls, network I/O), and the warning produced false positives in these cases.
 
 ## jaclang 0.13.5 (Latest Release)

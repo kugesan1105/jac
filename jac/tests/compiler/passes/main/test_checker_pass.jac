@@ -2000,6 +2000,21 @@ test "assignment_barrier" {
     assert 'Cannot return int | NoneType' in msg , f"Expected widening-reset error, got: {msg}";
 }
 
+"""Pre-statement narrowing reaches inside expression sub-CFGs."""
+test "pre_expr_narrowing" {
+    program = JacProgram();
+    mod = program.compile(
+        os.path.join(CHECKER_FIXTURES, "checker_pre_expr_narrowing.jac"), options=NO_TC
+    );
+    TypeCheckPass(ir_in=mod, prog=program);
+    # All three shapes (early-return guard, OR-inverse guard, if-wrap)
+    # must carry the enclosing statement's narrowing into ternary
+    # branches so member access on the narrowed type succeeds.
+    assert len(program.errors_had) == 0 , f"Expected 0 type errors, but got " + f"{len(
+        program.errors_had
+    )}:\n" + "\n---\n".join(err.pretty_print() for err in program.errors_had);
+}
+
 """Ternary conditions with BoolExpr narrow their branches per-operand."""
 test "ternary_bool_cond_narrowing" {
     program = JacProgram();

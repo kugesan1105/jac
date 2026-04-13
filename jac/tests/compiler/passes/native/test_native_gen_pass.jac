@@ -18,7 +18,18 @@ glob FIXTURES = str(
          Path(jaclang.__file__).parent.parent / "tests" / "compiler" / "passes" / "native" / "fixtures"
      );
 
-"""Compile a .na.jac fixture and return the JIT engine."""
+"""Compile a .na.jac fixture and return the JIT engine.
+
+NOTE: `ir.gen` holds Python objects that MCJIT depends on but does not own —
+specifically the LLVM Module (`llvm_ir`) and the list of ctypes interop
+callbacks (`_interop_callbacks`) whose raw addresses are baked into the
+JIT code. If `ir` is garbage-collected while `eng` is still in use, those
+objects die and the next JIT call dereferences freed memory → SIGSEGV.
+
+Most tests unpack this tuple as `(eng, _)` and discard `ir`, so we pin
+`ir` to the engine via a sidecar attribute. Now `ir`'s lifetime tracks
+the engine's, regardless of what the caller does with the returned tuple.
+"""
 def compile_native(fixture: str) -> tuple[ExecutionEngine, uni.Module] {
     prog = JacProgram();
     ir = prog.compile(file_path=str(os.path.join(FIXTURES, fixture)));
@@ -26,6 +37,10 @@ def compile_native(fixture: str) -> tuple[ExecutionEngine, uni.Module] {
     assert not prog.errors_had , f"Compilation errors in {fixture}: {errors}";
     eng = ir.gen.native_engine;
     assert eng is not None , f"No native engine produced for {fixture}";
+    # Pin ir (and therefore ir.gen.llvm_ir / _interop_callbacks) to the
+    # engine so that GC cannot release MCJIT's implicit dependencies
+    # before the engine itself is released.
+    eng._jac_ir_keepalive = ir;
     return (eng, ir);
 }
 

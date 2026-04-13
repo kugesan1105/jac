@@ -31,8 +31,45 @@ jobs:
         pip install pytest-xdist
         pip install watchdog
 
+    - name: Show llvmlite version
+      run: pip show llvmlite | grep Version
+
     - name: Run Jac core tests
       run: pytest -x jac -n auto
+
+  # Hypothesis test: isolate jac/tests/compiler/passes/native into its own
+  # job to verify whether pinning llvmlite<0.47 fixes the
+  # `transitive glob init: ... (no segfault)` crash that surfaces when
+  # ~88 native tests run back-to-back on a single xdist worker.
+  # If this job is GREEN, llvmlite 0.47 is the culprit and the pin in
+  # jac/pyproject.toml stands. If RED, the bug is elsewhere and we keep
+  # digging.
+  test-core-native-isolation-experiment:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v5
+      with:
+        submodules: true
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v3
+      with:
+        python-version: 3.12
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e jac
+        pip install pytest
+        pip install pytest-xdist
+        pip install watchdog
+
+    - name: Show llvmlite version
+      run: pip show llvmlite | grep Version
+
+    - name: Run native tests in isolation
+      run: pytest -x jac/tests/compiler/passes/native -n auto
 
   test-client:
     runs-on: ubuntu-latest

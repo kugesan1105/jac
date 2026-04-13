@@ -16,7 +16,7 @@ keywords = [
     "artificial-intelligence",
 ]
 requires-python = ">=3.12"
-dependencies = ["llvmlite>=0.43.0"]
+dependencies = ["llvmlite>=0.43.0,<0.47"]
 # Note: lark, pygls are vendored; pluggy replaced by jaclang/plugin.py
 
 [project.urls]

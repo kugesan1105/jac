@@ -310,9 +310,20 @@ impl Serializer.register_alias(old_name: str, cls: type) -> None {
     Serializer._aliases[old_name] = new_name;
 }
 
-"""Return {field_name: resolved_annotation} for a dataclass (empty otherwise)."""
+"""Return {field_name: resolved_annotation} for a dataclass (empty otherwise).
+
+Memoized on `cls` identity: `get_type_hints` evaluates forward-refs via
+`eval` and walks the MRO, so calling it on every anchor deserialize
+dominates load cost under Mongo. Annotations are effectively immutable
+at runtime — no invalidation path is wired.
+"""
 impl Serializer._get_field_types(cls: type) -> dict[str, object] {
+    cached = Serializer._field_types_cache.get(cls);
+    if cached is not None {
+        return cached;
+    }
     if not is_dataclass(cls) {
+        Serializer._field_types_cache[cls] = {};
         return {};
     }
     # Prefer resolved hints (unwraps string forward-refs); fall back to raw.
@@ -327,6 +338,7 @@ impl Serializer._get_field_types(cls: type) -> dict[str, object] {
             out[f.name] = hints[f.name];
         }
     }
+    Serializer._field_types_cache[cls] = out;
     return out;
 }
 

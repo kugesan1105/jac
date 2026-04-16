@@ -45,7 +45,12 @@ obj Serializer {
         # Populated by `register_alias` / `archetype_alias` decorator. Used by
         # `_get_class` to resolve renamed or moved archetypes without losing
         # previously persisted anchors.
-        _aliases: dict[str, str] = {};
+        _aliases: dict[str, str] = {},
+        # Cache of {class -> {field_name: resolved_annotation}}. `get_type_hints`
+        # is hot-path on every anchor deserialize and expensive enough to
+        # dominate Mongo load latency without memoization. Class annotations
+        # are effectively immutable at runtime so no invalidation is needed.
+        _field_types_cache: dict[type, dict[str, object]] = {};
 
     """Register a class for deserialization and attach its schema fingerprint."""
     static def register(cls: type) -> None;

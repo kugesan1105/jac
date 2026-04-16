@@ -20,7 +20,7 @@ def with_siblings -> JsxElement {
 def comment_only_child -> JsxElement {
     return
         <section>
-            {#* nothing to render *#}
+        {#* nothing to render *#}
         </section>;
 }
 

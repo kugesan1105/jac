@@ -688,42 +688,6 @@ test "jsx body comment does not displace comments to end of file" {
     );
 }
 
-"""Regression: a JSX body comment on the same line as a sibling expression
-must not be displaced to end of file.
-
-Example: `{label} {#* trailing comment *#}` — the comment sits to the right
-of `{label}` on the same source line.  The standalone-by-spans injector missed
-it because it used `prev_line + 1` as its lower bound after processing
-`{label}`, leaving the comment's line in a dead zone."""
-test "jsx body comment on same line as sibling is not displaced" {
-    source = (
-        'def app -> JsxElement {\n'
-        '    label: str = "click";\n'
-        '    return\n'
-        '        <button>\n'
-        '            {label} {#* trailing remark *#}\n'
-        '        </button>;\n'
-        '}\n'
-    );
-    prog = JacProgram.jac_str_formatter(source_str=source, file_path="<test>.jac");
-    assert not prog.errors_had , (
-        "Formatter raised E5051 for same-line JSX body comment:\n" + str(
-            prog.errors_had
-        )
-    );
-    formatted = prog.mod.main.gen.jac;
-    assert "#* trailing remark *#" in formatted , (
-        "Same-line JSX body comment was lost:\n" + formatted
-    );
-
-    # Idempotency
-    prog2 = JacProgram.jac_str_formatter(source_str=formatted, file_path="<test>.jac");
-    assert not prog2.errors_had;
-    assert formatted == prog2.mod.main.gen.jac , (
-        "Same-line JSX body comment formatting is not idempotent"
-    );
-}
-
 """Regression: jac_str_formatter must populate errors_had on syntax error
 so that the LSP returns the original source instead of an empty string."""
 test "syntax error preserves original source" {

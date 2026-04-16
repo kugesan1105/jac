@@ -518,6 +518,176 @@ test "jsx attributes and children group independently" {
     );
 }
 
+"""Regression: {#* block comment *#} inside a JSX body must be preserved
+by the formatter — not displaced to the end of the file.
+
+Root cause: the comment injection pass classified the comment as inline
+(anchored to the LBRACE token), but the parser consumed and dropped that
+LBRACE without adding it to any AST node.  The anchor was therefore never
+found in the doc tree, leaving the comment stranded as a leftover.
+
+Four cases are verified:
+  1. Comment between siblings — both siblings survive and the comment sits
+     between them in the output.
+  2. Comment as the only child — the parent element is not lost.
+  3. Comment adjacent to a real {expr} — comment precedes the expression.
+  4. No E5051 "displaced comment" error is raised by the formatter."""
+test "jsx body comment between siblings is preserved in correct position" {
+    source = (
+        'def app -> JsxElement {\n'
+        '    return\n'
+        '        <div>\n'
+        '            <span>before</span>\n'
+        '            {#* this is a block comment *#}\n'
+        '            <span>after</span>\n'
+        '        </div>;\n'
+        '}\n'
+    );
+    prog = JacProgram.jac_str_formatter(source_str=source, file_path="<test>.jac");
+    assert not prog.errors_had , f"formatter raised errors: {prog.errors_had}";
+    formatted = prog.mod.main.gen.jac;
+
+    assert "#* this is a block comment *#" in formatted , (
+        "Block comment was lost:\n" + formatted
+    );
+
+    lines = formatted.splitlines();
+    before_idx = next(
+        (
+            i
+            for (i, ln) in enumerate(lines)
+            if "before" in ln
+        ),
+        None
+    );
+    comment_idx = next(
+        (
+            i
+            for (i, ln) in enumerate(lines)
+            if "#* this is a block comment *#" in ln
+        ),
+        None
+    );
+    after_idx = next(
+        (
+            i
+            for (i, ln) in enumerate(lines)
+            if "after" in ln
+        ),
+        None
+    );
+
+    assert before_idx is not None
+    and comment_idx is not None
+    and after_idx is not None , (
+        "Could not locate before/comment/after lines in:\n" + formatted
+    );
+    assert before_idx < comment_idx < after_idx , (
+        f"Comment (line {comment_idx + 1}) must sit between 'before' "
+        f"(line {before_idx + 1}) and 'after' (line {after_idx + 1}):\n" + formatted
+    );
+
+    # Idempotency
+    prog2 = JacProgram.jac_str_formatter(source_str=formatted, file_path="<test>.jac");
+    assert not prog2.errors_had;
+    assert formatted == prog2.mod.main.gen.jac , "JSX body comment formatting is not idempotent";
+}
+
+test "jsx body comment as only child does not lose parent element" {
+    source = (
+        'def app -> JsxElement {\n'
+        '    return\n'
+        '        <section>\n'
+        '            {#* nothing to render *#}\n'
+        '        </section>;\n'
+        '}\n'
+    );
+    prog = JacProgram.jac_str_formatter(source_str=source, file_path="<test>.jac");
+    assert not prog.errors_had , f"formatter raised errors: {prog.errors_had}";
+    formatted = prog.mod.main.gen.jac;
+
+    assert "<section>" in formatted , "<section> element was lost:\n" + formatted;
+    assert "#* nothing to render *#" in formatted , (
+        "Comment-only child was lost:\n" + formatted
+    );
+
+    # Idempotency
+    prog2 = JacProgram.jac_str_formatter(source_str=formatted, file_path="<test>.jac");
+    assert not prog2.errors_had;
+    assert formatted == prog2.mod.main.gen.jac , "JSX body comment formatting is not idempotent";
+}
+
+test "jsx body comment adjacent to expression — both survive" {
+    source = (
+        'def app -> JsxElement {\n'
+        '    count: int = 42;\n'
+        '    return\n'
+        '        <p>\n'
+        '            {#* label: *#}\n'
+        '            {count}\n'
+        '        </p>;\n'
+        '}\n'
+    );
+    prog = JacProgram.jac_str_formatter(source_str=source, file_path="<test>.jac");
+    assert not prog.errors_had , f"formatter raised errors: {prog.errors_had}";
+    formatted = prog.mod.main.gen.jac;
+
+    assert "#* label: *#" in formatted , "Comment was lost:\n" + formatted;
+    assert "{count}" in formatted , "{count} expression was lost:\n" + formatted;
+
+    lines = formatted.splitlines();
+    comment_idx = next(
+        (
+            i
+            for (i, ln) in enumerate(lines)
+            if "#* label: *#" in ln
+        ),
+        None
+    );
+    expr_idx = next(
+        (
+            i
+            for (i, ln) in enumerate(lines)
+            if "{count}" in ln
+        ),
+        None
+    );
+
+    assert comment_idx is not None and expr_idx is not None , (
+        "Could not find comment or expression in:\n" + formatted
+    );
+    assert comment_idx < expr_idx , (
+        f"Comment (line {comment_idx + 1}) must appear before "
+        f"{{count}} (line {expr_idx + 1}):\n" + formatted
+    );
+
+    # Idempotency
+    prog2 = JacProgram.jac_str_formatter(source_str=formatted, file_path="<test>.jac");
+    assert not prog2.errors_had;
+    assert formatted == prog2.mod.main.gen.jac , "JSX body comment formatting is not idempotent";
+}
+
+test "jsx body comment does not displace comments to end of file" {
+    # This is the direct signal of the bug: when the comment injection pass
+    # cannot find the anchor token in the doc tree it dumps the comment as a
+    # leftover at the end of the file and emits E5051 / W5050.
+    source = (
+        'def app -> JsxElement {\n'
+        '    return\n'
+        '        <div>\n'
+        '            <span>before</span>\n'
+        '            {#* orphan comment *#}\n'
+        '            <span>after</span>\n'
+        '        </div>;\n'
+        '}\n'
+    );
+    prog = JacProgram.jac_str_formatter(source_str=source, file_path="<test>.jac");
+    assert not prog.errors_had , (
+        "Formatter raised E5051 displaced-comment error — "
+        "orphaned anchor bug still present:\n" + str(prog.errors_had)
+    );
+}
+
 """Regression: jac_str_formatter must populate errors_had on syntax error
 so that the LSP returns the original source instead of an empty string."""
 test "syntax error preserves original source" {
@@ -533,7 +703,6 @@ test "syntax error preserves original source" {
     # return formatted if no errors, else return original source
     result = gen_output if not prog.errors_had else bad_source;
     assert result == bad_source , (
-        "Formatter must return original source on syntax error, "
-        f"got: {repr(result)}"
+        "Formatter must return original source on syntax error, " f"got: {repr(result)}"
     );
 }

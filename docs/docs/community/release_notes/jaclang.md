@@ -4,6 +4,8 @@ This document provides a summary of new features, improvements, and bug fixes in
 
 ## jaclang 0.14.1 (Unreleased)
 
+- **Perf: Cache `Serializer._get_field_types` per class**: `_deserialize_archetype` calls `_get_field_types(cls)` once per anchor to drive Layer 3 field coercion, and the inner `typing.get_type_hints` evaluates string forward-refs via `eval` and walks the MRO — expensive enough to roughly double Mongo-backed test wall-clock (`test_memory_hierarchy` went from ~5m to ~10m after #5561). Results are now memoized on `cls` identity; class annotations are effectively immutable at runtime so no invalidation is wired.
+
 ## jaclang 0.14.0 (Latest Release)
 
 - **Fix: byllm Provider Config Ignored from `jac.toml`**: The byllm plugin now correctly reads the provider and model from `[plugins.byllm.model]` in `jac.toml`. Previously, `PluginConfigBase` resolved `project_dir` via `cwd`, causing the config lookup to miss the project's `jac.toml` and fall back to the OpenAI default. `PluginConfigBase` now derives the project directory from `JacRuntime.full_target_path` (set by `jac run` before compilation).

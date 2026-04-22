@@ -12,7 +12,12 @@ from pathlib import Path
 
 import pytest
 
-from jaclang.packaging import JacPackage, JacSource, find_packages
+from jaclang.packaging import (
+    JacPackage,
+    JacSource,
+    find_packages,
+    iter_jaclang_data_files,
+)
 
 
 def _mkpkg(root: Path, name: str, *, files: dict[str, str] | None = None) -> Path:
@@ -157,3 +162,34 @@ class TestJacSource:
         src = JacSource(path="/x.jac", module_name="x", relative_path="x.jac")
         with pytest.raises(Exception):
             src.path = "/y.jac"  # type: ignore[misc]
+
+
+class TestIterJaclangDataFiles:
+    def test_finds_files_under_jaclang_package(self) -> None:
+        import jaclang
+
+        jaclang_root = os.path.dirname(jaclang.__file__)
+        files = list(iter_jaclang_data_files())
+        assert files, "expected jaclang to ship some .jac/.jir/.lark/.pyi data"
+
+        for abs_path, _rel_dir in files:
+            assert abs_path.startswith(jaclang_root), (
+                f"data file outside jaclang tree: {abs_path}"
+            )
+            assert os.path.isfile(abs_path), f"reported file does not exist: {abs_path}"
+
+    def test_emits_pyinstaller_shaped_tuples(self) -> None:
+        """Each yielded entry must be a (src, dest_dir) pair where dest_dir
+        starts with ``jaclang/`` (the package's parent-relative path)."""
+        for abs_path, rel_dir in iter_jaclang_data_files():
+            assert os.path.isabs(abs_path), abs_path
+            assert not os.path.isabs(rel_dir), rel_dir
+            head = rel_dir.split(os.sep, 1)[0]
+            assert head == "jaclang", f"unexpected dest root: {rel_dir}"
+
+    def test_includes_bootstrap_modresolver(self) -> None:
+        """Sanity: jaclang/jac0core/modresolver.jac is load-bearing for
+        frozen-app bootstrap — regressions that drop it would break
+        every frozen jac app."""
+        paths = [abs_path for abs_path, _ in iter_jaclang_data_files()]
+        assert any(p.endswith(os.path.join("jac0core", "modresolver.jac")) for p in paths)

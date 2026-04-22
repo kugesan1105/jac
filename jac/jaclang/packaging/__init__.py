@@ -6,6 +6,16 @@ sources, independent of any specific bundler or packaging tool. Adapters
 consume this module; neither one owns the logic.
 """
 
-from jaclang.packaging.discovery import JacPackage, JacSource, find_packages
+from jaclang.packaging.discovery import (
+    JacPackage,
+    JacSource,
+    find_packages,
+    iter_jaclang_data_files,
+)
 
-__all__ = ["JacPackage", "JacSource", "find_packages"]
+__all__ = [
+    "JacPackage",
+    "JacSource",
+    "find_packages",
+    "iter_jaclang_data_files",
+]

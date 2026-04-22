@@ -23,6 +23,12 @@ from typing import Iterable, Iterator
 INIT_JAC = "__init__.jac"
 JAC_SUFFIX = ".jac"
 
+# Non-Python runtime assets shipped inside the jaclang package that bundlers
+# must copy verbatim: Jac source, precompiled .jir caches, Lark grammars,
+# type stubs, the precompiled manifest, etc.
+JACLANG_DATA_EXTS: tuple[str, ...] = (".jac", ".jir", ".lark", ".pyi")
+JACLANG_DATA_BASENAMES: frozenset[str] = frozenset({"manifest.json"})
+
 
 @dataclass(frozen=True)
 class JacSource:
@@ -114,3 +120,32 @@ def find_packages(search_dirs: Iterable[str]) -> list[JacPackage]:
             found.append(JacPackage(name=entry, root=full))
 
     return found
+
+
+def iter_jaclang_data_files() -> Iterator[tuple[str, str]]:
+    """Yield ``(abs_path, parent_rel_dir)`` pairs for jaclang's runtime assets.
+
+    Returns every non-Python file inside the installed jaclang package that
+    bundlers must copy verbatim — ``.jac`` sources, ``.jir`` precompiled
+    caches, ``.lark`` grammars, ``.pyi`` stubs, the precompiled manifest,
+    etc. ``parent_rel_dir`` is the file's directory relative to jaclang's
+    *parent*, which is exactly the ``dest_dir`` shape PyInstaller and
+    similar bundlers expect for data-file tuples.
+
+    Implemented via direct os.walk rather than
+    ``importlib.resources`` / ``collect_data_files`` because editable
+    installs frequently fail to expose the full package-data globs in
+    dist-info metadata, leaving discovery tools with an incomplete view.
+    """
+    import jaclang  # local import — this function must remain callable
+    # from build-time contexts (PyInstaller hooks) before jaclang's full
+    # runtime has finished initializing.
+
+    root = os.path.dirname(jaclang.__file__)
+    parent = os.path.dirname(root)
+
+    for dirpath, _, files in os.walk(root):
+        rel_dir = os.path.relpath(dirpath, parent)
+        for fname in files:
+            if fname.endswith(JACLANG_DATA_EXTS) or fname in JACLANG_DATA_BASENAMES:
+                yield os.path.join(dirpath, fname), rel_dir

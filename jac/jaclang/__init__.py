@@ -2,11 +2,26 @@
 
 import sys
 
+import _jac_finder
+
 from jaclang.meta_importer import JacMetaImporter  # noqa: E402
 
 # Register JacMetaImporter BEFORE loading plugins, so .jac modules can be imported
 if not any(isinstance(f, JacMetaImporter) for f in sys.meta_path):
     sys.meta_path.insert(0, JacMetaImporter())
+
+# Also activate the Python-level hijack: registers .jac as a first-class
+# source suffix in importlib.machinery.SOURCE_SUFFIXES and installs a
+# lightweight path-level loader. This makes every importlib-based tool
+# (PyInstaller's analyzer, setuptools, Nuitka, IDE indexers) discover Jac
+# packages with no per-tool adapters. Safe to call repeatedly — install()
+# is idempotent and bails early if a Jac importer is already registered.
+#
+# Normally this runs at Python startup via jaclang.pth; we also call it
+# from here so jaclang-triggered contexts (e.g. PyInstaller hook loading
+# jaclang via an import) get the full hijack even when .pth hasn't fired
+# (notably under PEP 660 editable installs).
+_jac_finder.install()
 
 # Import compiler first to ensure generated parsers exist before jac0core.parser is loaded
 # Backwards-compatible import path for older plugins/tests.

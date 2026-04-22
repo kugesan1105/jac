@@ -33,8 +33,32 @@ hiddenimports = ["_jac_finder"] + collect_submodules("jaclang")
 
 datas = list(iter_jaclang_data_files())
 
-for _pkg in find_packages(
-    [os.getcwd()] + [p for p in sys.path if p and os.path.isdir(p)]
-):
+
+def _user_project_search_dirs() -> list[str]:
+    """Assemble every directory where the user's Jac packages might live.
+
+    ``os.getcwd()`` alone isn't reliable inside PyInstaller's analyzer —
+    some invocation styles (spec-file builds, CI wrappers) leave the
+    subprocess CWD pointing at PyInstaller's own workdir, not the user's
+    project root. We union in every non-flag entry of ``sys.argv`` (the
+    main script / spec file) and every real directory on ``sys.path``, so
+    we catch the project root regardless of how PyInstaller was launched.
+    """
+    dirs: list[str] = [os.getcwd()]
+
+    for arg in sys.argv:
+        if not arg or arg.startswith("-"):
+            continue
+        abs_arg = os.path.abspath(arg)
+        if os.path.isfile(abs_arg):
+            dirs.append(os.path.dirname(abs_arg))
+        elif os.path.isdir(abs_arg):
+            dirs.append(abs_arg)
+
+    dirs.extend(p for p in sys.path if p and os.path.isdir(p))
+    return dirs
+
+
+for _pkg in find_packages(_user_project_search_dirs()):
     for _src in _pkg.iter_sources():
         datas.append((_src.path, os.path.dirname(_src.relative_path)))

@@ -173,6 +173,12 @@ impl Anchor.__setstate__(state: dict[(str, Any)]) -> None {
         self.archetype.__jac__ = self;
         self.hash = hash(dumps(self));
     }
+    # Snapshot initial edge IDs for merge-based conflict resolution
+    if isinstance(self, NodeAnchor) {
+        self.__dict__['_initial_edge_ids'] = frozenset(
+            e.id for e in self.__dict__.get('edges', [])
+        );
+    }
 }
 
 """Override representation."""
@@ -196,9 +202,7 @@ impl Anchor.`report -> AnchorReport {
     return AnchorReport(
         id=self.id.hex,
         context=asdict(self.archetype)
-            if (
-                is_dataclass(self.archetype) and not isinstance(self.archetype, `type)
-            )
+            if (is_dataclass(self.archetype) and not isinstance(self.archetype, `type))
             else {}
     );
 }
@@ -238,6 +242,18 @@ impl NodeAnchor.__getstate__ -> dict[(str, object)] {
         }
     }
     return state;
+}
+
+"""Compute edge delta (added, removed) since this node was loaded from DB.
+Returns None if no snapshot exists (newly created node)."""
+impl NodeAnchor.edge_delta -> (tuple[(set[UUID], set[UUID])] | None) {
+    initial_fs: (frozenset | None) = self.__dict__.get('_initial_edge_ids');
+    if initial_fs is None {
+        return None;
+    }
+    initial: set[UUID] = set(initial_fs);
+    current: set[UUID] = set(e.id for e in self.edges);
+    return (current - initial, initial - current);
 }
 
 """Get decoded topology index (lazy-decoded from blob)."""

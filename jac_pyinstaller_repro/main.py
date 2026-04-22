@@ -1,11 +1,11 @@
 """PyInstaller + Jac reproduction entry point.
 
 This is the host Python program (same pattern as the jac-client sidecar).
-It imports jaclang to register the .jac meta importer, then reaches into
-a Jac-only package that has __init__.jac files but no __init__.py.
+It reaches directly into a Jac-only package that has __init__.jac files but
+no __init__.py — deliberately WITHOUT an explicit ``import jaclang`` — so
+the runtime hook shipped by jaclang._pyinstaller is what has to register
+JacMetaImporter before this import line executes.
 """
-
-import jaclang  # noqa: F401 — registers JacMetaImporter for .jac files
 
 from myapp.core.greeter import greet
 

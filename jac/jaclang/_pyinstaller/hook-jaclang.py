@@ -1,14 +1,17 @@
-"""PyInstaller standard hook for jaclang itself.
+"""PyInstaller adapter for jaclang.
 
-Runs when PyInstaller's analyzer encounters ``import jaclang``. Its job is to
-bundle jaclang's own runtime into the frozen application:
+Thin shim between PyInstaller's hook protocol and jaclang's sovereign
+packaging API (``jaclang.packaging``). This file does two things only:
 
-* All Python submodules (so ``collect_all``-style discovery works).
-* The vendored ``.jac`` sources and pre-compiled ``.jir`` caches that
-  jaclang compiles on first use — without these, the frozen app
-  re-triggers the "Setting up Jac for first use" compile on every launch,
-  and in some cases fails outright because source-only dirs are missing.
-* Data files flagged via ``package-data`` in jaclang's pyproject.toml.
+1. tell PyInstaller how to bundle jaclang itself (standard ``collect_*``);
+2. translate ``JacPackage`` / ``JacSource`` objects from
+   ``jaclang.packaging.find_packages`` into PyInstaller's ``datas`` tuple
+   format ``(abs_src_path, relative_dest_dir)``.
+
+All real logic — "what counts as a Jac package", "how do I walk its
+sources" — lives in ``jaclang.packaging``. When the native ``jac build``
+pipeline lands, it will consume the same API; this adapter then becomes a
+compatibility layer for existing PyInstaller-based deployments.
 """
 
 import os
@@ -16,30 +19,15 @@ import sys
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
-# Side-effect import: register the .jac source loader inside importlib so the
-# rest of PyInstaller's analysis can discover .jac files in user packages.
-# This must run before modulegraph processes any user imports — hook-load time
-# is the right moment.
-from jaclang._pyinstaller import _jac_source_finder, jac_packages
+from jaclang.packaging import find_packages
 
-_jac_source_finder.install()
-
-# Python submodules that import-graph walking might miss (plugin entry points,
-# lazy imports inside runtimelib, etc.).
 hiddenimports = collect_submodules("jaclang")
 
-# Everything that is NOT a .py file: .jac sources, .jir caches, .lark grammar,
-# .pyi stubs, the precompiled manifest, sitecustomize.py, etc.
-# include_py_files=False because hiddenimports already covers Python modules.
 datas = collect_data_files("jaclang", include_py_files=False)
 
-# Auto-discover the user's Jac packages by scanning the build cwd and sys.path
-# for directories that contain ``__init__.jac``. Each such directory is the root
-# of a Jac package whose entire ``.jac`` tree we copy verbatim into the bundle,
-# preserving its layout under the package name. JacMetaImporter then finds the
-# files at runtime via ``sys.path``.
-#
-# This is the load-bearing piece — without these data entries, the .jac files
-# never reach the frozen app and ``JacMetaImporter`` has nothing to import.
-_search_roots = [os.getcwd()] + [p for p in sys.path if p and os.path.isdir(p)]
-datas += jac_packages.collect_user_jac_packages(_search_roots)
+# Discover user Jac packages via the Jac-native API, then translate each
+# discovered source file into PyInstaller's (src, dest_dir) data tuple.
+_search_dirs = [os.getcwd()] + [p for p in sys.path if p and os.path.isdir(p)]
+for _pkg in find_packages(_search_dirs):
+    for _src in _pkg.iter_sources():
+        datas.append((_src.path, os.path.dirname(_src.relative_path)))

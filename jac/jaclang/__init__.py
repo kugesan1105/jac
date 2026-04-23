@@ -53,16 +53,3 @@ except Exception:
     pass  # Config not available or acceleration failed — continue normally
 
 __all__ = ["JacRuntimeInterface", "JacRuntime"]
-
-
-# Activate the Python-level hijack: registers .jac as a first-class source
-# suffix in importlib.machinery.SOURCE_SUFFIXES and installs a lightweight
-# path-level loader. Makes every importlib-based tool (PyInstaller's
-# analyzer, setuptools, Nuitka, IDE indexers) discover Jac packages with
-# no per-tool adapters. Kept at the BOTTOM of this file so that line
-# numbers of the public re-export block (used by langserver go-to-def
-# tests) match main. install() is idempotent; if jaclang.pth already
-# fired at interpreter startup, this is a no-op.
-import _jac_finder  # noqa: E402
-
-_jac_finder.install()

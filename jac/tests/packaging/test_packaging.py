@@ -109,7 +109,11 @@ def test_frozen_app_runs_jac_only_package(tmp_path: Path) -> None:
     assert build.returncode == 0, build.stderr
 
     internal = tmp_path / "dist/main/_internal"
-    bundled = list((internal / "myapp").rglob("*.jac")) if (internal / "myapp").exists() else []
+    bundled = (
+        list((internal / "myapp").rglob("*.jac"))
+        if (internal / "myapp").exists()
+        else []
+    )
     assert len(bundled) >= 5, (
         f"myapp not bundled (got {len(bundled)} .jac files).\n"
         f"tmp_path exists={tmp_path.exists()} "

@@ -107,7 +107,17 @@ def test_frozen_app_runs_jac_only_package(tmp_path: Path) -> None:
         text=True,
     )
     assert build.returncode == 0, build.stderr
-    assert len(list((tmp_path / "dist/main/_internal/myapp").rglob("*.jac"))) >= 5
+
+    internal = tmp_path / "dist/main/_internal"
+    bundled = list((internal / "myapp").rglob("*.jac")) if (internal / "myapp").exists() else []
+    assert len(bundled) >= 5, (
+        f"myapp not bundled (got {len(bundled)} .jac files).\n"
+        f"tmp_path exists={tmp_path.exists()} "
+        f"myapp exists={(tmp_path / 'myapp').exists()} "
+        f"__init__.jac exists={(tmp_path / 'myapp/__init__.jac').exists()}\n"
+        f"_internal contents: {sorted(p.name for p in internal.iterdir()) if internal.exists() else 'MISSING'}\n"
+        f"\n--- pyinstaller stderr tail ---\n{build.stderr[-4000:]}"
+    )
 
     run = subprocess.run(
         [str(tmp_path / "dist/main/main")],

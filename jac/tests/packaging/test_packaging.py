@@ -85,6 +85,15 @@ def test_frozen_app_runs_jac_only_package(tmp_path: Path) -> None:
     for rel, body in _FIXTURE.items():
         _mk(tmp_path / rel, body)
 
+    # Put tmp_path on PYTHONPATH so the hook's sys.path walk finds myapp even
+    # in environments where os.getcwd() / sys.argv inside PyInstaller's
+    # analyzer don't surface the project root reliably (seen under pytest-xdist).
+    import os as _os
+    env = {
+        **_os.environ,
+        "PYTHONPATH": str(tmp_path) + _os.pathsep + _os.environ.get("PYTHONPATH", ""),
+    }
+
     build = subprocess.run(
         [
             sys.executable,
@@ -105,6 +114,7 @@ def test_frozen_app_runs_jac_only_package(tmp_path: Path) -> None:
         cwd=tmp_path,
         capture_output=True,
         text=True,
+        env=env,
     )
     assert build.returncode == 0, build.stderr
 
@@ -114,13 +124,15 @@ def test_frozen_app_runs_jac_only_package(tmp_path: Path) -> None:
         if (internal / "myapp").exists()
         else []
     )
+    diag = tmp_path / "_jac_pyi_hook_diag.txt"
     assert len(bundled) >= 5, (
         f"myapp not bundled (got {len(bundled)} .jac files).\n"
         f"tmp_path exists={tmp_path.exists()} "
         f"myapp exists={(tmp_path / 'myapp').exists()} "
         f"__init__.jac exists={(tmp_path / 'myapp/__init__.jac').exists()}\n"
         f"_internal contents: {sorted(p.name for p in internal.iterdir()) if internal.exists() else 'MISSING'}\n"
-        f"\n--- pyinstaller stderr tail ---\n{build.stderr[-4000:]}"
+        f"hook diag: {diag.read_text() if diag.exists() else '<not written>'}\n"
+        f"--- pyinstaller stderr tail ---\n{build.stderr[-4000:]}"
     )
 
     run = subprocess.run(

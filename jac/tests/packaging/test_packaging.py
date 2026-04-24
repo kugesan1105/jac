@@ -37,16 +37,12 @@ def test_iter_user_jac_sources_filters_correctly(tmp_path: Path) -> None:
     _mk(tmp_path / "_priv" / "__init__.jac")
     _mk(tmp_path / "pyonly" / "__init__.py")
 
-    got = list(
-        iter_user_jac_sources([str(tmp_path), str(tmp_path), "", "/nonexistent"])
-    )
+    got = list(iter_user_jac_sources([str(tmp_path), str(tmp_path), "", "/nonexistent"]))
     srcs = [s for s, _ in got]
 
     assert len(got) == 3
     assert all(s.endswith(".jac") for s in srcs)
-    assert not any(
-        seg in s for s in srcs for seg in (".hidden", ".cache", "_priv", "pyonly")
-    )
+    assert not any(seg in s for s in srcs for seg in (".hidden", ".cache", "_priv", "pyonly"))
 
 
 def test_iter_jaclang_data_files_includes_modresolver() -> None:
@@ -58,39 +54,22 @@ def test_iter_jaclang_data_files_includes_modresolver() -> None:
     assert files
     assert all(p.startswith(root) for p, _ in files)
     assert all(rel.split(os.sep, 1)[0] == "jaclang" for _, rel in files)
-    assert any(
-        p.endswith(os.path.join("jac0core", "modresolver.jac")) for p, _ in files
-    )
+    assert any(p.endswith(os.path.join("jac0core", "modresolver.jac")) for p, _ in files)
 
 
 def test_pyinstaller_entry_point_is_discoverable_and_works(tmp_path: Path) -> None:
-    """Fails fast if jaclang's ``pyinstaller40`` entry point isn't registered
-    in this Python environment, or if loading it doesn't activate ``.jac``
-    path-based discovery. If this test fails, the full integration test
-    below can't possibly pass — and the failure here localizes exactly where
-    the plumbing is broken (pyproject.toml / setuptools editable install /
-    our ``get_hook_dirs`` implementation)."""
+    """Entry point is registered and activates ``.jac`` path-based discovery."""
     eps = [ep for ep in entry_points(group="pyinstaller40") if "jaclang" in ep.value]
-    assert eps, (
-        "jaclang pyinstaller40 entry point not registered.\n"
-        f"Registered pyinstaller40 entry points: "
-        f"{[ep.value for ep in entry_points(group='pyinstaller40')]}"
-    )
+    assert eps, "jaclang pyinstaller40 entry point not registered"
 
-    get_hook_dirs = eps[0].load()
-    hook_dirs = get_hook_dirs()
+    hook_dirs = eps[0].load()()
     assert hook_dirs and os.path.isfile(os.path.join(hook_dirs[0], "hook-jaclang.py"))
 
-    # After get_hook_dirs has run, FileFinder must see __init__.jac packages.
     pkg = tmp_path / "testpkg"
     pkg.mkdir()
     (pkg / "__init__.jac").write_text("")
-    importer = pkgutil.get_importer(str(tmp_path))
-    spec = importer.find_spec("testpkg")
-    assert spec is not None, (
-        "get_hook_dirs() ran but FileFinder still doesn't recognize __init__.jac. "
-        "The path-level .jac hook isn't being installed correctly."
-    )
+    spec = pkgutil.get_importer(str(tmp_path)).find_spec("testpkg")
+    assert spec is not None, "path-level .jac hook not installed by get_hook_dirs()"
 
 
 _FIXTURE = {
@@ -117,67 +96,34 @@ def test_frozen_app_runs_jac_only_package(tmp_path: Path) -> None:
     for rel, body in _FIXTURE.items():
         _mk(tmp_path / rel, body)
 
-    # Under a PEP 660 editable install of jaclang, its source directory is
-    # NOT on any ``sys.path`` entry — jaclang is reachable only via a
-    # meta-path finder. PyInstaller snapshots its ``pathex`` from
-    # ``sys.path`` at Analysis-init time, *before* our entry-point hook
-    # gets a chance to run, so any ``sys.path`` mutation we do in
-    # ``get_hook_dirs`` is invisible to the analyzer. ``--paths`` injects
-    # the directory directly into ``pathex`` — the only reliable way to
-    # make PyInstaller's path-based modulegraph see editable jaclang.
-    # Wheel-installed jaclang is on sys.path natively and doesn't need this.
-    import jaclang as _jaclang_for_pathex
+    # Under PEP 660 editable installs, jaclang is on sys.meta_path only —
+    # invisible to PyInstaller's path-based analyzer. ``--paths`` injects
+    # jaclang's parent directly into pathex. Wheel installs don't need this.
+    import jaclang
 
-    jaclang_parent = os.path.dirname(os.path.dirname(_jaclang_for_pathex.__file__))
+    jaclang_parent = os.path.dirname(os.path.dirname(jaclang.__file__))
 
     build = subprocess.run(
         [
-            sys.executable,
-            "-m",
-            "PyInstaller",
-            "--noconfirm",
-            "--onedir",
-            "--paths",
-            jaclang_parent,
-            "--collect-all",
-            "jaclang",
-            "--distpath",
-            str(tmp_path / "dist"),
-            "--workpath",
-            str(tmp_path / "build"),
-            "--specpath",
-            str(tmp_path),
+            sys.executable, "-m", "PyInstaller", "--noconfirm", "--onedir",
+            "--paths", jaclang_parent,
+            "--collect-all", "jaclang",
+            "--distpath", str(tmp_path / "dist"),
+            "--workpath", str(tmp_path / "build"),
+            "--specpath", str(tmp_path),
             str(tmp_path / "main.py"),
         ],
-        cwd=tmp_path,
-        capture_output=True,
-        text=True,
+        cwd=tmp_path, capture_output=True, text=True,
     )
     assert build.returncode == 0, build.stderr
 
     internal = tmp_path / "dist/main/_internal"
-    bundled = (
-        list((internal / "myapp").rglob("*.jac"))
-        if (internal / "myapp").exists()
-        else []
-    )
-    # Include stderr HEAD (shows hook loading) and TAIL (shows graph errors) so
-    # failures reveal whether our get_hook_dirs callback fired.
-    assert len(bundled) >= 5, (
-        f"myapp not bundled (got {len(bundled)}).\n"
-        f"_internal: {sorted(p.name for p in internal.iterdir()) if internal.exists() else 'MISSING'}\n"
-        f"hook-ran markers: "
-        f"{[line for line in build.stderr.splitlines() if 'jaclang._pyinstaller' in line]}\n"
-        f"stderr head (first 3000):\n{build.stderr[:3000]}\n\n"
-        f"stderr tail (last 2000):\n{build.stderr[-2000:]}"
-    )
+    bundled = list((internal / "myapp").rglob("*.jac")) if (internal / "myapp").exists() else []
+    assert len(bundled) >= 5, f"myapp not bundled (got {len(bundled)})\n{build.stderr[-2000:]}"
 
     run = subprocess.run(
         [str(tmp_path / "dist/main/main")],
-        cwd="/",
-        capture_output=True,
-        text=True,
-        timeout=60,
+        cwd="/", capture_output=True, text=True, timeout=60,
     )
     assert run.returncode == 0, run.stderr
     assert "Hello, world!!!" in run.stdout

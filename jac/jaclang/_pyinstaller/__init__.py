@@ -26,4 +26,13 @@ def get_hook_dirs() -> list[str]:
     if jaclang_parent and jaclang_parent not in sys.path:
         sys.path.insert(0, jaclang_parent)
 
+    # One-line info log, mirrors what numpy/matplotlib hooks do. Makes CI
+    # stderr prove whether this callback fired at all.
+    print(
+        f"jaclang._pyinstaller: get_hook_dirs ran "
+        f"(jaclang={jaclang.__file__}, parent_on_path={jaclang_parent in sys.path})",
+        file=sys.stderr,
+        flush=True,
+    )
+
     return [os.path.dirname(__file__)]

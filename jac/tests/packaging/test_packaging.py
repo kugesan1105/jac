@@ -146,10 +146,15 @@ def test_frozen_app_runs_jac_only_package(tmp_path: Path) -> None:
         if (internal / "myapp").exists()
         else []
     )
+    # Include stderr HEAD (shows hook loading) and TAIL (shows graph errors) so
+    # failures reveal whether our get_hook_dirs callback fired.
     assert len(bundled) >= 5, (
         f"myapp not bundled (got {len(bundled)}).\n"
         f"_internal: {sorted(p.name for p in internal.iterdir()) if internal.exists() else 'MISSING'}\n"
-        f"stderr tail:\n{build.stderr[-3000:]}"
+        f"hook-ran markers: "
+        f"{[line for line in build.stderr.splitlines() if 'jaclang._pyinstaller' in line]}\n"
+        f"stderr head (first 3000):\n{build.stderr[:3000]}\n\n"
+        f"stderr tail (last 2000):\n{build.stderr[-2000:]}"
     )
 
     run = subprocess.run(

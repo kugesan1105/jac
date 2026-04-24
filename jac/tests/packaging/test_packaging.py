@@ -89,6 +89,7 @@ def test_frozen_app_runs_jac_only_package(tmp_path: Path) -> None:
     # in environments where os.getcwd() / sys.argv inside PyInstaller's
     # analyzer don't surface the project root reliably (seen under pytest-xdist).
     import os as _os
+
     env = {
         **_os.environ,
         "PYTHONPATH": str(tmp_path) + _os.pathsep + _os.environ.get("PYTHONPATH", ""),

@@ -117,6 +117,19 @@ def test_frozen_app_runs_jac_only_package(tmp_path: Path) -> None:
     for rel, body in _FIXTURE.items():
         _mk(tmp_path / rel, body)
 
+    # Under a PEP 660 editable install of jaclang, its source directory is
+    # NOT on any ``sys.path`` entry — jaclang is reachable only via a
+    # meta-path finder. PyInstaller snapshots its ``pathex`` from
+    # ``sys.path`` at Analysis-init time, *before* our entry-point hook
+    # gets a chance to run, so any ``sys.path`` mutation we do in
+    # ``get_hook_dirs`` is invisible to the analyzer. ``--paths`` injects
+    # the directory directly into ``pathex`` — the only reliable way to
+    # make PyInstaller's path-based modulegraph see editable jaclang.
+    # Wheel-installed jaclang is on sys.path natively and doesn't need this.
+    import jaclang as _jaclang_for_pathex
+
+    jaclang_parent = os.path.dirname(os.path.dirname(_jaclang_for_pathex.__file__))
+
     build = subprocess.run(
         [
             sys.executable,
@@ -124,6 +137,8 @@ def test_frozen_app_runs_jac_only_package(tmp_path: Path) -> None:
             "PyInstaller",
             "--noconfirm",
             "--onedir",
+            "--paths",
+            jaclang_parent,
             "--collect-all",
             "jaclang",
             "--distpath",

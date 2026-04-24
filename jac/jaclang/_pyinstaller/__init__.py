@@ -1,38 +1,26 @@
 """PyInstaller hooks for jaclang, wired via the ``pyinstaller40`` entry point."""
 
 import os
-import sys
 
 
 def get_hook_dirs() -> list[str]:
-    """Return hook dirs AND activate build-time .jac support.
+    """Return the hook directory and activate ``.jac`` path-based discovery.
 
-    Runs at PyInstaller startup (before module graph analysis). Two side
-    effects, both safe outside PyInstaller too:
+    PyInstaller calls this at startup. We install the ``FileFinder`` loader
+    that makes ``__init__.jac`` a recognized package marker — this is what
+    lets the analyzer see Jac subpackages of jaclang (and user projects)
+    without needing empty ``__init__.py`` scaffolding.
 
-    * install the ``.jac`` path-level loader so ``FileFinder`` recognizes
-      ``__init__.jac`` as a package marker;
-    * surface jaclang's source parent directory on ``sys.path`` — required
-      under PEP 660 editable installs where jaclang is otherwise reachable
-      only via ``sys.meta_path``.
+    Note: PyInstaller snapshots its ``pathex`` from ``sys.path`` *before*
+    this callback fires, so we cannot surface jaclang's source directory
+    from here. Under a PEP 660 editable install (``pip install -e``),
+    jaclang lives only on ``sys.meta_path`` and users must pass
+    ``--paths <jaclang_parent>`` or set ``PYTHONPATH`` at the CLI.
+    Wheel-installed jaclang is already on ``sys.path`` via site-packages
+    and needs no extra flags.
     """
     import _jac_finder
 
-    import jaclang
-
     _jac_finder._install_jac_path_hook()
-
-    jaclang_parent = os.path.dirname(os.path.dirname(jaclang.__file__))
-    if jaclang_parent and jaclang_parent not in sys.path:
-        sys.path.insert(0, jaclang_parent)
-
-    # One-line info log, mirrors what numpy/matplotlib hooks do. Makes CI
-    # stderr prove whether this callback fired at all.
-    print(
-        f"jaclang._pyinstaller: get_hook_dirs ran "
-        f"(jaclang={jaclang.__file__}, parent_on_path={jaclang_parent in sys.path})",
-        file=sys.stderr,
-        flush=True,
-    )
 
     return [os.path.dirname(__file__)]

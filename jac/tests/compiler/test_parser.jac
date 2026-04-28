@@ -758,90 +758,49 @@ test "bracket filter on list" {
     assert not err , "Failed to parse list bracket filter";
 }
 
-# ── Lexer tests for `_try_scan_jsx_block_comment` ─────────────────────
-# Atomic scan of `{ \s* #* ... *# \s* }` in JSX_CONTENT mode.  Match,
-# miss, and rewind invariants — exercised against `Lexer` directly so
-# regressions surface before the parser/formatter integration.
-def _jsx_tokenize(source: str) -> tuple[list, list] {
-    lexer = Lexer(source=source, file_path="<test>");
-    tokens = lexer.tokenize();
-    return (tokens, list(lexer.comments));
+# ── `_try_scan_jsx_block_comment` invariants — match, miss, rewind ──
+def _jsx_lex(src: str) -> tuple[list, list] {
+    lex = Lexer(source=src, file_path="<test>");
+    return (lex.tokenize(), list(lex.comments));
 }
 
-def _jsx_kinds(tokens: list) -> list {
-    return [
-        tok.kind
-        for tok in tokens
-        if tok.kind != TokenKind.EOF
-    ];
-}
-
-"""Comment-only slot fuses into a single JSX_BLOCK_COMMENT token."""
-test "comment-only slot is fused" {
-    for src in ['<p>{#* hi *#}</p>', '<p>{   #* hi *#   }</p>'] {
-        (tokens, free_comments) = _jsx_tokenize(src);
-        kinds = _jsx_kinds(tokens);
-        assert TokenKind.JSX_BLOCK_COMMENT in kinds , (
-            f"{src!r}: not fused into JSX_BLOCK_COMMENT, got {kinds}"
-        );
-        assert TokenKind.LBRACE not in kinds , f"{src!r}: LBRACE leaked";
-        assert not free_comments , (
-            f"{src!r}: leaked into lexer.comments: {free_comments}"
-        );
-    }
-}
-
-"""Anything other than a comment-only slot rewinds to normal `{`
-handling; the inner comment scans as a free block comment via
-`skip_block_comment`."""
-test "lookahead rewinds for non-comment-only slots" {
+"""Comment-only `{#* ... *#}` fuses into a single JSX_BLOCK_COMMENT
+token; anything else (expression slot, comment+expression, two
+comments, non-JSX context) rewinds to normal `{` handling and the
+inner `#* *#` becomes a free block comment."""
+test "JSX block-comment lookahead match/rewind invariants" {
+    # (source, fused?, expected free count, optional needle)
     cases = [
-        # (source, expected free count, substring expected somewhere)
-        ('<p>{count #* trailing *#}</p>', 1, "trailing"),
-        ('<p>{#* lead *# count}</p>', 1, "lead"),
-        ('<p>{#* a *# #* b *#}</p>', 2, "a"),
-
+        ('<p>{#* hi *#}</p>',                  True,  0, ""),
+        ('<p>{   #* hi *#   }</p>',            True,  0, ""),
+        ('<p>{count #* trailing *#}</p>',      False, 1, "trailing"),
+        ('<p>{#* lead *# count}</p>',          False, 1, "lead"),
+        ('<p>{#* a *# #* b *#}</p>',           False, 2, "a"),
+        ('with entry { x = { #* nope *# }; }', False, 1, "nope"),
     ];
-    for (src, expected_count, needle) in cases {
-        (tokens, free_comments) = _jsx_tokenize(src);
-        kinds = _jsx_kinds(tokens);
-        assert TokenKind.JSX_BLOCK_COMMENT not in kinds , (f"{src!r}: should not fuse");
-        assert TokenKind.LBRACE in kinds and TokenKind.RBRACE in kinds;
-        assert len(free_comments) == expected_count , (
-            f"{src!r}: expected {expected_count} free comment(s), "
-            f"got {len(free_comments)}"
-        );
-        assert any(needle in c[0] for c in free_comments) , (
-            f"{src!r}: missing {needle!r} in free comments"
-        );
+    for (src, fused, expected_count, needle) in cases {
+        (tokens, frees) = _jsx_lex(src);
+        kinds = [t.kind for t in tokens if t.kind != TokenKind.EOF];
+        if fused {
+            assert TokenKind.JSX_BLOCK_COMMENT in kinds , f"{src!r}: not fused";
+            assert TokenKind.LBRACE not in kinds , f"{src!r}: LBRACE leaked";
+        } else {
+            assert TokenKind.JSX_BLOCK_COMMENT not in kinds , f"{src!r}: wrongly fused";
+            assert TokenKind.LBRACE in kinds , f"{src!r}: LBRACE missing";
+        }
+        assert len(frees) == expected_count , f"{src!r}: frees={frees}";
+        if needle {
+            assert any(needle in c[0] for c in frees) , f"{src!r}: missing {needle!r}";
+        }
     }
 }
 
 """LBRACE position must survive a partial-lookahead rewind."""
 test "rewind preserves token position" {
-    (tokens, _) = _jsx_tokenize('<p>{count}</p>');
-    lbrace_tok = next(
-        (
-            t
-            for t in tokens
-            if t.kind == TokenKind.LBRACE
-        ),
-        None
-    );
-    assert lbrace_tok is not None;
+    (tokens, _) = _jsx_lex('<p>{count}</p>');
+    lb = next((t for t in tokens if t.kind == TokenKind.LBRACE), None);
     # `{` is at byte offset 3 (`<p>{`).
-    assert lbrace_tok.loc.pos_start == 3 , (
-        f"LBRACE pos_start drifted — got {lbrace_tok.loc.pos_start}"
-    );
-}
-
-"""Lookahead only fires in JSX_CONTENT mode."""
-test "non-JSX brace pair never produces JSX_BLOCK_COMMENT" {
-    (tokens, free_comments) = _jsx_tokenize('with entry { x = { #* nope *# }; }');
-    kinds = _jsx_kinds(tokens);
-
-    assert TokenKind.JSX_BLOCK_COMMENT not in kinds;
-    assert any(c[0].strip().startswith("#*") for c in free_comments);
+    assert lb is not None and lb.loc.pos_start == 3 , f"LBRACE drift: {lb}";
 }
 
 with entry {

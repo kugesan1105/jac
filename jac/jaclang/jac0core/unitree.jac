@@ -1278,10 +1278,10 @@ obj JsxExpression(JsxChild) {
     def postinit -> None;
 }
 
-"""JsxComment: an empty `{ }` brace pair in a JSX body. Owns the
-CommentToken from a `{#* ... *#}` slot, or `comment=None` for `{}`."""
+"""JsxComment: a `{#* ... *#}` brace pair in a JSX body. Owns the
+CommentToken from the slot."""
 obj JsxComment(JsxChild) {
-    has comment: (CommentToken | None) = None;
+    has comment: CommentToken;
 
     def postinit -> None;
 }

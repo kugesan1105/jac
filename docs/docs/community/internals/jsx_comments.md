@@ -16,18 +16,8 @@ where the moving parts live.
 </div>
 ```
 
-Three legal shapes inside a JSX child position:
-
-| Shape | Example | AST |
-| --- | --- | --- |
-| Comment-only brace pair | `{#* note *#}` | `JsxComment(comment=ct, …)` |
-| Literal empty brace pair | `{}` | `JsxComment(comment=None, …)` |
-| Whitespace-only brace pair | `{   }` | `JsxComment(comment=None, …)` |
-
-The `{}` and `{   }` cases are pragmatically accepted (silently rendered
-as `{}` by the formatter). TSX rejects them; Jac does not. This is a
-deliberate UX choice — empty JSX braces are harmless and can appear in
-machine-generated or in-progress code.
+Only `{#* ... *#}` is a valid JSX comment slot. Bare `{}` and
+whitespace-only `{   }` are parse errors (matching TSX behavior).
 
 ## Architectural choice — why a real AST node
 
@@ -66,7 +56,7 @@ node and dispatch on it like any other JSX child.
 ### Lexer — JSX-aware atomic scan
 
 When the lexer is in `JSX_CONTENT` mode and the cursor sits on `{`, it
-calls `_try_scan_jsx_block_comment` ([lexer.impl.jac](../../jac/jaclang/jac0core/parser/impl/lexer.impl.jac)).
+calls `_try_scan_jsx_block_comment` ([lexer.impl.jac](../../../../jac/jaclang/jac0core/parser/impl/lexer.impl.jac)).
 That helper does a reversible lookahead for `{ \s* #* ... *# \s* }`:
 
 - **Match** → consume the entire pattern, emit a single
@@ -79,25 +69,22 @@ That helper does a reversible lookahead for `{ \s* #* ... *# \s* }`:
 
 The rewind is fully reversible — no tokens are emitted and nothing is
 appended to `self.comments` during the lookahead. Direct tests live in
-[test_jsx_block_comment_lexer.jac](../../jac/tests/compiler/passes/native/test_jsx_block_comment_lexer.jac).
+[test_parser.jac](../../../../jac/tests/compiler/test_parser.jac).
 
 ### Parser — typed dispatch
 
-`parse_jsx_child` ([parser.impl.jac](../../jac/jaclang/jac0core/parser/impl/parser.impl.jac))
-sees three relevant entry points:
+`parse_jsx_child` ([parser.impl.jac](../../../../jac/jaclang/jac0core/parser/impl/parser.impl.jac))
+branches on:
 
 1. `TokenKind.JSX_BLOCK_COMMENT` → slice the inner `#* ... *#` out of
    the token's source range, build a `CommentToken`, synthesize
-   `LBRACE`/`RBRACE` `UniToken`s at the slot's outer brace positions,
-   return `JsxComment(comment=ct, kid=[lbrace, rbrace])`.
-2. `TokenKind.LBRACE` followed immediately by `TokenKind.RBRACE` →
-   literal empty `{}` (or whitespace-only after lookahead miss). Return
-   `JsxComment(comment=None, kid=[lbrace, rbrace])`.
-3. `TokenKind.LBRACE` followed by an expression → existing
+   `LBRACE`/`RBRACE` `UniToken`s at the outer brace positions, return
+   `JsxComment(comment=ct, kid=[lbrace, rbrace])`.
+2. `TokenKind.LBRACE` followed by an expression → existing
    `JsxExpression(expr, …)` path.
 
-Both `JsxComment` shapes have `kid = [lbrace_uni, rbrace_uni]` —
-intentionally the same shape so downstream passes don't have to branch.
+Bare `{}` falls through case 2 and `parse_expression` errors on the
+adjacent `RBRACE` — same as TSX.
 
 ### Comment ownership
 
@@ -118,7 +105,7 @@ This means:
 
 | Pass | Handler | Behavior |
 | --- | --- | --- |
-| `doc_ir_gen_pass` | `exit_jsx_comment` | Renders `{ comment.value }` (or `{}`) inline; adds `JsxComment` to `inline_child_types` so JSX layout treats it as inline. |
+| `doc_ir_gen_pass` | `exit_jsx_comment` | Renders `{ comment.value }` inline; adds `JsxComment` to `inline_child_types` so JSX layout treats it as inline. |
 | `unparse_pass` | `exit_jsx_comment` | Mirrors doc-IR rendering for non-formatter unparse. |
 | `normalize_pass` | `enter_jsx_comment` | Rebuilds canonical `kid = [LBRACE, RBRACE]` (no-op for the parser-built shape, repairs synthesized kid lists). |
 | `pyast_gen_pass` | (none) | `gen.py_ast` defaults to `[]`; `PyJsxProcessor.element` filters `JsxComment` children out of the runtime children list before reading `.py_ast[0]`. |
@@ -149,11 +136,11 @@ If you ever add a fourth `JsxChild` subclass, the pattern is:
 
 | Test file | What it covers |
 | --- | --- |
-| [test_jsx_block_comment_lexer.jac](../../jac/tests/compiler/passes/native/test_jsx_block_comment_lexer.jac) | Lexer rewind invariants — match, miss, position preservation, JSX vs non-JSX context. |
-| [test_jac_format_pass.jac](../../jac/tests/compiler/passes/tool/test_jac_format_pass.jac) | Formatter end-to-end — JSX-body comments preserved, idempotent, non-JSX same-line block comments unaffected. |
-| [test_pyast_gen_pass.jac](../../jac/tests/compiler/passes/main/test_pyast_gen_pass.jac) | Python codegen — JsxComment children produce no `None` slot in the `_jaclib.jsx(…)` children list; runtime exec succeeds. |
-| [test_esast_gen_pass.jac](../../jac/tests/compiler/passes/ecmascript/test_esast_gen_pass.jac) | ECMAScript codegen — same property for the `__jacJsx(…)` array. |
-| [jsx_body_comment.jac](../../jac/tests/language/fixtures/jsx_body_comment.jac) | Fixture: comment-between-siblings, comment-only-child, comment-adjacent-to-expr. |
+| [test_parser.jac](../../../../jac/tests/compiler/test_parser.jac) | Lexer rewind invariants — match, miss, position preservation, JSX vs non-JSX context. |
+| [test_jac_format_pass.jac](../../../../jac/tests/compiler/passes/tool/test_jac_format_pass.jac) | Formatter end-to-end — JSX-body comments preserved, idempotent, non-JSX same-line block comments unaffected. |
+| [test_pyast_gen_pass.jac](../../../../jac/tests/compiler/passes/main/test_pyast_gen_pass.jac) | Python codegen — JsxComment children produce no `None` slot in the `_jaclib.jsx(…)` children list; runtime exec succeeds. |
+| [test_esast_gen_pass.jac](../../../../jac/tests/compiler/passes/ecmascript/test_esast_gen_pass.jac) | ECMAScript codegen — same property for the `__jacJsx(…)` array. |
+| [jsx_body_comment.jac](../../../../jac/tests/language/fixtures/jsx_body_comment.jac) | Fixture: comment-between-siblings, comment-only-child, comment-adjacent-to-expr. |
 
 ## Known limitations
 
@@ -162,5 +149,3 @@ If you ever add a fourth `JsxChild` subclass, the pattern is:
   as an expression slot. The parser then errors because there's no
   expression. Treat this as "don't write that." Same limitation in all
   prior designs.
-- **Empty/whitespace-only braces** — accepted as a no-op `JsxComment`,
-  rendered by the formatter as `{}`. TSX rejects this; Jac does not.

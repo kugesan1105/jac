@@ -3397,17 +3397,11 @@ impl Parser.parse_jsx_child -> Expr {
         );
         return JsxComment(comment=ct, kid=[lbrace_uni, rbrace_uni]);
     }
-    # Expression: {expr}
+    # Expression: {expr}.  Bare `{}` / `{   }` is rejected by
+    # parse_expression (RBRACE is not a valid expression start) — same
+    # as TSX, deliberately.
     if self.check(TokenKind.LBRACE) {
         lbrace = self.advance();  # consume {
-        # Empty `{}` or whitespace-only `{   }`: no-op JSX child,
-        # recorded as comment-less JsxComment (Jac accepts; TSX rejects).
-        if self.check(TokenKind.RBRACE) {
-            rbrace = self.advance();  # consume }
-            lbrace_uni = self.make_uni_token(lbrace);
-            rbrace_uni = self.make_uni_token(rbrace);
-            return JsxComment(comment=None, kid=[lbrace_uni, rbrace_uni]);
-        }
         lbrace_uni = self.make_uni_token(lbrace);
         expr = self.parse_expression();
         rbrace_uni = self.consume_uni(TokenKind.RBRACE);

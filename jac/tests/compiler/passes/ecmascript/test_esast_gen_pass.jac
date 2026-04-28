@@ -134,16 +134,12 @@ test "jsx comment is filtered from runtime children" {
     es_ast = compile_to_esast(fixture_path("jsx_comment_codegen.cl.jac"));
     js_code = es_to_js(es_ast);
 
-    # Every function in the fixture should compile.
     for needle in [
         "function comment_only_child()",
         "function comment_between_siblings()",
-        "function comment_adjacent_to_expression()",
-        "function literally_empty_braces()"
+        "function comment_adjacent_to_expression()"
     ] {
-        assert needle in js_code , (
-            f"Missing compiled function {needle!r} in JS output:\n" + js_code
-        );
+        assert needle in js_code , f"Missing {needle!r}:\n" + js_code;
     }
 
     # The whole point: NO `null` children in any `__jacJsx` call.

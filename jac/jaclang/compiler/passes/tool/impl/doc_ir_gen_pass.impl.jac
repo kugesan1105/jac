@@ -13,18 +13,12 @@ impl DocIRGenPass.exit_jsx_text(nd: uni.JsxText) -> None {
     nd.gen.doc_ir = doc.Text(nd.get_normalized_text(), source_token=source_tok);
 }
 
-"""DocIR for JSX comment slot: render `{ comment }` inline, or `{}` if
-comment-less.  CommentToken lives on the node, not in source.comments,
-so CommentInjectionPass never sees it."""
+"""DocIR for `{#* ... *#}`: render `{ comment }` inline.  The
+CommentToken lives on the node, not in source.comments, so
+CommentInjectionPass never sees it."""
 impl DocIRGenPass.exit_jsx_comment(nd: uni.JsxComment) -> None {
     source_tok = nd.kid[0] if nd.kid else None;
-    if nd.comment is not None {
-        nd.gen.doc_ir = doc.Text(
-            "{ " + nd.comment.value + " }", source_token=source_tok
-        );
-    } else {
-        nd.gen.doc_ir = doc.Text("{}", source_token=source_tok);
-    }
+    nd.gen.doc_ir = doc.Text("{ " + nd.comment.value + " }", source_token=source_tok);
 }
 
 """Generate DocIR for JSX normal attributes."""

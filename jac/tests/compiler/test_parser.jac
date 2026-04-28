@@ -762,7 +762,6 @@ test "bracket filter on list" {
 # Atomic scan of `{ \s* #* ... *# \s* }` in JSX_CONTENT mode.  Match,
 # miss, and rewind invariants — exercised against `Lexer` directly so
 # regressions surface before the parser/formatter integration.
-
 def _jsx_tokenize(source: str) -> tuple[list, list] {
     lexer = Lexer(source=source, file_path="<test>");
     tokens = lexer.tokenize();
@@ -777,92 +776,48 @@ def _jsx_kinds(tokens: list) -> list {
     ];
 }
 
-test "comment-only slot becomes a single JSX_BLOCK_COMMENT token" {
-    (tokens, free_comments) = _jsx_tokenize('<p>{#* hi *#}</p>');
-    kinds = _jsx_kinds(tokens);
-
-    assert TokenKind.JSX_BLOCK_COMMENT in kinds , (
-        f"Expected JSX_BLOCK_COMMENT in token stream, got: {kinds}"
-    );
-    assert TokenKind.LBRACE not in kinds , (
-        f"LBRACE leaked through — slot should be fused: {kinds}"
-    );
-    assert not free_comments , (
-        f"JSX block comment leaked into lexer.comments: {free_comments}"
-    );
+"""Comment-only slot fuses into a single JSX_BLOCK_COMMENT token."""
+test "comment-only slot is fused" {
+    for src in ['<p>{#* hi *#}</p>', '<p>{   #* hi *#   }</p>'] {
+        (tokens, free_comments) = _jsx_tokenize(src);
+        kinds = _jsx_kinds(tokens);
+        assert TokenKind.JSX_BLOCK_COMMENT in kinds , (
+            f"{src!r}: not fused into JSX_BLOCK_COMMENT, got {kinds}"
+        );
+        assert TokenKind.LBRACE not in kinds , f"{src!r}: LBRACE leaked";
+        assert not free_comments , (
+            f"{src!r}: leaked into lexer.comments: {free_comments}"
+        );
+    }
 }
 
-test "comment-only slot with surrounding whitespace is fused" {
-    (tokens, free_comments) = _jsx_tokenize('<p>{   #* hi *#   }</p>');
-    kinds = _jsx_kinds(tokens);
+"""Anything other than a comment-only slot rewinds to normal `{`
+handling; the inner comment scans as a free block comment via
+`skip_block_comment`."""
+test "lookahead rewinds for non-comment-only slots" {
+    cases = [
+        # (source, expected free count, substring expected somewhere)
+        ('<p>{count #* trailing *#}</p>', 1, "trailing"),
+        ('<p>{#* lead *# count}</p>', 1, "lead"),
+        ('<p>{#* a *# #* b *#}</p>', 2, "a"),
 
-    assert TokenKind.JSX_BLOCK_COMMENT in kinds;
-    assert TokenKind.LBRACE not in kinds;
-    assert not free_comments;
+    ];
+    for (src, expected_count, needle) in cases {
+        (tokens, free_comments) = _jsx_tokenize(src);
+        kinds = _jsx_kinds(tokens);
+        assert TokenKind.JSX_BLOCK_COMMENT not in kinds , (f"{src!r}: should not fuse");
+        assert TokenKind.LBRACE in kinds and TokenKind.RBRACE in kinds;
+        assert len(free_comments) == expected_count , (
+            f"{src!r}: expected {expected_count} free comment(s), "
+            f"got {len(free_comments)}"
+        );
+        assert any(needle in c[0] for c in free_comments) , (
+            f"{src!r}: missing {needle!r} in free comments"
+        );
+    }
 }
 
-"""Expression slot: rewind, normal `{` handling, inner `#*` scans as a
-free block comment via `skip_block_comment`."""
-test "expression slot rewinds and treats inner comment as free" {
-    (tokens, free_comments) = _jsx_tokenize('<p>{count #* trailing *#}</p>');
-    kinds = _jsx_kinds(tokens);
-
-    assert TokenKind.JSX_BLOCK_COMMENT not in kinds;
-    assert TokenKind.LBRACE in kinds;
-    assert TokenKind.RBRACE in kinds;
-    assert len(free_comments) == 1;
-    assert "trailing" in free_comments[0][0];
-}
-
-"""Literal empty `{}`: no `#*` found, rewind to normal `{` handling."""
-test "literal empty braces rewind to LBRACE/RBRACE" {
-    (tokens, free_comments) = _jsx_tokenize('<div>{}</div>');
-    kinds = _jsx_kinds(tokens);
-
-    assert TokenKind.JSX_BLOCK_COMMENT not in kinds;
-    assert TokenKind.LBRACE in kinds;
-    assert TokenKind.RBRACE in kinds;
-    assert not free_comments;
-}
-
-"""Whitespace-only `{   }`: same as literal empty."""
-test "whitespace-only braces rewind to LBRACE/RBRACE" {
-    (tokens, free_comments) = _jsx_tokenize('<div>{   }</div>');
-    kinds = _jsx_kinds(tokens);
-
-    assert TokenKind.JSX_BLOCK_COMMENT not in kinds;
-    assert TokenKind.LBRACE in kinds;
-    assert TokenKind.RBRACE in kinds;
-    assert not free_comments;
-}
-
-"""Comment plus expression: rewind, normal `{` handling."""
-test "comment plus expression after rewinds correctly" {
-    (tokens, free_comments) = _jsx_tokenize('<p>{#* lead *# count}</p>');
-    kinds = _jsx_kinds(tokens);
-
-    assert TokenKind.JSX_BLOCK_COMMENT not in kinds;
-    assert TokenKind.LBRACE in kinds;
-    assert TokenKind.NAME in kinds;
-    assert TokenKind.RBRACE in kinds;
-    assert len(free_comments) == 1;
-    assert "lead" in free_comments[0][0];
-}
-
-"""Two comments in one slot: lookahead allows only `\\s*` before `}`,
-so this rewinds — both comments end up free."""
-test "two comments in one slot rewind to LBRACE/RBRACE" {
-    (tokens, free_comments) = _jsx_tokenize('<p>{#* a *# #* b *#}</p>');
-    kinds = _jsx_kinds(tokens);
-
-    assert TokenKind.JSX_BLOCK_COMMENT not in kinds;
-    assert TokenKind.LBRACE in kinds;
-    assert TokenKind.RBRACE in kinds;
-    assert len(free_comments) == 2;
-}
-
-"""Position invariant: after rewind, LBRACE must point at the original
-`{` byte, not a partial-lookahead drift."""
+"""LBRACE position must survive a partial-lookahead rewind."""
 test "rewind preserves token position" {
     (tokens, _) = _jsx_tokenize('<p>{count}</p>');
     lbrace_tok = next(
@@ -874,17 +829,15 @@ test "rewind preserves token position" {
         None
     );
     assert lbrace_tok is not None;
-    # The `{` is at byte offset 3 (`<p>{`).
+    # `{` is at byte offset 3 (`<p>{`).
     assert lbrace_tok.loc.pos_start == 3 , (
-        f"LBRACE pos_start drifted — expected 3, got {lbrace_tok.loc.pos_start}"
+        f"LBRACE pos_start drifted — got {lbrace_tok.loc.pos_start}"
     );
 }
 
-"""Non-JSX context: lookahead only fires inside JSX_CONTENT mode."""
+"""Lookahead only fires in JSX_CONTENT mode."""
 test "non-JSX brace pair never produces JSX_BLOCK_COMMENT" {
-    (tokens, free_comments) = _jsx_tokenize(
-        'with entry { x = { #* nope *# }; }'
-    );
+    (tokens, free_comments) = _jsx_tokenize('with entry { x = { #* nope *# }; }');
     kinds = _jsx_kinds(tokens);
 
     assert TokenKind.JSX_BLOCK_COMMENT not in kinds;

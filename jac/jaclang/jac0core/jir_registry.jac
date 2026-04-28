@@ -893,7 +893,7 @@ glob NODE_SPECS: tuple = (
              is_scope=False,
              is_cfg=False,
              is_name_atom=False,
-             fields=(FieldDesc(name="comment", kind=6), )
+             fields=(FieldDesc(name="comment", kind=4), )
          ),
          NodeSpec(
              type_idx=76,

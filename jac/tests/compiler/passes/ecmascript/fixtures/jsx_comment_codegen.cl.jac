@@ -20,8 +20,3 @@ cl def:pub comment_adjacent_to_expression -> JsxElement {
     return
         <p>{ #* label *# }{count}</p>;
 }
-
-cl def:pub literally_empty_braces -> JsxElement {
-    return
-        <div>{}</div>;
-}

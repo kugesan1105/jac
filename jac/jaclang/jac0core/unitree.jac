@@ -1278,6 +1278,14 @@ obj JsxExpression(JsxChild) {
     def postinit -> None;
 }
 
+"""JsxComment: an empty `{ }` brace pair in a JSX body. Owns the
+CommentToken from a `{#* ... *#}` slot, or `comment=None` for `{}`."""
+obj JsxComment(JsxChild) {
+    has comment: (CommentToken | None) = None;
+
+    def postinit -> None;
+}
+
 """MatchStmt node type for Jac Ast."""
 obj MatchStmt(CodeBlockStmt) {
     has target: Expr,

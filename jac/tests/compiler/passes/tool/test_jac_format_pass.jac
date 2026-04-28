@@ -656,10 +656,20 @@ test "jsx body comment adjacent to expression — both survive" {
     assert comment_idx is not None and expr_idx is not None , (
         "Could not find comment or expression in:\n" + formatted
     );
-    assert comment_idx < expr_idx , (
-        f"Comment (line {comment_idx + 1}) must appear before "
-        f"{{count}} (line {expr_idx + 1}):\n" + formatted
-    );
+    if comment_idx == expr_idx {
+        # Single-line layout (e.g. `<p>{ #* label: *# }{count}</p>`):
+        # the comment must still precede {count} in source order.
+        line = lines[comment_idx];
+        assert line.index("#* label: *#") < line.index("{count}") , (
+            f"Comment must appear before {{count}} on line "
+            f"{comment_idx + 1}:\n" + formatted
+        );
+    } else {
+        assert comment_idx < expr_idx , (
+            f"Comment (line {comment_idx + 1}) must appear before "
+            f"{{count}} (line {expr_idx + 1}):\n" + formatted
+        );
+    }
 
     # Idempotency
     prog2 = JacProgram.jac_str_formatter(source_str=formatted, file_path="<test>.jac");
@@ -685,6 +695,82 @@ test "jsx body comment does not displace comments to end of file" {
     assert not prog.errors_had , (
         "Formatter raised E5051 displaced-comment error — "
         "orphaned anchor bug still present:\n" + str(prog.errors_had)
+    );
+}
+
+"""Regression: same-line `{ #* x *# }` in a regular block, dict, or
+set literal must not be misclassified as a JSX-body comment.  The
+lexer's `_try_scan_jsx_block_comment` only fires inside JSX_CONTENT
+mode, so non-JSX brace pairs go through the normal block-comment
+path and the comments stay in `lexer.comments` as free comments —
+the cases below are the regression bait."""
+test "non-jsx same-line block comments survive jac format" {
+    source = (
+        'def empty_block_with_comment {\n'
+        '    if True { #* same-line comment *# }\n'
+        '}\n'
+        '\n'
+        'def empty_block_multi_call {\n'
+        '    if True { #* a *# }\n'
+        '    if True { #* b *# }\n'
+        '}\n'
+        '\n'
+        'def empty_dict_set {\n'
+        '    x = { #* nothing *# };\n'
+        '}\n'
+        '\n'
+        'with entry {\n'
+        '    empty_block_with_comment();\n'
+        '}\n'
+    );
+    prog = JacProgram.jac_str_formatter(source_str=source, file_path="<test>.jac");
+    assert not prog.errors_had , (
+        "non-JSX same-line block comments wrongly classified as JSX-body: " + str(
+            prog.errors_had
+        )
+    );
+    formatted = prog.mod.main.gen.jac;
+
+    # Every comment must round-trip.
+    for needle in ["#* same-line comment *#", "#* a *#", "#* b *#", "#* nothing *#"] {
+        assert needle in formatted , (
+            f"Lost block comment {needle!r} — JSX-body false-positive "
+            f"regression:\n" + formatted
+        );
+    }
+
+    # Idempotency.
+    prog2 = JacProgram.jac_str_formatter(source_str=formatted, file_path="<test>.jac");
+    assert not prog2.errors_had;
+    assert formatted == prog2.mod.main.gen.jac , (
+        "Formatting non-JSX same-line block comments is not idempotent"
+    );
+}
+
+"""Regression: JSX-body and non-JSX braces in the same module must
+disambiguate correctly — proves the lexer mode is JSX-aware."""
+test "mixed jsx and non-jsx same-line braces format correctly" {
+    source = (
+        'def app -> JsxElement {\n'
+        '    if True { #* not jsx *# }\n'
+        '    return\n'
+        '        <div>\n'
+        '            <span>before</span>\n'
+        '            {#* jsx body comment *#}\n'
+        '            <span>after</span>\n'
+        '        </div>;\n'
+        '}\n'
+    );
+    prog = JacProgram.jac_str_formatter(source_str=source, file_path="<test>.jac");
+    assert not prog.errors_had , (
+        "mixed jsx/non-jsx braces broke the formatter: " + str(prog.errors_had)
+    );
+    formatted = prog.mod.main.gen.jac;
+    assert "#* not jsx *#" in formatted , (
+        "non-JSX comment was dropped:\n" + formatted
+    );
+    assert "#* jsx body comment *#" in formatted , (
+        "JSX-body comment was dropped:\n" + formatted
     );
 }
 

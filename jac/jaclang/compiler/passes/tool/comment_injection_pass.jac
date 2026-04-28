@@ -28,8 +28,7 @@ class DelimiterInfo(NamedTuple) {
 obj CommentInfo {
     has index: int,
         token: uni.CommentToken,
-        anchor_token_id: (int | None),
-        is_jsx_body: bool = False;
+        anchor_token_id: (int | None);
 
     @property
     def is_inline -> bool;

@@ -249,6 +249,59 @@ impl Lexer.skip_block_comment -> bool {
     return False;
 }
 
+"""Atomically scan `{ \\s* #* ... *# \\s* }` from the cursor at `{`.
+Returns a JSX_BLOCK_COMMENT token on match, or None after restoring
+pos/line/col on miss.  Caller must be in JSX_CONTENT mode."""
+impl Lexer._try_scan_jsx_block_comment(
+    start_line: int, start_col: int, start_pos: int
+) -> Token | None {
+    saved_pos = self.pos;
+    saved_line = self.line;
+    saved_col = self.col;
+    self.advance();  # {
+    while not self.at_end() and self.is_whitespace(self.current()) {
+        self.advance();
+    }
+    if not (self.current() == "#" and self.peek() == "*") {
+        self.pos = saved_pos;
+        self.line = saved_line;
+        self.col = saved_col;
+        return None;
+    }
+    self.advance();  # #
+    self.advance();  # *
+    while not self.at_end() {
+        if self.current() == "*" and self.peek() == "#" {
+            self.advance();  # *
+            self.advance();  # #
+            while not self.at_end() and self.is_whitespace(self.current()) {
+                self.advance();
+            }
+            if self.current() != "}" {
+                # Unexpected content after block comment — not a pure
+                # comment-only slot.  Bail out so normal `{` handling
+                # treats this as a JSX expression with a leading comment.
+                self.pos = saved_pos;
+                self.line = saved_line;
+                self.col = saved_col;
+                return None;
+            }
+            self.advance();  # }
+            value = self.source[start_pos:self.pos];
+            return self.make_token(
+                TokenKind.JSX_BLOCK_COMMENT, value, start_line, start_col, start_pos
+            );
+        }
+        self.advance();
+    }
+    # Unterminated block comment — let normal `{` handling raise the
+    # error in the right place by rewinding here.
+    self.pos = saved_pos;
+    self.line = saved_line;
+    self.col = saved_col;
+    return None;
+}
+
 impl Lexer.skip_whitespace_and_comments{
     while not self.at_end() {
         ch = self.current();
@@ -950,6 +1003,12 @@ impl Lexer.scan_jsx_content -> Token {
     }
     # Opening brace for expression: {expr}
     if ch == "{" {
+        # JSX block-comment fast path: try to fuse `{ #* ... *# }` into
+        # one JSX_BLOCK_COMMENT token; fall through on miss.
+        jsx_cmt = self._try_scan_jsx_block_comment(start_line, start_col, start_pos);
+        if jsx_cmt is not None {
+            return jsx_cmt;
+        }
         self.advance();
         self.jsx_brace_depth_stack.append(self.jsx_brace_depth);
         self.jsx_brace_depth = 1;

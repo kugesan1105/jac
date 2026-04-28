@@ -1154,6 +1154,15 @@ impl UnparsePass.exit_jsx_text(nd: uni.JsxText) -> None {
 """JsxExpression."""
 impl UnparsePass.exit_jsx_expression(nd: uni.JsxExpression) -> None {
     nd.gen.jac = nd.expr.gen.jac;
+}
+
+"""JsxComment: `{ comment }` or `{}` if comment-less."""
+impl UnparsePass.exit_jsx_comment(nd: uni.JsxComment) -> None {
+    if nd.comment is not None {
+        nd.gen.jac = "{ " + nd.comment.value + " }";
+    } else {
+        nd.gen.jac = "{}";
+    }
     # ── Match / Switch ───────────────────────────────────────────────────
 }
 

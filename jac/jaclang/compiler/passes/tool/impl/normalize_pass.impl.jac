@@ -1691,6 +1691,12 @@ impl NormalizePass.enter_jsx_expression(nd: uni.JsxExpression) -> None {
     nd.set_kids(nodes=new_kid);
 }
 
+"""Normalize JsxComment kid list: LBRACE/RBRACE pair only."""
+impl NormalizePass.enter_jsx_comment(nd: uni.JsxComment) -> None {
+    new_kid: list[uni.UniNode] = [nd.gen_token(Tok.LBRACE), nd.gen_token(Tok.RBRACE), ];
+    nd.set_kids(nodes=new_kid);
+}
+
 """Normalize MatchStmt kid list."""
 impl NormalizePass.enter_match_stmt(nd: uni.MatchStmt) -> None {
     new_kid: list[uni.UniNode] = [nd.gen_token(Tok.KW_MATCH), nd.target, ];

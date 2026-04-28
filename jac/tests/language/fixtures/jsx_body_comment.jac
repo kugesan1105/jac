@@ -11,7 +11,7 @@ def with_siblings -> JsxElement {
     return
         <div>
             <span>before</span>
-            {#* this comment should be silently dropped *#}
+            { #* this comment should be silently dropped *# }
             <span>after</span>
         </div>;
 }
@@ -19,17 +19,12 @@ def with_siblings -> JsxElement {
 # Case 2: comment as sole child
 def comment_only_child -> JsxElement {
     return
-        <section>
-        {#* nothing to render *#}
-        </section>;
+        <section>{ #* nothing to render *# }</section>;
 }
 
 # Case 3: comment next to a real expression — both must survive
 def comment_next_to_expr -> JsxElement {
     count: int = 42;
     return
-        <p>
-            {#* label: *#}
-            {count}
-        </p>;
+        <p>{ #* label: *# }{count}</p>;
 }

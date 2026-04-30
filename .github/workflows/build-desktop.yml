@@ -105,7 +105,10 @@ jobs:
       - name: Install Jac packages
         shell: bash
         run: |
-          pip install --upgrade pip
+          # Use `python -m pip` so pip can replace itself on Windows
+          # (`pip install --upgrade pip` fails on Win with pip>=26.1
+          # because the running pip.exe is locked).
+          python -m pip install --upgrade pip
           pip install -e ./jac
           pip install -e ./jac-client
           pip install -e ./jac-scale

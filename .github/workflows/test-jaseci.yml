@@ -276,7 +276,25 @@ jobs:
 
       - name: Install MicroK8s
         run: |
-          sudo snap install microk8s --classic
+          # Wait for snapd to finish seeding before contacting the store —
+          # a cold runner can take ~30s before `snap install` is reliable.
+          sudo snap wait system seed.loaded
+          # Retry on transient store failures ("unable to contact snap store",
+          # rate limits, etc.). Backoff 10s, 20s, 30s, 40s.
+          install_ok=0
+          for attempt in 1 2 3 4 5; do
+            if sudo snap install microk8s --classic; then
+              install_ok=1
+              break
+            fi
+            echo "snap install attempt ${attempt} failed; retrying..." >&2
+            sleep $((attempt * 10))
+          done
+          if [ "$install_ok" != "1" ]; then
+            echo "snap install failed after 5 attempts" >&2
+            sudo snap changes >&2
+            exit 1
+          fi
           # Snap install is asynchronous: wait on the actual symlink rather
           # than guessing with `sleep`, so a slow snapd doesn't race the next
           # step into a confusing "command not found".

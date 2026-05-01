@@ -276,10 +276,22 @@ jobs:
 
       - name: Install MicroK8s
         run: |
-          set +e
           sudo snap install microk8s --classic
-          sleep 20
-          set -e
+          # Snap install is asynchronous: wait on the actual symlink rather
+          # than guessing with `sleep`, so a slow snapd doesn't race the next
+          # step into a confusing "command not found".
+          for i in {1..60}; do
+            if [ -x /snap/bin/microk8s ]; then
+              echo "microk8s ready after $((i*2))s"
+              break
+            fi
+            sleep 2
+          done
+          if [ ! -x /snap/bin/microk8s ]; then
+            echo "microk8s not available after 120s" >&2
+            sudo snap changes
+            exit 1
+          fi
 
       - name: Initialize MicroK8s
         run: |

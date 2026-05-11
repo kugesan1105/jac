@@ -323,14 +323,12 @@ def read_file_with_encoding(file_path: str) -> str {
 
     tomllib does strict UTF-8 decode; this routes through
     read_file_with_encoding so non-UTF-8 files (e.g. UTF-16 with BOM) work.
+    Parse errors propagate as tomllib.TOMLDecodeError so callers can match
+    on the original exception type.
     """
 def read_toml_with_encoding(file_path: str) -> dict {
     import tomllib;
-    try {
-        return tomllib.loads(read_file_with_encoding(file_path));
-    } except tomllib.TOMLDecodeError as e {
-        raise ValueError(f"Failed to parse TOML file {file_path}: {e}");
-    }
+    return tomllib.loads(read_file_with_encoding(file_path));
 }
 
 """Return a short, readable type name for annotations."""

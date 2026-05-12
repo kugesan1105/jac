@@ -44,12 +44,7 @@ factor ::= ("~" | "-" | "+") factor | connect
 
 connect ::= atomic_pipe (connect_op atomic_pipe)*
 
-edge_op_ref_inline ::=
-    "-->"
-    | "<--"
-    | "<-->"
-    | "->:" ((NAME | KWESC_NAME) atom)? ":->"?
-    | "<-:" ((NAME | KWESC_NAME) atom)? ":<-"?
+edge_op_ref_inline ::= edge_op_ref
 
 connect_op ::=
     "del" edge_op_ref_inline
@@ -193,9 +188,8 @@ edge_op_ref ::=
     "-->"
     | "<--"
     | "<-->"
-    | "->" atom? (":" (compare ("," compare)*)?)? ":->"
+    | "->:" ((NAME | KWESC_NAME) atom)? (":" (compare ("," compare)*)?)? ":->"
     | "<-:" ((NAME | KWESC_NAME) atom)? (":" (compare ("," compare)*)?)? ":<-"
-    | "->:" ((NAME | KWESC_NAME) atom)? ":->"
 
 dict_or_set ::=
     "}"
@@ -412,7 +406,7 @@ assignment_with_target ::=
     ) ";" ";"?
 
 import_stmt ::=
-    ("include" | "import") ("from" from_path)? (
+    ("include" | "import") "type"? ("from" from_path)? (
         import_items
         | (STRING | (NAME | KWESC_NAME) ("." (NAME | KWESC_NAME))*)?
           ("as" (NAME | KWESC_NAME))?
@@ -469,7 +463,7 @@ param_var ::=
 
 enum ::=
     ("@" atomic_chain)* "enum" access_tag (NAME | KWESC_NAME)
-    ("(" (atomic_chain ("," atomic_chain)*)? ")")?
+    (":" atomic_chain | ("(" (atomic_chain ("," atomic_chain)*)? ")")?)
     ("{" (enum_member ","? | PYNLINE | module_code)* "}" | ";")
 
 enum_member ::= (NAME | KWESC_NAME) ("=" expression)?

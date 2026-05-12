@@ -49,28 +49,21 @@ import from jaclang.jac0core.constructs {
     JsxElement,
     NodeAnchor,
     NodeArchetype,
+    PermissionDenied,
     WalkerAnchor,
     WalkerArchetype
 }
 import from jaclang.jac0core.modresolver { infer_language }
 import from jaclang.jac0core.mtp { MTIR, Info, MTRuntime }
 import from jaclang.jac0core { plugin }
-
-with entry {
-    if TYPE_CHECKING {
-        import from http.server { BaseHTTPRequestHandler }
-        import from jaclang.cli.console { JacConsole as ConsoleImpl }
-        import from jaclang.jac0core.compiler { JacCompiler }
-        import from jaclang.jac0core.program { JacProgram }
-        import from jaclang.runtimelib.client_bundle {
-            ClientBundle,
-            ClientBundleBuilder
-        }
-        import from jaclang.runtimelib.context { ExecutionContext }
-        import from jaclang.runtimelib.server { JacAPIServer as JacServer }
-        import from jaclang.runtimelib.server { ModuleIntrospector, UserManager }
-    }
-}
+import type from http.server { BaseHTTPRequestHandler }
+import type from jaclang.cli.console { JacConsole as ConsoleImpl }
+import type from jaclang.jac0core.compiler { JacCompiler }
+import type from jaclang.jac0core.program { JacProgram }
+import type from jaclang.runtimelib.client_bundle { ClientBundle, ClientBundleBuilder }
+import type from jaclang.runtimelib.context { ExecutionContext }
+import type from jaclang.runtimelib.server { JacAPIServer as JacServer }
+import type from jaclang.runtimelib.server { ModuleIntrospector, UserManager }
 
 glob plugin_manager = plugin.PluginManager('jac'),
      hookspec = plugin.HookspecMarker('jac'),
@@ -123,11 +116,22 @@ class JacAccessValidation {
     """Read Access Validation."""
     static def check_read_access(`to: Anchor) -> bool;
 
-    """Connect Access Validation."""
-    static def check_connect_access(`to: Anchor) -> bool;
+    """Connect Access Validation.
 
-    """Write Access Validation."""
-    static def check_write_access(`to: Anchor) -> bool;
+    `op_hint` is the user-facing operation label that flows into a
+    PermissionDenied diagnostic on failure (e.g. "edge_write" for
+    cross-user edge creation, "edge_delete" for disconnect). Defaults to
+    the generic "connect" — overrides should be specific.
+    """
+    static def check_connect_access(`to: Anchor, op_hint: str = "connect") -> bool;
+
+    """Write Access Validation.
+
+    `op_hint` is the user-facing operation label (e.g. "delete" for
+    `del node`, "field_write" for the persist-time drop of a foreign
+    field mutation). Defaults to the generic "write".
+    """
+    static def check_write_access(`to: Anchor, op_hint: str = "write") -> bool;
 
     """Access validation."""
     static def check_access_level(`to: Anchor, no_custom: bool = False) -> AccessLevel;
@@ -463,10 +467,17 @@ system,
     """Jac's report stmt feature."""
     static def log_report(expr: Any, custom: bool = False) -> None;
 
-    """Jac's apply_dir stmt feature."""
+    """Jac's apply_dir stmt feature.
+
+    `slc`, when given, requests storage-layer pagination: for single-hop
+    type-filtered traversals the topology planner returns just the bounded
+    UUID set so the persistence backend only loads that subset. The slice is
+    always applied (falls back to a Python slice over the materialized result
+    when pushdown is not eligible) so semantics match a trailing `[a:b]`."""
     static def refs(
         path: ObjectSpatialPath | NodeArchetype | list[NodeArchetype],
-        post_filter: (Callable[([Archetype], bool)] | None) = None
+        post_filter: (Callable[([Archetype], bool)] | None) = None,
+        slc: (slice | None) = None
     ) -> list[NodeArchetype] | list[EdgeArchetype] | list[
         (NodeArchetype | EdgeArchetype)
     ];
@@ -601,6 +612,24 @@ class JacAPIServer {
         Raises RuntimeError on transport or application-level failure.
         """
     static def sv_service_call(module_name: str, func_name: str, args: dict) -> Any;
+
+    """Execute an sv-to-sv walker spawn over HTTP.
+
+        Called by sv_client.spawn_walker() when a consumer-side stub for
+        an sv-imported `walker:pub` archetype is instantiated. Mirrors
+        sv_service_call but POSTs to `/walker/<name>` and rehydrates the
+        response into an instance of the consumer-side stub class via
+        `stub_cls._from_wire`. The returned object exposes the walker's
+        `has` fields as attributes and a `reports` list populated from
+        the `data.reports` envelope.
+
+        Plugins (e.g. jac-scale) override this for auth forwarding,
+        retries, circuit breaking, and tracing - mirroring the same
+        contract as sv_service_call.
+        """
+    static def sv_walker_call(
+        module_name: str, walker_name: str, args: dict, stub_cls: Any
+    ) -> Any;
 
     """Return the current sv-service registry as a {module_name: base_url} dict.
 
@@ -1035,6 +1064,14 @@ class JacRuntime(JacRuntimeInterface) {
         pool: ThreadPoolExecutor = ThreadPoolExecutor();
         exec_ctx: (ExecutionContext | None) = None;
         loaded_modules: dict[(str, types.ModuleType)] = {};
+        # When True, permission-denied write-class operations raise
+        # PermissionError instead of silently no-opping. Defaults to the
+        # JAC_STRICT_PERMISSIONS env var (truthy values: "1", "true",
+        # "yes", "on" — case-insensitive). Tests and embedders may set
+        # this attribute directly.
+        strict_permissions: bool = os.environ.get(
+            "JAC_STRICT_PERMISSIONS", ""
+        ).strip().lower() in ("1", "true", "yes", "on");
     }
 
     """Get or create the JacCompiler singleton.

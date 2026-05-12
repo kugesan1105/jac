@@ -245,6 +245,9 @@ impl UnparsePass.exit_import(nd: uni.Import) -> None {
     } else {
         parts.append("import");
     }
+    if nd.is_typed {
+        parts.append("type");
+    }
     items = self._comma_sep(nd.items);
     if nd.from_loc {
         parts.append("from");
@@ -367,7 +370,9 @@ impl UnparsePass.exit_enum(nd: uni.Enum) -> None {
         parts.append(nd.access.gen.jac);
     }
     parts.append(nd.name.gen.jac);
-    if nd.base_classes {
+    if nd.value_type {
+        parts.append(": " + nd.value_type.gen.jac);
+    } elif nd.base_classes {
         parts.append("(" + self._comma_sep(nd.base_classes) + ")");
     }
     if nd.body {

@@ -16,7 +16,7 @@ import jaclang.jac0core.unitree as uni;
 import from jaclang.jac0core.constant { CodeContext }
 import from jaclang.jac0core.parser { parse as rd_parse }
 import from jaclang.jac0core.program { JacProgram }
-import from jaclang.runtimelib.utils { read_file_with_encoding }
+import from jaclang.jac0core.helpers { read_file_with_encoding }
 import from jaclang.runtimelib.test { parametrize }
 import from tests.fixtures_list { MICRO_JAC_FILES }
 
@@ -134,24 +134,21 @@ test "param syntax" {
 }
 
 test "new keyword errors" {
-    # Parser emits 'Missing ;' (treats 'new' as identifier, so 'new car(...)' is
-    # two expressions). ASTValidationPass then catches 'new' as a banned keyword.
+    # JS-style `new car(...)` is not Jac syntax: `new` is now an ambient
+    # builtin (callable as `new(Cls, ...args)`), so the parser treats the
+    # bare `new` as an identifier and the adjacent `car("honda", 2018)` as
+    # a second expression, producing `Missing ';'` on each of the two
+    # offending lines. The fixture is preserved as a regression guard that
+    # JS-style `new` usage still fails.
     captured_output = io.StringIO();
     sys.stdout = captured_output;
     prog = JacProgram();
     prog.compile(os.path.join(FIXTURES, "new_keyword_err.jac"));
     sys.stdout = sys.__stdout__;
-    assert len(prog.errors_had) == 4;
-    expected_substrings = [
-        "Missing ';'",
-        "Missing ';'",
-        "'new' is not supported in Jac",
-        "'new' is not supported in Jac",
-
-    ];
-    for (alrt, expected) in zip(prog.errors_had, expected_substrings, strict=True) {
+    assert len(prog.errors_had) == 2;
+    for alrt in prog.errors_had {
         pretty = alrt.pretty_print();
-        assert expected in pretty;
+        assert "Missing ';'" in pretty;
     }
 }
 
@@ -196,6 +193,36 @@ test "multiple syntax errors" {
         pretty = alrt.pretty_print();
         assert expected in pretty;
     }
+}
+
+test "connect_disconnect_missing_rhs" {
+    # Issue #5885 gap 10: connect/disconnect operators that are missing the
+    # right operand previously surfaced a misleading 'Unexpected token' or
+    # 'Missing ;' chain. The fixture has 5 such positions; each should emit
+    # exactly one E0026, and all of them must point at the operator span.
+    captured_output = io.StringIO();
+    sys.stdout = captured_output;
+    prog = JacProgram();
+    prog.compile(os.path.join(FIXTURES, "connect_disconnect_missing_rhs.jac"));
+    sys.stdout = sys.__stdout__;
+    e0026 = [
+        e
+        for e in prog.errors_had
+        if e.code and e.code.code == "E0026"
+    ];
+    assert len(e0026) == 5 , f"Expected 5 E0026 (missing RHS), got {len(e0026)}:\n" + "\n---\n".join(
+        e.pretty_print() for e in e0026
+    );
+    # Sanity: the misleading "Unexpected token in expression" diagnostic
+    # must no longer appear for these inputs.
+    bad = [
+        e
+        for e in prog.errors_had
+        if e.code and e.code.code == "E0004"
+    ];
+    assert len(bad) == 0 , f"E0004 leaked through after E0026 fix:\n" + "\n---\n".join(
+        e.pretty_print() for e in bad
+    );
 }
 
 test "jsx comprehensive fixture" {
@@ -754,6 +781,103 @@ test "bracket vs paren filter produce same AST" {
 test "bracket filter on list" {
     (mod, err) = rd_parse('with entry { print(my_list[?:MyObj, a<4]); }', "");
     assert not err , "Failed to parse list bracket filter";
+}
+
+test "typed edge ref after start expr - no filter" {
+    # BUG: `[root()->:Type:->]` failed to parse because parse_list_or_compr
+    # only checked for ARROW_R/ARROW_L/ARROW_BI/ARROW_R_P1/ARROW_L_P1 after
+    # the first expression, missing the (RETURN_HINT, COLON, ...) form the
+    # lexer actually produces for `->:`. The bare-start form `[->:Type:->]`
+    # already parsed because that path went through parse_edge_ref_chain
+    # directly. (Reproduces the docs example in the Part 2 'Advanced:
+    # Custom Edges' section of the AI day planner tutorial.)
+    src = (
+        'edge Scheduled { has time: str; }'
+        'node Task { has title: str; }'
+        'with entry {'
+        '    root() +>: Scheduled(time="9:00am") :+> Task(title="Run");'
+        '    x = [root()->:Scheduled:->];'
+        '}'
+    );
+    (mod, err) = rd_parse(src, "");
+    assert not err , (
+        "Failed to parse [root()->:Scheduled:->] (typed edge ref after "
+        "explicit start expression)"
+    );
+}
+
+test "typed edge ref after start expr - with filter condition" {
+    # Same root cause as the test above, plus continue_edge_ref_chain
+    # was using a stripped-down inline branch that did not accept the
+    # `:cond` filter clause that parse_edge_op_ref already supports.
+    src = (
+        'edge Scheduled { has priority: int = 1; }'
+        'node Task { has title: str; }'
+        'with entry {'
+        '    root() +>: Scheduled(priority=3) :+> Task(title="A");'
+        '    urgent = [root()->:Scheduled:priority>=3:->];'
+        '}'
+    );
+    (mod, err) = rd_parse(src, "");
+    assert not err , (
+        "Failed to parse [root()->:Scheduled:priority>=3:->] (typed edge "
+        "ref with a filter condition after an explicit start expression)"
+    );
+}
+
+test "typed edge ref bare start with filter still parses" {
+    # Sanity check: the bare-start form (no explicit start expression)
+    # was already parsing before the fix and must keep working — the
+    # parser routes it through parse_edge_ref_chain which uses the rich
+    # parse_edge_op_ref helper.
+    src = (
+        'edge Scheduled { has priority: int = 1; }'
+        'node Task { has title: str; }'
+        'walker W { can go with entry { '
+        '    visit [->:Scheduled:priority>=3:->]; '
+        '} }'
+    );
+    (mod, err) = rd_parse(src, "");
+    assert not err , ("Failed to parse bare-start [->:Scheduled:priority>=3:->]");
+}
+
+test "typed edge ref produces FilterCompr with compares" {
+    # Structural check: the AST produced for the fixed form must include
+    # a FilterCompr that actually carries the filter compare conditions
+    # (otherwise downstream traversal cannot evaluate the filter).
+    src = (
+        'edge Scheduled { has priority: int = 1; }'
+        'node Task { has title: str; }'
+        'with entry {'
+        '    urgent = [root()->:Scheduled:priority>=3:->];'
+        '}'
+    );
+    (mod, err) = rd_parse(src, "");
+    assert not err;
+
+    def find_filter_compr_with_compares(nd: object) -> object {
+        if isinstance(nd, uni.FilterCompr) and nd.compares {
+            return nd;
+        }
+        if hasattr(nd, "kid") {
+            for k in nd.kid {
+                if k is not None {
+                    result = find_filter_compr_with_compares(k);
+                    if result is not None {
+                        return result;
+                    }
+                }
+            }
+        }
+        return None;
+    }
+    fc = find_filter_compr_with_compares(mod);
+    assert fc is not None , (
+        "Typed edge ref `[root()->:Scheduled:priority>=3:->]` must produce "
+        "a FilterCompr carrying the `priority>=3` condition; an EdgeOpRef "
+        "with an empty FilterCompr means the filter clause was silently "
+        "dropped."
+    );
 }
 
 test "decorated class in code block parses as archetype" {

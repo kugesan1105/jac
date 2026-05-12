@@ -158,7 +158,7 @@ with entry {
 }
 ```
 
-Jac provides two pattern-matching constructs, each designed for a different purpose. **`switch`/`case`** is for classic simple value matching -- there's no fall-through and no `break` needed, which avoids a common source of bugs in C-family languages:
+Jac provides two pattern-matching constructs, each designed for a different purpose. **`switch`/`case`** is for classic simple value matching. Like C, cases fall through to subsequent cases -- use `return`, `break`, or another control-flow statement to exit a case before the next one runs:
 
 ```jac
 def categorize(fruit: str) -> str {
@@ -172,6 +172,8 @@ def categorize(fruit: str) -> str {
     }
 }
 ```
+
+In the example above, each case ends with `return`, so the function exits before the next case runs. If you want to stay inside `switch` and just stop fall-through, use `break`.
 
 **`match`/`case`**, on the other hand, is for Python-style structural pattern matching -- use it when you need to destructure values or match more complex patterns:
 
@@ -302,9 +304,9 @@ node Task {
 
 with entry {
     # Create tasks and connect them to root
-    root() ++> Task(title="Buy groceries");
-    root() ++> Task(title="Team standup at 10am");
-    root() ++> Task(title="Go for a run");
+    root ++> Task(title="Buy groceries");
+    root ++> Task(title="Team standup at 10am");
+    root ++> Task(title="Go for a run");
 
     print("Created 3 tasks!");
 }
@@ -326,7 +328,7 @@ The `++>` operator returns a list containing the newly created node. You can cap
 
 <!-- jac-skip -->
 ```jac
-result = root() ++> Task(title="Buy groceries");
+result = root ++> Task(title="Buy groceries");
 task = result[0];  # The new Task node
 print(task.title);  # "Buy groceries"
 ```
@@ -368,25 +370,25 @@ Now here's where the two concepts come together. The `[-->]` syntax gives you a 
 
 ```jac
 with entry {
-    root() ++> Task(title="Buy groceries");
-    root() ++> Task(title="Team standup at 10am");
+    root ++> Task(title="Buy groceries");
+    root ++> Task(title="Team standup at 10am");
 
     # Get ALL nodes connected from root
-    everything = [root()-->];
+    everything = [root-->];
 
     # Filter by node type -- same [?:Type] syntax
-    tasks = [root()-->][?:Task];
+    tasks = [root-->][?:Task];
     for task in tasks {
         status = "done" if task.done else "pending";
         print(f"[{status}] {task.title}");
     }
 
     # Filter by field value
-    grocery_tasks = [root()-->][?:Task, title == "Buy groceries"];
+    grocery_tasks = [root-->][?:Task, title == "Buy groceries"];
 }
 ```
 
-`[root()-->]` reads as "all nodes connected *from* root." The `[?:Task]` filter keeps only nodes of type `Task`. Notice the elegance of this design: there's nothing special about graph queries. `[-->]` returns a plain list, and `[?...]` filters it, using the same mechanism it uses on any collection. This composability -- where general-purpose features combine naturally -- is a recurring theme in Jac.
+`[root-->]` reads as "all nodes connected *from* root." The `[?:Task]` filter keeps only nodes of type `Task`. Notice the elegance of this design: there's nothing special about graph queries. `[-->]` returns a plain list, and `[?...]` filters it, using the same mechanism it uses on any collection. This composability -- where general-purpose features combine naturally -- is a recurring theme in Jac.
 
 Other directions work too:
 
@@ -400,7 +402,7 @@ Use `del` to remove a node from the graph:
 
 <!-- jac-skip -->
 ```jac
-for task in [root()-->][?:Task] {
+for task in [root-->][?:Task] {
     if task.title == "Team standup at 10am" {
         del task;
     }
@@ -413,8 +415,8 @@ You can inspect the graph at any time by printing connected nodes:
 
 <!-- jac-skip -->
 ```jac
-print([root()-->]);           # All nodes connected to root
-print([root()-->][?:Task]);   # Just Task nodes
+print([root-->]);           # All nodes connected to root
+print([root-->][?:Task]);   # Just Task nodes
 ```
 
 This is useful when data isn't appearing as expected.
@@ -431,15 +433,17 @@ This is useful when data isn't appearing as expected.
 
     Connect with a typed edge using `+>: EdgeType :+>`:
 
+    <!-- jac-skip -->
     ```jac
-    root() +>: Scheduled(time="9:00am", priority=3) :+> Task(title="Morning run");
+    root +>: Scheduled(time="9:00am", priority=3) :+> Task(title="Morning run");
     ```
 
     And filter queries by edge type:
 
+    <!-- jac-skip -->
     ```jac
-    scheduled_tasks = [root()->:Scheduled:->][?:Task];
-    urgent = [root()->:Scheduled:priority>=3:->][?:Task];
+    scheduled_tasks = [root->:Scheduled:->][?:Task];
+    urgent = [root->:Scheduled:priority>=3:->][?:Task];
     ```
 
     We won't use custom edges in this tutorial (default edges are sufficient), but they're useful for modeling relationships like social networks, org charts, and dependency graphs.
@@ -453,14 +457,14 @@ This is useful when data isn't appearing as expected.
 - **`[?condition]`** -- filter comprehensions on any list of objects
 - **`[?:Type]`** -- typed filter comprehension, works on any collection
 - **`[?:Type, field == val]`** -- combined type and field filtering
-- **`[root()-->]`** -- query all connected nodes (returns a list, filterable like any other)
+- **`[root-->]`** -- query all connected nodes (returns a list, filterable like any other)
 - **`jid(node)`** -- get the built-in unique identifier of any node
 - **`del`** -- remove a node from the graph
 
 > **Deep Dive:** [Object-Spatial Programming](../../reference/language/osp.md) covers the full graph model including typed edges, walkers, and advanced traversals. [Comprehensions & Filters](../../reference/language/advanced.md) has the complete filter syntax reference.
 
 !!! example "Try It Yourself"
-    After creating three tasks, mark one as done (`task.done = True`), then use `[root()-->][?:Task, done == False]` to list only pending tasks. Verify that the completed task doesn't appear.
+    After creating three tasks, mark one as done (`task.done = True`), then use `[root-->][?:Task, done == False]` to list only pending tasks. Verify that the completed task doesn't appear.
 
 ---
 
@@ -486,7 +490,7 @@ In Part 2, you learned that every node has a built-in unique identifier. The `ji
 
 <!-- jac-skip -->
 ```jac
-task = (root() ++> Task(title="Buy groceries"))[0];
+task = (root ++> Task(title="Buy groceries"))[0];
 print(jid(task));  # e.g., "1be2c28fc5924de28c55f68cc5ccaeb6"
 ```
 
@@ -502,7 +506,7 @@ This is one of the most powerful ideas in Jac. Simply mark a function `def:pub` 
 ```jac
 """Add a task and return it."""
 def:pub add_task(title: str) -> Task {
-    task = root() ++> Task(title=title);
+    task = root ++> Task(title=title);
     return task[0];
 }
 ```
@@ -526,18 +530,18 @@ node Task {
 
 """Add a task and return it."""
 def:pub add_task(title: str) -> Task {
-    task = root() ++> Task(title=title);
+    task = root ++> Task(title=title);
     return task[0];
 }
 
 """Get all tasks."""
 def:pub get_tasks -> list[Task] {
-    return [root()-->][?:Task];
+    return [root-->][?:Task];
 }
 
 """Toggle a task's done status."""
 def:pub toggle_task(id: str) -> Task | None {
-    for task in [root()-->][?:Task] {
+    for task in [root-->][?:Task] {
         if jid(task) == id {
             task.done = not task.done;
             return task;
@@ -548,7 +552,7 @@ def:pub toggle_task(id: str) -> Task | None {
 
 """Delete a task."""
 def:pub delete_task(id: str) -> dict {
-    for task in [root()-->][?:Task] {
+    for task in [root-->][?:Task] {
         if jid(task) == id {
             del task;
             return {"deleted": id};
@@ -587,18 +591,22 @@ task_data["done"] = True;   # Update a value
 <!-- jac-skip -->
 ```jac
 # Extract titles from all Task nodes
-[t.title for t in [root()-->][?:Task]]
+[t.title for t in [root-->][?:Task]]
 
 # With a filter condition
-[t.title for t in [root()-->][?:Task] if not t.done]
+[t.title for t in [root-->][?:Task] if not t.done]
 ```
 
 **Run It**
 
 Even without a frontend, you can start the server and interact with your API right away. This is a good practice for verifying your backend logic works correctly before adding UI complexity:
 
+!!! note
+    `main.jac` is the default entry point. Since this project uses `main.jac`, you can omit the filename entirely. Both forms below are equivalent.
+
 ```bash
 jac start main.jac
+# or: jac start
 ```
 
 The server starts on port 8000 by default. Use `--port 3000` to pick a different port.
@@ -915,18 +923,18 @@ h1 { text-align: center; margin-bottom: 24px; color: #333; }
 
     """Add a task and return it."""
     def:pub add_task(title: str) -> Task {
-        task = root() ++> Task(title=title);
+        task = root ++> Task(title=title);
         return task[0];
     }
 
     """Get all tasks."""
     def:pub get_tasks -> list[Task] {
-        return [root()-->][?:Task];
+        return [root-->][?:Task];
     }
 
     """Toggle a task's done status."""
     def:pub toggle_task(id: str) -> Task | None {
-        for task in [root()-->][?:Task] {
+        for task in [root-->][?:Task] {
             if jid(task) == id {
                 task.done = not task.done;
                 return task;
@@ -937,7 +945,7 @@ h1 { text-align: center; margin-bottom: 24px; color: #333; }
 
     """Delete a task."""
     def:pub delete_task(id: str) -> dict {
-        for task in [root()-->][?:Task] {
+        for task in [root-->][?:Task] {
             if jid(task) == id {
                 del task;
                 return {"deleted": id};
@@ -947,7 +955,7 @@ h1 { text-align: center; margin-bottom: 24px; color: #333; }
     }
 
     cl def:pub app -> JsxElement {
-        has tasks: list = [],
+        has tasks: list[Task] = [],
             task_text: str = "";
 
         async can with entry {
@@ -964,6 +972,7 @@ h1 { text-align: center; margin-bottom: 24px; color: #333; }
 
         async def toggle(id: str) {
             updated = await toggle_task(id);
+            if updated is None { return; }
             tasks = [updated if jid(t) == id else t for t in tasks];
         }
 
@@ -1013,7 +1022,7 @@ h1 { text-align: center; margin-bottom: 24px; color: #333; }
     ```
 
 ```bash
-jac start main.jac
+jac start main.jac  # or: jac start
 ```
 
 Open [http://localhost:8000](http://localhost:8000). You should see a clean day planner with an input field and an "Add" button. Try it:
@@ -1101,6 +1110,9 @@ enum Category { WORK, PERSONAL, SHOPPING, HEALTH, FITNESS, OTHER }
 
 This is a crucial concept: the enum constrains the AI to return *exactly one* of these predefined values. Without it, an LLM might return "shopping", "Shopping", "groceries", or "grocery shopping" -- all meaning the same thing but impossible to handle consistently in code. The enum eliminates that ambiguity entirely, making AI output as predictable as any other function return value.
 
+!!! tip "Typed-base enums"
+    For cases where you want enum members to behave as a primitive type, use `enum X: T { ... }`. `enum Status: str { OK = "ok", FAIL = "fail" }` makes members real `str` instances (no `.value` needed); `enum Code: int { ... }` does the same for `int`. Plain `enum` (used here) stays the right choice when the member identity matters more than the underlying value.
+
 **by llm() -- AI Function Delegation**
 
 Now for the core idea. Pay close attention, because this pattern is central to how Jac integrates AI:
@@ -1140,7 +1152,7 @@ Then update `add_task` to call the AI:
 """Add a task with AI categorization."""
 def:pub add_task(title: str) -> Task {
     category = str(categorize(title)).split(".")[-1].lower();
-    task = root() ++> Task(title=title, category=category);
+    task = root ++> Task(title=title, category=category);
     return task[0];
 }
 ```
@@ -1203,29 +1215,29 @@ And three new endpoints:
 """Generate a shopping list from a meal description."""
 def:pub generate_list(meal: str) -> list[ShoppingItem] {
     # Clear old items
-    for item in [root()-->][?:ShoppingItem] {
+    for item in [root-->][?:ShoppingItem] {
         del item;
     }
     # Generate new ones
     ingredients = generate_shopping_list(meal);
     for ing in ingredients {
-        root() ++> ShoppingItem(
+        root ++> ShoppingItem(
             name=ing.name, quantity=ing.quantity,
             unit=str(ing.unit).split(".")[-1].lower(),
             cost=ing.cost, carby=ing.carby
         );
     }
-    return [root()-->][?:ShoppingItem];
+    return [root-->][?:ShoppingItem];
 }
 
 """Get the current shopping list."""
 def:pub get_shopping_list -> list[ShoppingItem] {
-    return [root()-->][?:ShoppingItem];
+    return [root-->][?:ShoppingItem];
 }
 
 """Clear the shopping list."""
 def:pub clear_shopping_list -> dict {
-    for item in [root()-->][?:ShoppingItem] {
+    for item in [root-->][?:ShoppingItem] {
         del item;
     }
     return {"cleared": True};
@@ -1374,13 +1386,13 @@ cl def:pub app -> JsxElement {
                                 {(
                                     <span class="carb-badge">Carbs</span>
                                 ) if ing.carby else None}
-                                <span class="ing-cost">${ing.cost.toFixed(2)}</span>
+                                <span class="ing-cost">${format(ing.cost, ".2f")}</span>
                             </div>
                         </div> for ing in ingredients
                     ]}
                     {(
                         <div class="shopping-footer">
-                            <span class="total">Total: ${total_cost.toFixed(2)}</span>
+                            <span class="total">Total: ${format(total_cost, ".2f")}</span>
                             <button class="btn-clear" onClick={clear_list}>Clear</button>
                         </div>
                     ) if len(ingredients) > 0 else None}
@@ -1480,18 +1492,18 @@ h2 { margin: 0 0 16px 0; font-size: 1.2rem; color: #444; }
     """Add a task with AI categorization."""
     def:pub add_task(title: str) -> Task {
         category = str(categorize(title)).split(".")[-1].lower();
-        task = root() ++> Task(title=title, category=category);
+        task = root ++> Task(title=title, category=category);
         return task[0];
     }
 
     """Get all tasks."""
     def:pub get_tasks -> list[Task] {
-        return [root()-->][?:Task];
+        return [root-->][?:Task];
     }
 
     """Toggle a task's done status."""
     def:pub toggle_task(id: str) -> Task | None {
-        for task in [root()-->][?:Task] {
+        for task in [root-->][?:Task] {
             if jid(task) == id {
                 task.done = not task.done;
                 return task;
@@ -1502,7 +1514,7 @@ h2 { margin: 0 0 16px 0; font-size: 1.2rem; color: #444; }
 
     """Delete a task."""
     def:pub delete_task(id: str) -> dict {
-        for task in [root()-->][?:Task] {
+        for task in [root-->][?:Task] {
             if jid(task) == id {
                 del task;
                 return {"deleted": id};
@@ -1515,28 +1527,28 @@ h2 { margin: 0 0 16px 0; font-size: 1.2rem; color: #444; }
 
     """Generate a shopping list from a meal description."""
     def:pub generate_list(meal: str) -> list[ShoppingItem] {
-        for item in [root()-->][?:ShoppingItem] {
+        for item in [root-->][?:ShoppingItem] {
             del item;
         }
         ingredients = generate_shopping_list(meal);
         for ing in ingredients {
-            root() ++> ShoppingItem(
+            root ++> ShoppingItem(
                 name=ing.name, quantity=ing.quantity,
                 unit=str(ing.unit).split(".")[-1].lower(),
                 cost=ing.cost, carby=ing.carby
             );
         }
-        return [root()-->][?:ShoppingItem];
+        return [root-->][?:ShoppingItem];
     }
 
     """Get the current shopping list."""
     def:pub get_shopping_list -> list[ShoppingItem] {
-        return [root()-->][?:ShoppingItem];
+        return [root-->][?:ShoppingItem];
     }
 
     """Clear the shopping list."""
     def:pub clear_shopping_list -> dict {
-        for item in [root()-->][?:ShoppingItem] {
+        for item in [root-->][?:ShoppingItem] {
             del item;
         }
         return {"cleared": True};
@@ -1545,10 +1557,10 @@ h2 { margin: 0 0 16px 0; font-size: 1.2rem; color: #444; }
     # --- Frontend ---
 
     cl def:pub app -> JsxElement {
-        has tasks: list = [],
+        has tasks: list[Task] = [],
             task_text: str = "",
             meal_text: str = "",
-            ingredients: list = [],
+            ingredients: list[ShoppingItem] = [],
             generating: bool = False;
 
         async can with entry {
@@ -1566,6 +1578,7 @@ h2 { margin: 0 0 16px 0; font-size: 1.2rem; color: #444; }
 
         async def toggle(id: str) {
             updated = await toggle_task(id);
+            if updated is None { return; }
             tasks = [updated if jid(t) == id else t for t in tasks];
         }
 
@@ -1668,13 +1681,13 @@ h2 { margin: 0 0 16px 0; font-size: 1.2rem; color: #444; }
                                     {(
                                         <span class="carb-badge">Carbs</span>
                                     ) if ing.carby else None}
-                                    <span class="ing-cost">${ing.cost.toFixed(2)}</span>
+                                    <span class="ing-cost">${format(ing.cost, ".2f")}</span>
                                 </div>
                             </div> for ing in ingredients
                         ]}
                         {(
                             <div class="shopping-footer">
-                                <span class="total">Total: ${total_cost.toFixed(2)}</span>
+                                <span class="total">Total: ${format(total_cost, ".2f")}</span>
                                 <button class="btn-clear" onClick={clear_list}>Clear</button>
                             </div>
                         ) if len(ingredients) > 0 else None}
@@ -1686,7 +1699,7 @@ h2 { margin: 0 0 16px 0; font-size: 1.2rem; color: #444; }
 
 ```bash
 export ANTHROPIC_API_KEY="your-key"
-jac start main.jac
+jac start main.jac  # or: jac start
 ```
 
 !!! warning "Common issue"
@@ -1736,7 +1749,7 @@ Jac has built-in authentication functions for client-side code:
 import from "@jac/runtime" { jacSignup, jacLogin, jacLogout, jacIsLoggedIn }
 ```
 
-- **`jacSignup(username, password)`** -- create an account (returns `{"success": True/False}`)
+- **`jacSignup(username, password)`** -- create an account (returns `{"success": True/False}`). Note: signup does not start a session by itself, so call `jacLogin` after a successful result to actually log the user in.
 - **`jacLogin(username, password)`** -- log in (returns `True` or `False`)
 - **`jacLogout()`** -- log out
 - **`jacIsLoggedIn()`** -- check login status
@@ -1790,7 +1803,7 @@ sv import from main {
 }
 ```
 
-**`cl { }` blocks** let you embed client-side code in a server file. This is useful for the entry point:
+**`to cl:` section headers** let you embed client-side code in a server file. Once you write `to cl:`, every following module-level declaration is client-side until the next `to X:` header (or end of file). This is useful for the entry point:
 
 ```jac
 to cl:
@@ -1801,9 +1814,13 @@ def:pub app -> JsxElement {
     return
         <ClientApp />;
 }
+
+to sv:
+
+# Back to server-side: nodes, walkers, AI delegations, etc. live here.
 ```
 
-Everything outside `cl { }` runs on the server. Everything inside runs in the browser.
+Everything before `to cl:` and everything after the next `to sv:` runs on the server. Everything between them runs in the browser.
 
 **Dependency-Triggered Abilities**
 
@@ -1848,14 +1865,16 @@ All the complete files are in the collapsible sections below. Create each file, 
     ```jac
     """AI Day Planner -- authenticated, multi-file version."""
 
-    cl {
-        import from frontend { app as ClientApp }
+    to cl:
 
-        def:pub app -> JsxElement {
-            return
-                <ClientApp />;
-        }
+    import from frontend { app as ClientApp }
+
+    def:pub app -> JsxElement {
+        return
+            <ClientApp />;
     }
+
+    to sv:
 
     import from byllm.lib { Model }
 
@@ -1907,18 +1926,18 @@ All the complete files are in the collapsible sections below. Create each file, 
     """Add a task with AI categorization."""
     def:priv add_task(title: str) -> Task {
         category = str(categorize(title)).split(".")[-1].lower();
-        task = root() ++> Task(title=title, category=category);
+        task = root ++> Task(title=title, category=category);
         return task[0];
     }
 
     """Get all tasks."""
     def:priv get_tasks -> list[Task] {
-        return [root()-->][?:Task];
+        return [root-->][?:Task];
     }
 
     """Toggle a task's done status."""
     def:priv toggle_task(id: str) -> Task | None {
-        for task in [root()-->][?:Task] {
+        for task in [root-->][?:Task] {
             if jid(task) == id {
                 task.done = not task.done;
                 return task;
@@ -1929,7 +1948,7 @@ All the complete files are in the collapsible sections below. Create each file, 
 
     """Delete a task."""
     def:priv delete_task(id: str) -> dict {
-        for task in [root()-->][?:Task] {
+        for task in [root-->][?:Task] {
             if jid(task) == id {
                 del task;
                 return {"deleted": id};
@@ -1942,28 +1961,28 @@ All the complete files are in the collapsible sections below. Create each file, 
 
     """Generate a shopping list from a meal description."""
     def:priv generate_list(meal: str) -> list[ShoppingItem] {
-        for item in [root()-->][?:ShoppingItem] {
+        for item in [root-->][?:ShoppingItem] {
             del item;
         }
         ingredients = generate_shopping_list(meal);
         for ing in ingredients {
-            root() ++> ShoppingItem(
+            root ++> ShoppingItem(
                 name=ing.name, quantity=ing.quantity,
                 unit=str(ing.unit).split(".")[-1].lower(),
                 cost=ing.cost, carby=ing.carby
             );
         }
-        return [root()-->][?:ShoppingItem];
+        return [root-->][?:ShoppingItem];
     }
 
     """Get the current shopping list."""
     def:priv get_shopping_list -> list[ShoppingItem] {
-        return [root()-->][?:ShoppingItem];
+        return [root-->][?:ShoppingItem];
     }
 
     """Clear the shopping list."""
     def:priv clear_shopping_list -> dict {
-        for item in [root()-->][?:ShoppingItem] {
+        for item in [root-->][?:ShoppingItem] {
             del item;
         }
         return {"cleared": True};
@@ -2144,14 +2163,14 @@ All the complete files are in the collapsible sections below. Create each file, 
                                                             <span class="carb-badge">Carbs</span>
                                                         ) if ing.carby else None}
                                                         <span class="ing-cost">
-                                                            ${ing.cost.toFixed(2)}
+                                                            ${format(ing.cost, ".2f")}
                                                         </span>
                                                     </div>
                                                 </div> for ing in ingredients
                                             ]}
                                             <div class="shopping-footer">
                                                 <span class="total">
-                                                    Total: ${totalCost.toFixed(2)}
+                                                    Total: ${format(totalCost, ".2f")}
                                                 </span>
                                                 <button
                                                     class="btn-clear"
@@ -2287,12 +2306,20 @@ All the complete files are in the collapsible sections below. Create each file, 
         }
         loading = True;
         result = await jacSignup(username, password);
-        loading = False;
         if result["success"] {
-            isLoggedIn = True;
-            username = "";
-            password = "";
+            # /user/register creates the account but does not return a
+            # session token; sign in immediately to establish one.
+            logged_in = await jacLogin(username, password);
+            loading = False;
+            if logged_in {
+                isLoggedIn = True;
+                username = "";
+                password = "";
+            } else {
+                error = "Account created but sign-in failed";
+            }
         } else {
+            loading = False;
             error = result["error"] if result["error"] else "Signup failed";
         }
     }
@@ -2413,7 +2440,7 @@ All the complete files are in the collapsible sections below. Create each file, 
 
 ```bash
 export ANTHROPIC_API_KEY="your-key"
-jac start main.jac
+jac start main.jac  # or: jac start
 ```
 
 Open [http://localhost:8000](http://localhost:8000). You should see a login screen.
@@ -2436,7 +2463,7 @@ Step back and consider what you've built: a **complete, fully functional applica
 - **`jacSignup`**, **`jacLogin`**, **`jacLogout`**, **`jacIsLoggedIn`** -- built-in auth functions
 - **`import from "@jac/runtime"`** -- import Jac's built-in client-side utilities
 - **`can with [deps] entry`** -- dependency-triggered abilities (re-runs when state changes)
-- **`cl { }`** -- embed client-side code in a server file
+- **`to cl:`** / **`to sv:`** -- section headers that switch the default context for everything that follows, until the next `to X:` header or end of file
 - **Declaration/implementation split** -- `.cl.jac` for UI, `.impl.jac` for logic
 - **`impl app.method { ... }`** -- implement declared methods in a separate file
 
@@ -2487,7 +2514,7 @@ The best way to understand walkers is to compare them directly with the function
 ```jac
 def:priv add_task(title: str) -> Task {
     category = str(categorize(title)).split(".")[-1].lower();
-    task = root() ++> Task(title=title, category=category);
+    task = root ++> Task(title=title, category=category);
     return task[0];
 }
 ```
@@ -2522,11 +2549,11 @@ Spawn it:
 
 <!-- jac-skip -->
 ```jac
-result = root() spawn AddTask(title="Buy groceries");
+result = root spawn AddTask(title="Buy groceries");
 print(result.reports[0]);  # The reported dict
 ```
 
-**`root() spawn AddTask(title="...")`** creates a walker and starts it at root. Whatever the walker `report`s ends up in `result.reports`.
+**`root spawn AddTask(title="...")`** creates a walker and starts it at root. Whatever the walker `report`s ends up in `result.reports`.
 
 **The Accumulator Pattern**
 
@@ -2534,7 +2561,7 @@ The `AddTask` walker may seem like unnecessary complexity compared to the functi
 
 ```jac
 walker ListTasks {
-    has results: list = [];
+    has results: list[Task] = [];
 
     can start with Root entry {
         visit [-->];
@@ -2562,7 +2589,7 @@ Compare this to the function version:
 
 ```jac
 def:priv get_tasks -> list[Task] {
-    return [root()-->][?:Task];
+    return [root-->][?:Task];
 }
 ```
 
@@ -2680,7 +2707,7 @@ The remaining shopping walkers follow familiar patterns:
 
 ```jac
 walker GetShoppingList {
-    has items: list = [];
+    has items: list[ShoppingItem] = [];
 
     can collect with Root entry { visit [-->]; }
 
@@ -2724,11 +2751,11 @@ Then in the frontend methods:
 task = await add_task(task_text.strip());
 
 # Walker style (Part 7):
-result = root() spawn AddTask(title=task_text.strip());
+result = root spawn AddTask(title=task_text.strip());
 new_task = result.reports[0];  # A typed Task object
 ```
 
-The key pattern: **`root() spawn Walker(params)`** creates a walker and starts it at root. The walker traverses the graph, and whatever it `report`s ends up in `result.reports`. Since the walker reports typed `Task` objects, the client receives them with full field access -- `new_task.title`, `new_task.done`, `new_task.category` all work directly.
+The key pattern: **`root spawn Walker(params)`** creates a walker and starts it at root. The walker traverses the graph, and whatever it `report`s ends up in `result.reports`. Since the walker reports typed `Task` objects, the client receives them with full field access -- `new_task.title`, `new_task.done`, `new_task.category` all work directly.
 
 **walker:priv -- Per-User Data Isolation**
 
@@ -2770,14 +2797,16 @@ All the complete files are in the collapsible sections below. Create each file, 
     ```jac
     """AI Day Planner -- walker-based version with OSP."""
 
-    cl {
-        import from frontend { app as ClientApp }
+    to cl:
 
-        def:pub app -> JsxElement {
-            return
-                <ClientApp />;
-        }
+    import from frontend { app as ClientApp }
+
+    def:pub app -> JsxElement {
+        return
+            <ClientApp />;
     }
+
+    to sv:
 
     import from byllm.lib { Model }
 
@@ -3102,14 +3131,14 @@ All the complete files are in the collapsible sections below. Create each file, 
                                                             <span class="carb-badge">Carbs</span>
                                                         ) if ing.carby else None}
                                                         <span class="ing-cost">
-                                                            ${ing.cost.toFixed(2)}
+                                                            ${format(ing.cost, ".2f")}
                                                         </span>
                                                     </div>
                                                 </div> for ing in ingredients
                                             ]}
                                             <div class="shopping-footer">
                                                 <span class="total">
-                                                    Total: ${totalCost.toFixed(2)}
+                                                    Total: ${format(totalCost, ".2f")}
                                                 </span>
                                                 <button
                                                     class="btn-clear"
@@ -3194,26 +3223,26 @@ All the complete files are in the collapsible sections below. Create each file, 
 
     impl app.fetchTasks {
         tasksLoading = True;
-        result = root() spawn ListTasks();
+        result = root spawn ListTasks();
         tasks = result.reports[0] if result.reports else [];
         tasksLoading = False;
     }
 
     impl app.addTask {
         if not taskText.strip() { return; }
-        response = root() spawn AddTask(title=taskText);
+        response = root spawn AddTask(title=taskText);
         tasks = tasks + [response.reports[0]];
         taskText = "";
     }
 
     impl app.toggleTask(id: str) {
-        response = root() spawn ToggleTask(task_id=id);
+        response = root spawn ToggleTask(task_id=id);
         updated = response.reports[0];
         tasks = [updated if jid(t) == id else t for t in tasks];
     }
 
     impl app.deleteTask(id: str) {
-        root() spawn DeleteTask(task_id=id);
+        root spawn DeleteTask(task_id=id);
         tasks = [t for t in tasks if jid(t) != id];
     }
 
@@ -3247,12 +3276,20 @@ All the complete files are in the collapsible sections below. Create each file, 
         }
         loading = True;
         result = await jacSignup(username, password);
-        loading = False;
         if result["success"] {
-            isLoggedIn = True;
-            username = "";
-            password = "";
+            # /user/register creates the account but does not return a
+            # session token; sign in immediately to establish one.
+            logged_in = await jacLogin(username, password);
+            loading = False;
+            if logged_in {
+                isLoggedIn = True;
+                username = "";
+                password = "";
+            } else {
+                error = "Account created but sign-in failed";
+            }
         } else {
+            loading = False;
             error = result["error"] if result["error"] else "Signup failed";
         }
     }
@@ -3276,20 +3313,20 @@ All the complete files are in the collapsible sections below. Create each file, 
     }
 
     impl app.fetchShoppingList {
-        result = root() spawn GetShoppingList();
+        result = root spawn GetShoppingList();
         ingredients = result.reports[0] if result.reports else [];
     }
 
     impl app.generateList {
         if not mealText.strip() { return; }
         generating = True;
-        result = root() spawn GenerateShoppingList(meal_description=mealText);
+        result = root spawn GenerateShoppingList(meal_description=mealText);
         ingredients = result.reports[0] if result.reports else [];
         generating = False;
     }
 
     impl app.clearList {
-        root() spawn ClearShoppingList();
+        root spawn ClearShoppingList();
         ingredients = [];
         mealText = "";
     }
@@ -3375,7 +3412,7 @@ All the complete files are in the collapsible sections below. Create each file, 
 
 ```bash
 export ANTHROPIC_API_KEY="your-key"
-jac start main.jac
+jac start main.jac  # or: jac start
 ```
 
 Open [http://localhost:8000](http://localhost:8000). You should see a login screen -- that's authentication working with `walker:priv`.
@@ -3403,7 +3440,7 @@ This part introduced Jac's Object-Spatial Programming paradigm:
 - **`visitor`** -- inside a node ability, the walker that's visiting
 - **`report`** -- send data back (typed objects or dicts), collected in `.reports`
 - **`disengage`** -- stop traversal immediately
-- **`root() spawn Walker()`** -- create and start a walker at a node
+- **`root spawn Walker()`** -- create and start a walker at a node
 - **`result.reports[0]`** -- access the walker's reported data
 - **`walker:priv`** -- per-user walker with data isolation
 - **`sv import`** -- import server walkers into client code
@@ -3441,7 +3478,7 @@ The concepts you've learned are interconnected. Types constrain AI output. Graph
 
 **Data & Types:** `node`, `edge`, `obj`, `enum`, `has`, `glob`, `sem`, type annotations, `str | None` unions
 
-**Graph:** `root()`, `++>` (create + connect), `+>: Edge :+>` (typed edge), `[root()-->]` (query), `[?:Type]` (filter), `jid()` (node identity), `del` (delete)
+**Graph:** `root`, `++>` (create + connect), `+>: Edge :+>` (typed edge), `[root-->]` (query), `[?:Type]` (filter), `jid()` (node identity), `del` (delete)
 
 **Functions:** `def`, `def:pub`, `def:priv`, `by llm()`, `lambda`, `async`/`await`
 

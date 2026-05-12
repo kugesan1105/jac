@@ -5,6 +5,7 @@ Direct implementations - no delegation.
 
 import from pathlib { Path }
 import from jaclang.cli.console { console }
+import from jaclang.jac0core.helpers { read_toml_with_encoding }
 
 # Configuration groups available in jac.toml
 glob CONFIG_GROUPS = [
@@ -879,7 +880,6 @@ def _format_value(value: object) -> str {
 def _to_toml_value(value: object) -> str {
     if value is None {
         return '""';  # TOML doesn't have null, use empty string
-
     } elif isinstance(value, bool) {
         return "true" if value else "false";
     } elif isinstance(value, int) {
@@ -1177,8 +1177,6 @@ def _parse_value(value: str, target_type: type) -> object {
 def _save_config_with_setting(
     config: object, group_name: str, setting_name: str, value: object
 ) -> None {
-    import tomllib;
-
     if config.toml_path is None {
         console.error("No toml_path set, cannot save configuration.");
         return;
@@ -1186,9 +1184,7 @@ def _save_config_with_setting(
 
     # Load existing file content
     if config.toml_path.exists() {
-        with open(config.toml_path, "rb") as f {
-            doc = tomllib.load(f);
-        }
+        doc = read_toml_with_encoding(str(config.toml_path));
     } else {
         doc = {};
     }
@@ -1212,8 +1208,6 @@ def _save_config_with_setting(
 def _save_config_without_setting(
     config: object, group_name: str, setting_name: str
 ) -> None {
-    import tomllib;
-
     if config.toml_path is None {
         console.error("No toml_path set, cannot save configuration.");
         return;
@@ -1221,13 +1215,10 @@ def _save_config_without_setting(
 
     if not config.toml_path.exists() {
         return;  # Nothing to remove
-
     }
 
     # Load existing file content
-    with open(config.toml_path, "rb") as f {
-        doc = tomllib.load(f);
-    }
+    doc = read_toml_with_encoding(str(config.toml_path));
 
     # Map group name to TOML section
     toml_section = group_name;  # Group names match TOML section names

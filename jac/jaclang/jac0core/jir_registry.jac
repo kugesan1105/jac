@@ -553,6 +553,7 @@ glob NODE_SPECS: tuple = (
                  FieldDesc(name="access", kind=6),
                  FieldDesc(name="decorators", kind=5),
                  FieldDesc(name="name", kind=4),
+                 FieldDesc(name="value_type", kind=6),
                  FieldDesc(name="base_classes", kind=5)
              )
          ),
@@ -797,6 +798,7 @@ glob NODE_SPECS: tuple = (
                  FieldDesc(name="from_loc", kind=6),
                  FieldDesc(name="items", kind=5),
                  FieldDesc(name="is_absorb", kind=2),
+                 FieldDesc(name="is_typed", kind=2),
                  FieldDesc(name="clib_decls", kind=5)
              )
          ),
@@ -829,7 +831,7 @@ glob NODE_SPECS: tuple = (
              type_idx=70,
              class_name="InnerCompr",
              is_scope=True,
-             is_cfg=False,
+             is_cfg=True,
              is_name_atom=False,
              fields=(
                  FieldDesc(name="is_async", kind=2),

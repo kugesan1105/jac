@@ -23,13 +23,15 @@ The CLI is extensible through plugins. When you install plugins like `jac-scale`
 | `jac dot` | Generate graph visualization |
 | `jac debug` | Interactive debugger |
 | `jac plugins` | Manage plugins |
+| `jac model` | Manage byLLM local-model weights (Gemma 4, Qwen 3.5, …) |
 | `jac config` | Manage project configuration |
 | `jac destroy` | Remove Kubernetes deployment (jac-scale) |
 | `jac status` | Show deployment status of Kubernetes resources (jac-scale) |
 | `jac add` | Add packages to project |
-| `jac install` | Install project dependencies |
+| `jac install` | Install project dependencies (or `-e <path>` for an editable install) |
 | `jac remove` | Remove packages from project |
 | `jac update` | Update dependencies to latest compatible versions |
+| `jac bundle` | Build a distributable `.whl` from `jac.toml` |
 | `jac jacpack` | Manage project templates (.jacpack files) |
 | `jac eject` | Compile a project to standalone Python + JavaScript (zero `.jac` files) |
 | `jac grammar` | Extract and print the Jac grammar |
@@ -615,6 +617,58 @@ jac plugins disabled
 
 ---
 
+## Local Model Cache
+
+The `jac model` command manages the on-disk cache of bundled local LLM weights used by byLLM's `local:<alias>` route. Weights live under `~/.cache/jac/models/<alias>/` (override with `JAC_MODELS_DIR`). See [Built-in Local Models](../plugins/byllm.md#built-in-local-models) in the byLLM reference for the full backend.
+
+### jac model
+
+Manage byLLM local-model weights (Gemma 4, Qwen 3.5, …).
+
+```bash
+jac model [-h] [action] [alias]
+```
+
+| Action | Description |
+|--------|-------------|
+| `list` | Show bundled aliases and download status (default). |
+| `pull <alias>` | Download GGUF weights for an alias from HuggingFace. |
+| `rm <alias>` | Delete cached weights for an alias. Aliases: `remove`, `delete`. |
+
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `action` | One of `list`, `pull`, `rm`. | `list` |
+| `alias` | Local-model alias (e.g. `gemma-4-e4b`). Required for `pull` / `rm`; omit for `list`. | `""` |
+
+**Examples:**
+
+```bash
+# Show bundled aliases and which are cached locally
+jac model
+
+# Download Gemma 4 E4B weights (~5 GB) ahead of first use
+jac model pull gemma-4-e4b
+
+# Free disk by removing cached weights
+jac model rm gemma-4-e4b
+```
+
+**Sample output of `jac model`:**
+
+```text
+Local model cache: /home/you/.cache/jac/models
+
+  ALIAS                       SIZE STATUS       DESCRIPTION
+  ---------------------- --------- ------------ ----------------------------------------
+  gemma-4-e2b             ~2500 MB not cached   Google Gemma 4 E2B (smaller, faster)
+  gemma-4-e4b               4.6 GB downloaded   Google Gemma 4 E4B (instruction-tuned, Q4_K_M)
+  qwen3.5-4b              ~2800 MB not cached   Alibaba Qwen 3.5 4B (instruction-tuned, Q4_K_M)
+```
+
+> **Note:** In CI and other non-TTY contexts, the runtime will not prompt to download. Either `jac model pull <alias>` ahead of time, or set `BYLLM_AUTO_DOWNLOAD=1` (or `[plugins.byllm.local].auto_download = true` in `jac.toml`) to allow silent first-run downloads.
+
+---
+
 ## Database Operations
 
 The `jac db` command group inspects the live persistence backend, manages DB-resident rescue aliases, and recovers quarantined anchors. It works against any `PersistentMemory` backend -- `SqliteMemory` (default), `MongoBackend` (with `jac-scale`), or any plugin-provided backend that implements the interface -- through the same set of subcommands.
@@ -988,12 +1042,14 @@ For private packages from custom registries (e.g., GitHub Packages), configure s
 Sync the project environment to `jac.toml`. Installs all Python (pip), git, and plugin-provided (npm, etc.) dependencies in one command. Creates or validates the project virtual environment at `.jac/venv/`.
 
 ```bash
-jac install [-h] [-d] [-v]
+jac install [-h] [-e EDITABLE] [-d] [-x group [group ...]] [-v]
 ```
 
 | Option | Description | Default |
 |--------|-------------|---------|
+| `-e, --editable PATH` | Install the Jac package at `PATH` in editable mode (analogous to `pip install -e`). `jac.toml` is read from `PATH`, not the current directory. | `""` |
 | `-d, --dev` | Include dev dependencies | `False` |
+| `-x, --extras` | Install one or more `[optional-dependencies]` groups | `[]` |
 | `-v, --verbose` | Show detailed output | `False` |
 
 **Examples:**
@@ -1005,9 +1061,23 @@ jac install
 # Install including dev dependencies
 jac install --dev
 
+# Install optional dependency groups defined in jac.toml
+jac install --extras data monitoring
+
+# Editable install with an optional group
+jac install -e . --extras all
+
 # Install with verbose output
 jac install -v
+
+# Editable install of the current package
+jac install -e .
+
+# Editable install from anywhere (no need to cd into the package)
+jac install -e /path/to/lib
 ```
+
+Optional groups are declared under `[optional-dependencies]` in `jac.toml`. See the [Configuration Reference](../config/index.md#optional-dependencies).
 
 ---
 
@@ -1136,6 +1206,53 @@ jac purge
 |---------|-------|
 | `jac clean --cache` | Local project (`.jac/cache/`) |
 | `jac purge` | Global system cache |
+
+---
+
+### jac bundle
+
+Build a standards-compliant Python wheel (`.whl`) from your project's `jac.toml`. The wheel is `pip install`-ready and requires no `pyproject.toml` or `setuptools`. After building, upload to PyPI (or a private registry) with `twine upload dist/*`.
+
+```bash
+jac bundle [-h] [-o OUTPUT]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-o, --output` | Directory to write the `.whl` file | `dist` |
+
+**What it does:**
+
+1. Reads `[package]` from `jac.toml` and validates required fields (`name`, `version`).
+2. Discovers source files under the package directory (defaults to the directory named after the package). Includes `*.jac`, `*.py`, `*.pyi`, `*.lark`, `py.typed`, and `*.jir` by default.
+3. Generates a PEP 427-compliant `.whl` archive with a `METADATA`, `WHEEL`, `RECORD`, and optional `entry_points.txt`.
+4. Writes `<name>-<version>-py3-none-any.whl` to the output directory.
+
+**Examples:**
+
+```bash
+# Build wheel into dist/ (default)
+jac bundle
+
+# Build to a custom directory
+jac bundle -o /tmp/wheels
+
+# Upload to PyPI after building
+jac bundle && twine upload dist/*
+
+# Install locally to test before publishing
+pip install dist/mylib-1.0.0-py3-none-any.whl
+```
+
+**Requirements:**
+
+A `[package]` section must exist in `jac.toml`. At minimum:
+
+```toml
+[package]
+name = "mylib"
+version = "1.0.0"
+```
 
 ---
 
@@ -1623,14 +1740,45 @@ jac test -v
 jac lint . --fix
 ```
 
+### Publishing a Package
+
+Expected project layout:
+
+```
+mylib/
+├── jac.toml          ← must contain [package] section
+├── README.md
+└── mylib/            ← source dir (matches [package] name)
+    ├── __init__.jac
+    └── utils.jac
+```
+
+```bash
+# Build wheel from jac.toml
+jac bundle
+
+# Test locally in a clean environment before uploading
+python -m venv test_env && source test_env/bin/activate
+pip install dist/mylib-1.0.0-py3-none-any.whl
+
+# Upload to TestPyPI first to verify metadata
+twine upload --repository testpypi dist/*
+
+# Then publish to PyPI
+twine upload dist/*
+```
+
 ### Production
+
+!!! note
+    `main.jac` is the default entry point for `jac start`. If your entry point differs (e.g., `app.jac`), pass it explicitly: `jac start app.jac --scale`.
 
 ```bash
 # Start locally
 jac start -p 8000
 
 # Deploy to Kubernetes
-jac start main.jac --scale
+jac start --scale
 
 # Check deployment status
 jac status main.jac

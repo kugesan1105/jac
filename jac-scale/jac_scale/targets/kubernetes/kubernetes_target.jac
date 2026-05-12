@@ -23,7 +23,8 @@ import from jac_scale.targets.kubernetes.utils.kubernetes_utils {
     ensure_pvc_exists,
     load_env_variables,
     validate_resource_limits,
-    sync_code_to_pvc
+    sync_code_to_pvc,
+    resize_pvc_if_needed
 }
 import from jac_scale.providers.registry.dockerhub { DockerHubRegistry }
 import from jac_scale.providers.database.kubernetes_mongo { KubernetesMongoProvider }
@@ -252,11 +253,6 @@ obj KubernetesTarget(DeploymentTarget) {
 
         # Install requirements
         commands.append('jac install');
-
-        # Pre-compile all jac-scale .jac modules so lazy imports have bytecode at runtime
-        commands.append(
-            "printf 'import from jac_scale.factories.sandbox_factory { SandboxFactory }\\nimport from jac_scale.providers.sandbox.kubernetes_sandbox { KubernetesSandbox }\\nimport from jac_scale.providers.sandbox.local_sandbox { LocalSandbox }\\nimport from jac_scale.providers.sandbox.docker_sandbox { DockerSandbox }\\n' > /tmp/_precompile.jac && jac run /tmp/_precompile.jac > /dev/null 2>&1 || true"
-        );
 
         # Start the application
         commands.append(f"jac start {app_config.file_name}");
@@ -588,6 +584,14 @@ obj KubernetesTarget(DeploymentTarget) {
                     raise;
                 }
             }
+            mongodb_volume_name = f"{app_name}-mongo-data";
+            mongodb_pvc_name = f"{mongodb_volume_name}-{mongodb_name}-0";
+            resize_pvc_if_needed(
+                core_v1,
+                namespace,
+                mongodb_pvc_name,
+                self.k8s_config.mongodb_storage_size
+            );
             try {
                 core_v1.read_namespaced_service(
                     name=mongodb_service_name, namespace=namespace

@@ -8,11 +8,11 @@ impl _jac_graph_json(file: (str | None) = None) -> str {
     edge_ids: set = set();
     nodes: list[dict] = [];
     edges: list[dict] = [];
-    root = jac.root();
-    collect_node_connections(root, visited_nodes, connections, edge_ids);
-    nodes.append({'id': id(root), 'label': 'root'});
+    `root = jac.`root();
+    collect_node_connections(`root, visited_nodes, connections, edge_ids);
+    nodes.append({'id': id(`root), 'label': 'root'});
     for node_arch in visited_nodes {
-        if (node_arch != root) {
+        if (node_arch != `root) {
             nodes.append({'id': id(node_arch), 'label': repr(node_arch)});
         }
     }
@@ -51,7 +51,7 @@ impl printgraph(
     }
     return jac.printgraph(
         edge_type=edge_type,
-        nd=(nd or jac.root()),
+        nd=(nd or jac.`root()),
         depth=depth,
         traverse=traverse,
         bfs=bfs,
@@ -175,6 +175,16 @@ impl _get_access_level -> type[AccessLevel] {
 impl _get_jac -> type[JacRuntimeInterface] {
     import from jaclang { JacRuntimeInterface }
     return JacRuntimeInterface;
+}
+
+"""Portable constructor: server-side spelling of `Cls(*args)`.
+
+The cl backend rewrites `new(...)` calls at compile time into
+`Reflect.construct(...)` (see ESBuiltinEmitter.emit_new), so this runtime
+implementation is only invoked when the call survives to the server target.
+"""
+impl new(cls: Any, *args: Any) -> Any {
+    return cls(*args);
 }
 
 """REST API decorator factory."""

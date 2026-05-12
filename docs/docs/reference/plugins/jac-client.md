@@ -65,7 +65,6 @@ import sys, json;
 import datetime as dt;
 
 # From import
-import from typing { List, Dict, Optional }
 import from math { sqrt, pi, log as logarithm }
 
 # Relative imports
@@ -147,8 +146,11 @@ walker:pub GetUsers {
 
 Start the server:
 
+!!! note
+    `main.jac` is the default entry point. All `jac start` commands below omit the filename. If your entry point differs (e.g., `app.jac`), pass it explicitly: `jac start app.jac`.
+
 ```bash
-jac start main.jac --port 8000
+jac start --port 8000
 ```
 
 ### Typed Object Passing
@@ -1090,7 +1092,7 @@ def:pub StylingExamples() -> JsxElement {
 > import from "clsx" { clsx }
 > import from "tailwind-merge" { twMerge }
 >
-> def:pub cn(inputs: Any) -> str {
+> def:pub cn(inputs: any) -> str {
 >     args = [].slice.call(arguments);
 >     return twMerge(clsx(args));
 > }
@@ -1604,7 +1606,7 @@ A desktop build produces a Tauri shell that hosts a webview pointed at a bundled
 jac setup desktop
 
 # 2. Development with hot reload
-jac start main.jac --client desktop --dev
+jac start --client desktop --dev
 
 # 3. Build installer for current platform
 jac build --client desktop
@@ -1921,16 +1923,16 @@ jac-client uses [Bun](https://bun.sh/) for package management and JavaScript bun
 
 ```bash
 # Basic
-jac start main.jac
+jac start
 
 # With hot module replacement
-jac start main.jac --dev
+jac start --dev
 
 # HMR without client bundling (API only)
-jac start main.jac --dev --no-client
+jac start --dev --no-client
 
 # Dev server for desktop target
-jac start main.jac --client desktop
+jac start --client desktop
 ```
 
 ### API Proxy
@@ -2204,29 +2206,31 @@ Anchors provide persistent object references across sessions, allowing nodes and
 
 ### Constructing Browser Objects
 
-Jac does not have a `new` keyword. Use `Reflect.construct()` to instantiate browser built-in constructors:
+Jac does not have a JavaScript-style `new` keyword. Use the `new(...)` ambient builtin to instantiate browser built-in constructors; the compiler lowers it to `Reflect.construct(Cls, [args])` in the emitted JavaScript:
 
 <!-- jac-skip -->
 ```jac
 to cl:
 
 # WebSocket
-ws = Reflect.construct(WebSocket, [url]);
+ws = new(WebSocket, url);
 
 # URL
-url = Reflect.construct(URL, [String(baseUrl)]);
+url = new(URL, String(baseUrl));
 
 # Date
-now = Reflect.construct(Date, []);
+now = new(Date);
 
 # Promise
-p = Reflect.construct(Promise, [lambda(resolve: Any, reject: Any) {
+p = new(Promise, lambda(resolve: any, reject: any) {
     resolve.call(None, "done");
-}]);
+});
 
 # CustomEvent
-evt = Reflect.construct(CustomEvent, ["my-event", {"detail": data}]);
+evt = new(CustomEvent, "my-event", {"detail": data});
 ```
+
+`new(Cls, ...args)` is portable: it works in any codespace. On the server it is a thin wrapper for `Cls(*args)`; in `cl` blocks the compiler rewrites the call into `Reflect.construct(Cls, [args])` so it can drive JS class constructors that require `new`.
 
 ### Callback Invocations
 
@@ -2237,7 +2241,7 @@ When passing callbacks to be invoked later, use `.call(None, ...)`:
 to cl:
 
 handler = myCallback;
-ws.onmessage = lambda(e: Any) {
+ws.onmessage = lambda(e: any) {
     handler.call(None, JSON.parse(e.data));
 };
 ```
@@ -2250,7 +2254,7 @@ Use `glob` for state shared across a module:
 to cl:
 
 glob initialized: bool = False;
-glob cache: Any = None;
+glob cache: any = None;
 ```
 
 For more patterns, see the [Advanced Patterns & JS Interop tutorial](../../tutorials/fullstack/advanced-patterns.md).
@@ -2263,7 +2267,7 @@ For more patterns, see the [Advanced Patterns & JS Interop tutorial](../../tutor
 
 ```bash
 # Enable with --dev flag
-jac start main.jac --dev
+jac start --dev
 ```
 
 Changes to `.jac` files automatically reload without restart.

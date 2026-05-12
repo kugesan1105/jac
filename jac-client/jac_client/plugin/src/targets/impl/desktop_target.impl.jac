@@ -1801,7 +1801,6 @@ def _add_sidecar_to_config(tauri_dir: Path, config: dict) -> None {
     binaries_dir = tauri_dir / "binaries";
     if not binaries_dir.exists() {
         return;  # No binaries directory, skip
-
     }
 
     # Onedir output ships the sidecar as a directory (binaries/jac-sidecar/
@@ -1839,7 +1838,6 @@ def _add_sidecar_to_config(tauri_dir: Path, config: dict) -> None {
             ];
         }
         return;  # No sidecar found, skip
-
     }
 
     # Tauri v2 uses "resources" in bundle section for sidecars
@@ -1993,7 +1991,6 @@ def _copy_assets_to_dist(project_dir: Path, dist_dir: Path) -> None {
 
     if not compiled_assets.exists() {
         return;  # No assets to copy
-
     }
 
     # Create static directory and copy assets
@@ -2834,20 +2831,41 @@ if jac_toml.exists():
 # Read Python dependencies from jac.toml and add to hiddenimports
 try:
     import tomllib
+    from importlib.metadata import distribution, PackageNotFoundError
     with open(jac_toml, 'rb') as f:
         toml_data = tomllib.load(f)
     # Get [dependencies] section (Python packages)
     python_deps = toml_data.get('dependencies', {{}})
+
+    def _resolve_top_level(dist_name):
+        # Distribution name != module name in general. Read top_level.txt
+        # from the installed dist; fall back to the dash-to-underscore
+        # heuristic only when metadata is missing.
+        try:
+            dist = distribution(dist_name)
+            top_level = dist.read_text('top_level.txt')
+            if top_level:
+                names = [n.strip() for n in top_level.splitlines() if n.strip()]
+                if names:
+                    return names
+        except PackageNotFoundError:
+            pass
+        return [dist_name.replace('-', '_')]
+
     for dep_name, dep_version in python_deps.items():
         # Skip sub-tables like npm, git, etc.
         if isinstance(dep_version, str):
-            # Convert package name to module name (e.g., jac-scale -> jac_scale)
-            module_name = dep_name.replace('-', '_')
-            hiddenimports.append(module_name)
-            try:
-                hiddenimports += collect_submodules(module_name)
-            except Exception:
-                pass
+            for module_name in _resolve_top_level(dep_name):
+                hiddenimports.append(module_name)
+                try:
+                    hiddenimports += collect_submodules(module_name)
+                except Exception:
+                    pass
+                # Pull data files too so .jac sources ship alongside .py
+                try:
+                    datas += collect_data_files(module_name)
+                except Exception:
+                    pass
     print(f"Added {{len([d for d in python_deps.values() if isinstance(d, str)])}} Python dependencies from jac.toml")
 
     # Read [desktop.bundle] extra_data glob patterns from jac.toml and bundle
@@ -2874,6 +2892,34 @@ except Exception as e:
 
 # Note: collect_all() already handles submodules, data files, and binaries
 # No need for separate collect_submodules() calls
+
+# Drop bundled test/benchmark data that bloats the sidecar and can push
+# nested paths past Windows MAX_PATH (260 chars). The litellm package
+# ships benchmark JSONs at e.g.
+#   litellm/proxy/guardrails/guardrail_hooks/<provider>/guardrail_benchmarks/results/<long-name>.json
+# which combined with the runner checkout root and Tauri's binaries staging
+# directory exceed MAX_PATH and break NSIS/WiX bundling on Windows.
+# Match against the dest path; substring check, case-insensitive, slash-normalized.
+EXCLUDE_DATA_PATTERNS = [
+    'guardrail_benchmarks',          # litellm benchmark JSONs (causes Windows bundle failure)
+    'litellm/tests',                 # tests, runtime-irrelevant
+    'litellm/proxy/tests',
+    'litellm/proxy/example_config_yaml',
+]
+
+def _should_exclude(dest):
+    if not dest:
+        return False
+    # chr(92) is backslash; avoids brittle escape-counting through the jac
+    # template string into the generated spec.
+    norm = dest.replace(chr(92), '/').lower()
+    return any(pat in norm for pat in EXCLUDE_DATA_PATTERNS)
+
+_pre_d = len(datas)
+datas = [(s, d) for s, d in datas if not _should_exclude(d)]
+_pre_b = len(binaries)
+binaries = [(s, d) for s, d in binaries if not _should_exclude(d)]
+print(f"\\n[Excluded {{_pre_d - len(datas)}} data files, {{_pre_b - len(binaries)}} binaries from sidecar (MAX_PATH/bloat protection)]")
 
 a = Analysis(
     [r'{entry_script}'],

@@ -130,40 +130,35 @@ Resolution order:
   3. JAC_SV_{MODULE}_URL environment variable
   4. JacAPIServer.ensure_sv_service() plugin hook on cache miss
 
+After resolution, delegates the transport to
+JacAPIServer.sv_service_call() so plugins can inject auth, retries,
+tracing, or circuit breakers without touching this call site.
+
 Returns the unwrapped result from the TransportResponse envelope.
 Raises RuntimeError on failure.
 """
 def call(module_name: str, func_name: str, args: dict) -> Any {
     _ensure_available(module_name);
-    if module_name in _test_clients {
-        resp = _test_clients[module_name].post(f"/function/{func_name}", json=args);
-        data = resp.json();
-    } else {
-        url = resolve_url(module_name);
-        try {
-            import httpx;
-        } except ImportError {
-            raise RuntimeError(
-                "httpx is required for sv-to-sv RPC calls. " + "Install it via `pip install httpx`."
-            );
-        }
-        resp = httpx.post(f"{url}/function/{func_name}", json=args);
-        data = resp.json();
-    }
+    import jaclang;
+    return jaclang.JacRuntime.sv_service_call(module_name, func_name, args);
+}
 
-    if isinstance(data, dict) and data.get("ok") {
-        result_envelope = data.get("data");
-        if isinstance(result_envelope, dict) and ("result" in result_envelope) {
-            return result_envelope["result"];
-        }
-        return result_envelope;
-    }
+"""Spawn an sv-imported walker on the provider service.
 
-    err = (data.get("error") if isinstance(data, dict) else None) or {};
-    msg = err.get("message") if isinstance(err, dict) else str(err);
-    raise RuntimeError(
-        f"sv-to-sv RPC '{module_name}.{func_name}' failed: {msg or 'unknown error'}"
-    );
+Mirrors `call()` but routes through `/walker/<name>` and rehydrates
+the returned envelope into a consumer-side walker stub instance via
+`stub_cls._from_wire`. The transport is delegated to
+JacAPIServer.sv_walker_call so plugins (auth, retry, tracing, circuit
+breaker) can override it the same way they override sv_service_call.
+
+The returned object satisfies `isinstance(result, stub_cls)`, exposes
+the walker's `has` fields as attributes, and carries a `reports`
+attribute populated from the `data.reports` envelope key.
+"""
+def spawn_walker(module_name: str, walker_name: str, args: dict, stub_cls: Any) -> Any {
+    _ensure_available(module_name);
+    import jaclang;
+    return jaclang.JacRuntime.sv_walker_call(module_name, walker_name, args, stub_cls);
 }
 
 """Eagerly resolve every named provider before serving traffic.

@@ -1,8 +1,8 @@
 """Integration tests for memory hierarchy with testcontainers and jac start."""
 
+import atexit;
 import contextlib;
 import concurrent.futures;
-import gc;
 import os;
 import socket;
 import subprocess;
@@ -15,6 +15,9 @@ import requests;
 import from pymongo { MongoClient }
 import from testcontainers.mongodb { MongoDbContainer }
 import from testcontainers.redis { RedisContainer }
+import from jac_scale.context { JScaleExecutionContext }
+import from jac_scale.memory_hierarchy { _process_cache, MongoBackend }
+import from jac_scale.db { close_all_db_connections }
 
 def get_free_port -> int {
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s {
@@ -24,7 +27,60 @@ def get_free_port -> int {
 }
 
 glob FIXTURES_DIR = Path(__file__).parent / "fixtures",
-     JAC_FILE = FIXTURES_DIR / "todo_app.jac";
+     JAC_FILE = FIXTURES_DIR / "todo_app.jac",
+     _shared: dict = {};
+
+"""Lazily start a shared MongoDB container; return (MongoClient, uri)."""
+def _get_mongo -> tuple {
+    if "mongo_client" not in _shared {
+        c = MongoDbContainer("mongo:latest");
+        c.start();
+        uri = c.get_connection_url();
+        _shared["mongo_container"] = c;
+        _shared["mongo_uri"] = uri;
+        _shared["mongo_client"] = MongoClient(uri);
+        atexit.register(c.stop);
+    }
+    return (_shared["mongo_client"], _shared["mongo_uri"]);
+}
+
+"""Lazily start a shared Redis container; return (redis.Redis, url)."""
+def _get_redis -> tuple {
+    if "redis_client" not in _shared {
+        c = RedisContainer("redis:latest", port=6379);
+        c.start();
+        host = c.get_container_host_ip();
+        exposed_port = c.get_exposed_port(6379);
+        url = f"redis://{host}:{exposed_port}/0";
+        _shared["redis_container"] = c;
+        _shared["redis_url"] = url;
+        _shared["redis_client"] = redis.Redis(
+            host=host, port=int(exposed_port), decode_responses=False
+        );
+        atexit.register(c.stop);
+    }
+    return (_shared["redis_client"], _shared["redis_url"]);
+}
+
+"""Drop all non-system databases (resets jac_db between tests)."""
+def _reset_mongo -> None {
+    if "mongo_client" not in _shared {
+        return;
+    }
+    system_dbs = {"admin","config","local"};
+    for db_name in _shared["mongo_client"].list_database_names() {
+        if db_name not in system_dbs {
+            _shared["mongo_client"].drop_database(db_name);
+        }
+    }
+}
+
+"""Flush all Redis keys (resets state between tests)."""
+def _reset_redis {
+    if "redis_client" in _shared {
+        _shared["redis_client"].flushall();
+    }
+}
 
 """Extract data from TransportResponse envelope format."""
 def extract_transport_response_data(
@@ -145,29 +201,14 @@ test "read and write" {
         shutil.rmtree(data_dir);
     }
 
-    # Start Redis container
-    redis_container = RedisContainer("redis:latest", port=6379);
-    redis_container.start();
-
-    redis_host = redis_container.get_container_host_ip();
-    redis_port = redis_container.get_exposed_port(6379);
-    redis_url = f"redis://{redis_host}:{redis_port}/0";
-
-    redis_client = redis.Redis(
-        host=redis_host, port=int(redis_port), decode_responses=False
-    );
-    assert redis_client.dbsize() == 0;
-
-    # Start Mongo container
-    mongo_container = MongoDbContainer("mongo:latest");
-    mongo_container.start();
-
-    mongo_uri = mongo_container.get_connection_url();
-    mongo_client = MongoClient(mongo_uri);
-
+    _reset_mongo();
+    _reset_redis();
+    (mongo_client, mongo_uri) = _get_mongo();
+    (redis_client, redis_url) = _get_redis();
     os.environ["MONGODB_URI"] = mongo_uri;
     os.environ["REDIS_URL"] = redis_url;
 
+    assert redis_client.dbsize() == 0;
     assert "jac_db" not in mongo_client.list_database_names();
 
     port = get_free_port();
@@ -220,7 +261,6 @@ test "read and write" {
             "Redis should have 9 entries (super root, guest user, admin, __system__, user, 2 task nodes, 2 edges)"
         );
     } finally {
-        # Teardown
         if server {
             server.terminate();
             with contextlib.suppress(Exception) {
@@ -228,21 +268,7 @@ test "read and write" {
             }
         }
 
-        system_dbs = {"admin","config","local"};
-        for db_name in mongo_client.list_database_names() {
-            if db_name not in system_dbs {
-                mongo_client.drop_database(db_name);
-            }
-        }
-
-        mongo_container.stop();
-        redis_container.stop();
-
-        time.sleep(0.5);
-        gc.collect();
-
         # Clean up data files
-        data_dir = FIXTURES_DIR / ".jac" / "data";
         if data_dir.exists() {
             import shutil;
             shutil.rmtree(data_dir);
@@ -262,11 +288,12 @@ test "data persists after server restart for mongo db" {
         shutil.rmtree(data_dir);
     }
 
-    # Start MongoDB container
-    mongo_container = MongoDbContainer("mongo:latest");
-    mongo_container.start();
-    mongo_uri = mongo_container.get_connection_url();
+    _reset_mongo();
+    (_, mongo_uri) = _get_mongo();
     os.environ["MONGODB_URI"] = mongo_uri;
+    if "REDIS_URL" in os.environ {
+        del os.environ["REDIS_URL"];
+    }
 
     port = get_free_port();
     base_url = f"http://localhost:{port}";
@@ -320,10 +347,6 @@ test "data persists after server restart for mongo db" {
                 server.wait(timeout=2);
             }
         }
-        mongo_container.stop();
-        time.sleep(0.5);
-        gc.collect();
-
         if data_dir.exists() {
             import shutil;
             shutil.rmtree(data_dir);
@@ -343,19 +366,11 @@ test "no unnecessary saves on read-only operations" {
         shutil.rmtree(data_dir);
     }
 
-    # Start MongoDB container
-    mongo_container = MongoDbContainer("mongo:latest");
-    mongo_container.start();
-    mongo_uri = mongo_container.get_connection_url();
+    _reset_mongo();
+    _reset_redis();
+    (mongo_client, mongo_uri) = _get_mongo();
+    (_, redis_url) = _get_redis();
     os.environ["MONGODB_URI"] = mongo_uri;
-    mongo_client = MongoClient(mongo_uri);
-
-    # Start Redis container
-    redis_container = RedisContainer("redis:latest", port=6379);
-    redis_container.start();
-    redis_host = redis_container.get_container_host_ip();
-    redis_port = redis_container.get_exposed_port(6379);
-    redis_url = f"redis://{redis_host}:{redis_port}/0";
     os.environ["REDIS_URL"] = redis_url;
 
     port = get_free_port();
@@ -448,18 +463,6 @@ test "no unnecessary saves on read-only operations" {
             }
         }
 
-        system_dbs = {"admin","config","local"};
-        for db_name in mongo_client.list_database_names() {
-            if db_name not in system_dbs {
-                mongo_client.drop_database(db_name);
-            }
-        }
-
-        mongo_container.stop();
-        redis_container.stop();
-        time.sleep(0.5);
-        gc.collect();
-
         if data_dir.exists() {
             import shutil;
             shutil.rmtree(data_dir);
@@ -551,9 +554,6 @@ test "data persists after server restart for sqlite" {
             os.environ[key] = value;
         }
 
-        time.sleep(0.5);
-        gc.collect();
-
         if data_dir.exists() {
             import shutil;
             shutil.rmtree(data_dir);
@@ -574,21 +574,12 @@ test "L2 and L3 commit with server restart" {
         shutil.rmtree(data_dir);
     }
 
-    mongo_container = MongoDbContainer("mongo:latest");
-    mongo_container.start();
-    mongo_uri = mongo_container.get_connection_url();
+    _reset_mongo();
+    _reset_redis();
+    (mongo_client, mongo_uri) = _get_mongo();
+    (redis_client, redis_url) = _get_redis();
     os.environ["MONGODB_URI"] = mongo_uri;
-    mongo_client = MongoClient(mongo_uri);
-
-    redis_container = RedisContainer("redis:latest", port=6379);
-    redis_container.start();
-    redis_host = redis_container.get_container_host_ip();
-    redis_port = redis_container.get_exposed_port(6379);
-    redis_url = f"redis://{redis_host}:{redis_port}/0";
     os.environ["REDIS_URL"] = redis_url;
-    redis_client = redis.Redis(
-        host=redis_host, port=int(redis_port), decode_responses=False
-    );
 
     port = get_free_port();
     base_url = f"http://localhost:{port}";
@@ -746,16 +737,6 @@ test "L2 and L3 commit with server restart" {
                 server.wait(timeout=2);
             }
         }
-        system_dbs = {"admin","config","local"};
-        for db_name in mongo_client.list_database_names() {
-            if db_name not in system_dbs {
-                mongo_client.drop_database(db_name);
-            }
-        }
-        mongo_container.stop();
-        redis_container.stop();
-        time.sleep(0.5);
-        gc.collect();
         if data_dir.exists() {
             import shutil;
             shutil.rmtree(data_dir);
@@ -774,21 +755,12 @@ test "Redis write cycle via commit" {
         shutil.rmtree(data_dir);
     }
 
-    # Setup MongoDB + Redis
-    mongo_container = MongoDbContainer("mongo:latest");
-    mongo_container.start();
-    mongo_uri = mongo_container.get_connection_url();
+    _reset_mongo();
+    _reset_redis();
+    (_, mongo_uri) = _get_mongo();
+    (redis_client, redis_url) = _get_redis();
     os.environ["MONGODB_URI"] = mongo_uri;
-
-    redis_container = RedisContainer("redis:latest", port=6379);
-    redis_container.start();
-    redis_host = redis_container.get_container_host_ip();
-    redis_port = redis_container.get_exposed_port(6379);
-    redis_url = f"redis://{redis_host}:{redis_port}/0";
     os.environ["REDIS_URL"] = redis_url;
-    redis_client = redis.Redis(
-        host=redis_host, port=int(redis_port), decode_responses=False
-    );
 
     port = get_free_port();
     base_url = f"http://localhost:{port}";
@@ -833,10 +805,6 @@ test "Redis write cycle via commit" {
                 server.wait(timeout=2);
             }
         }
-        mongo_container.stop();
-        redis_container.stop();
-        time.sleep(0.5);
-        gc.collect();
         if data_dir.exists() {
             import shutil;
             shutil.rmtree(data_dir);
@@ -888,9 +856,12 @@ test "hash-based dirty check detects all mutation types" {
 
 test "sequential requests work correctly" {
     # Validates: Multiple sequential requests don't cause crashes or data corruption
-    mongo_container = MongoDbContainer("mongo:latest");
-    mongo_container.start();
-    os.environ["MONGODB_URI"] = mongo_container.get_connection_url();
+    _reset_mongo();
+    (_, mongo_uri) = _get_mongo();
+    os.environ["MONGODB_URI"] = mongo_uri;
+    if "REDIS_URL" in os.environ {
+        del os.environ["REDIS_URL"];
+    }
 
     port = get_free_port();
     base_url = f"http://localhost:{port}";
@@ -918,8 +889,6 @@ test "sequential requests work correctly" {
         with contextlib.suppress(Exception) {
             server.wait(timeout=2);
         }
-        mongo_container.stop();
-        gc.collect();
     }
 }
 
@@ -937,11 +906,9 @@ test "batch_get reduces MongoDB queries for edge traversals" {
         shutil.rmtree(data_dir);
     }
 
-    mongo_container = MongoDbContainer("mongo:latest");
-    mongo_container.start();
-    mongo_uri = mongo_container.get_connection_url();
+    _reset_mongo();
+    (mongo_client, mongo_uri) = _get_mongo();
     os.environ["MONGODB_URI"] = mongo_uri;
-    mongo_client = MongoClient(mongo_uri);
 
     # No Redis — force all reads through MongoDB to measure query count accurately
     env_backup = {};
@@ -1019,22 +986,10 @@ test "batch_get reduces MongoDB queries for edge traversals" {
             }
         }
 
-        system_dbs = {"admin","config","local"};
-        for db_name in mongo_client.list_database_names() {
-            if db_name not in system_dbs {
-                mongo_client.drop_database(db_name);
-            }
-        }
-        mongo_client.close();
-        mongo_container.stop();
-
         # Restore environment
         for (key, value) in env_backup.items() {
             os.environ[key] = value;
         }
-
-        time.sleep(0.5);
-        gc.collect();
 
         if data_dir.exists() {
             import shutil;
@@ -1048,16 +1003,12 @@ glob MUTATION_JAC_FILE = FIXTURES_DIR / "mutation_app.jac";
 """Validates that in-place mutations (list.append, dict[k]=v) which bypass
 __setattr__ are still detected and persisted through hash comparison."""
 test "in-place mutations on list and dict are persisted via hash-based dirty check" {
-    mongo_container = MongoDbContainer("mongo:latest");
-    mongo_container.start();
-    os.environ["MONGODB_URI"] = mongo_container.get_connection_url();
-    mongo_client = MongoClient(mongo_container.get_connection_url());
-
-    redis_container = RedisContainer("redis:latest", port=6379);
-    redis_container.start();
-    redis_host = redis_container.get_container_host_ip();
-    redis_port = redis_container.get_exposed_port(6379);
-    os.environ["REDIS_URL"] = f"redis://{redis_host}:{redis_port}/0";
+    _reset_mongo();
+    _reset_redis();
+    (_, mongo_uri) = _get_mongo();
+    (_, redis_url) = _get_redis();
+    os.environ["MONGODB_URI"] = mongo_uri;
+    os.environ["REDIS_URL"] = redis_url;
 
     port = get_free_port();
     base_url = f"http://localhost:{port}";
@@ -1110,17 +1061,151 @@ test "in-place mutations on list and dict are persisted via hash-based dirty che
         with contextlib.suppress(Exception) {
             server.wait(timeout=2);
         }
-        mongo_client.close();
-        mongo_container.stop();
-        redis_container.stop();
-        time.sleep(0.5);
-        gc.collect();
         if data_dir.exists() {
             import shutil;
             shutil.rmtree(data_dir);
         }
     }
 }
+
+"""Verify that put_partial touches only the mutated field's dot-path in MongoDB."""
+test "partial update only writes mutated fields — unmodified fields survive in MongoDB" {
+    data_dir = FIXTURES_DIR / ".jac" / "data";
+    if data_dir.exists() {
+        import shutil;
+        shutil.rmtree(data_dir);
+    }
+
+    _reset_mongo();
+    (mongo_client, mongo_uri) = _get_mongo();
+    os.environ["MONGODB_URI"] = mongo_uri;
+
+    env_backup = {};
+    if "REDIS_URL" in os.environ {
+        env_backup["REDIS_URL"] = os.environ["REDIS_URL"];
+        del os.environ["REDIS_URL"];
+    }
+
+    port = get_free_port();
+    base_url = f"http://localhost:{port}";
+    server: subprocess.Popen = start_server(FIXTURES_DIR, MUTATION_JAC_FILE, port);
+
+    try {
+        token = register_user(base_url, "sentinel_tester");
+        post_request(base_url, "/walker/CreateItem", {"id": 42}, token);
+
+        db = mongo_client["jac_db"];
+        collection = db["_anchors"];
+
+        item_doc = collection.find_one({"arch_type": "Item"});
+        assert item_doc is not None , "Item not found in MongoDB after creation";
+        item_id = item_doc["_id"];
+
+        # Inject a sentinel key directly into the metadata sub-document.
+        # A full $set would wipe it; a targeted $set on data.archetype.tags must not.
+        collection.update_one(
+            {"_id": item_id},
+            {"$set": {"data.archetype.metadata.__sentinel__": "PRESERVED"}}
+        );
+        sentinel_check = collection.find_one({"_id": item_id});
+        assert sentinel_check["data"]["archetype"]["metadata"].get("__sentinel__") == "PRESERVED" , (
+            "Sentinel injection failed"
+        );
+
+        # Mutate only tags (in-place list.append — no __setattr__ signal,
+        # goes through field-hash fallback → put_partial on data.archetype.tags only).
+        post_request(base_url, "/walker/AppendTag", {"id": 42, "tag": "urgent"}, token);
+
+        doc = collection.find_one({"_id": item_id});
+        assert "urgent" in doc["data"]["archetype"]["tags"] , (
+            "tags mutation was not persisted to MongoDB"
+        );
+        assert doc["data"]["archetype"]["metadata"].get("__sentinel__") == "PRESERVED" , (
+            "put_partial overwrote metadata — a full $set was issued instead of a partial one"
+        );
+    } finally {
+        server.terminate();
+        with contextlib.suppress(Exception) {
+            server.wait(timeout=2);
+        }
+        for (key, value) in env_backup.items() {
+            os.environ[key] = value;
+        }
+        if data_dir.exists() {
+            import shutil;
+            shutil.rmtree(data_dir);
+        }
+    }
+}
+
+
+test "mixed direct and in-place mutations in one request both persist after restart" {
+    data_dir = FIXTURES_DIR / ".jac" / "data";
+    if data_dir.exists() {
+        import shutil;
+        shutil.rmtree(data_dir);
+    }
+
+    _reset_mongo();
+    (_, mongo_uri) = _get_mongo();
+    os.environ["MONGODB_URI"] = mongo_uri;
+
+    env_backup = {};
+    if "REDIS_URL" in os.environ {
+        env_backup["REDIS_URL"] = os.environ["REDIS_URL"];
+        del os.environ["REDIS_URL"];
+    }
+
+    port = get_free_port();
+    base_url = f"http://localhost:{port}";
+    server: subprocess.Popen = start_server(FIXTURES_DIR, MUTATION_JAC_FILE, port);
+
+    try {
+        token = register_user(base_url, "mixed_tester");
+        post_request(base_url, "/walker/CreateItem", {"id": 7}, token);
+
+        # MixedMutate does: here.completed = True  (direct → __setattr__ tracks it)
+        #                   here.tags.append(tag)  (in-place → only field-hash catches it)
+        result = post_request(
+            base_url, "/walker/MixedMutate", {"id": 7, "tag": "mixed"}, token
+        );
+        item = result["reports"][0];
+        assert item["completed"] == True , "completed not set in response";
+        assert "mixed" in item["tags"] , "tag not in response";
+
+        # Restart with no Redis — forces cold reload from MongoDB only.
+        server.terminate();
+        with contextlib.suppress(Exception) {
+            server.wait(timeout=2);
+        }
+        server = start_server(FIXTURES_DIR, MUTATION_JAC_FILE, port);
+
+        result = post_request(base_url, "/walker/GetItems", {}, token);
+        items = result["reports"][0];
+        assert len(items) == 1 , f"Expected 1 item after restart, got {len(items)}";
+        item = items[0];
+        assert item["completed"] == True , (
+            "completed=True (direct assignment) was not persisted after restart"
+        );
+        assert "mixed" in item["tags"] , (
+            "tags.append (in-place mutation) was not persisted after restart — "
+            "combined dirty detection failed for mixed mutations"
+        );
+    } finally {
+        server.terminate();
+        with contextlib.suppress(Exception) {
+            server.wait(timeout=2);
+        }
+        for (key, value) in env_backup.items() {
+            os.environ[key] = value;
+        }
+        if data_dir.exists() {
+            import shutil;
+            shutil.rmtree(data_dir);
+        }
+    }
+}
+
 
 test "concurrent requests do not lose edges" {
     if not JAC_FILE.exists() {
@@ -1133,10 +1218,12 @@ test "concurrent requests do not lose edges" {
         shutil.rmtree(data_dir);
     }
 
-    mongo_container = MongoDbContainer("mongo:latest");
-    mongo_container.start();
-    mongo_uri = mongo_container.get_connection_url();
+    _reset_mongo();
+    (_, mongo_uri) = _get_mongo();
     os.environ["MONGODB_URI"] = mongo_uri;
+    if "REDIS_URL" in os.environ {
+        del os.environ["REDIS_URL"];
+    }
 
     port = get_free_port();
     base_url = f"http://localhost:{port}";
@@ -1213,12 +1300,211 @@ test "concurrent requests do not lose edges" {
                 server.wait(timeout=2);
             }
         }
-        mongo_container.stop();
-        time.sleep(0.5);
-        gc.collect();
         if data_dir.exists() {
             import shutil;
             shutil.rmtree(data_dir);
         }
     }
+}
+
+"""Unit test for issue 1g fix: ScaleTieredMemory._committed flag.
+
+After the first acommit() the flag is set True. A second call (the
+middleware's redundant pass) returns immediately — MongoBackend.sync()
+and its O(L1-size) hash computation are skipped entirely.
+"""
+test "acommit is idempotent — _committed flag prevents second sync pass" {
+    import asyncio;
+    import from unittest.mock { patch }
+    import from jac_scale.memory_hierarchy { ScaleTieredMemory }
+
+    call_count = [0];
+
+    def mock_commit(self: ScaleTieredMemory, anchor: Any = None) {
+        call_count[0] += 1;
+    }
+
+    with patch.object(ScaleTieredMemory, 'commit', mock_commit) {
+        mem = object.__new__(ScaleTieredMemory);
+        mem._committed = False;
+        asyncio.run(mem.acommit());
+        assert call_count[0] == 1 , f"expected 1 commit call after first acommit, got {call_count[
+            0
+        ]}";
+        assert mem._committed is True , "_committed must be True after first acommit";
+        asyncio.run(mem.acommit());
+        assert call_count[0] == 1 , (
+            f"second acommit (middleware pass) must be a no-op via _committed flag, "
+            f"but commit() was called {call_count[0]} times"
+        );
+    }
+}
+
+"""Unit test for issue 1g fix: _committed stays False when commit() raises.
+
+If the thread pool commit raises (e.g. MongoDB unreachable), _committed must
+remain False so the middleware safety-net path can retry the commit.
+"""
+test "acommit leaves _committed False when commit() raises" {
+    import asyncio;
+    import from unittest.mock { patch }
+    import from jac_scale.memory_hierarchy { ScaleTieredMemory }
+
+    def failing_commit(self: ScaleTieredMemory, anchor: Any = None) {
+        raise RuntimeError("simulated commit failure");
+    }
+
+    with patch.object(ScaleTieredMemory, 'commit', failing_commit) {
+        mem = object.__new__(ScaleTieredMemory);
+        mem._committed = False;
+        raised = False;
+        try {
+            asyncio.run(mem.acommit());
+        } except Exception {
+            raised = True;
+        }
+        assert raised , "acommit() must propagate the exception from commit()";
+        assert mem._committed is False , (
+            "_committed must stay False when commit() raises — "
+            "the middleware safety net must still be able to retry"
+        );
+    }
+}
+
+
+# =============================================================================
+# In-process system root cache tests (no server subprocess needed)
+# =============================================================================
+"""Wipe process-level singletons so each test starts with a cold process cache."""
+def _reset_process_cache {
+    _process_cache.clear();
+    with contextlib.suppress(Exception) {
+        close_all_db_connections();
+    }
+}
+
+"""Create a JScaleExecutionContext pointed at mongo_uri with no Redis."""
+def _new_jscale_ctx(mongo_uri: str) -> JScaleExecutionContext {
+    os.environ["MONGODB_URI"] = mongo_uri;
+    os.environ.pop("REDIS_URL", None);
+    return JScaleExecutionContext();
+}
+
+"""Return L3 (MongoDB) fetch count for this context, or 0 if not Mongo."""
+def _ctx_l3_fetch_count(ctx: JScaleExecutionContext) -> int {
+    l3 = ctx.mem.l3;
+    if isinstance(l3, MongoBackend) {
+        return l3.fetch_count;
+    }
+    return 0;
+}
+
+
+"""After the very first JScaleExecutionContext(), _process_cache['system_root']
+must hold a NodeAnchor whose id equals SUPER_ROOT_UUID."""
+test "system root cache: populated with NodeAnchor after first context init" {
+    import from uuid { UUID }
+    import from jaclang.jac0core.constant { Constants as Con }
+    import from jaclang.jac0core.archetype { NodeAnchor }
+
+    _reset_process_cache();
+    _reset_mongo();
+    (_, uri) = _get_mongo();
+
+    assert "system_root" not in _process_cache;
+    _new_jscale_ctx(uri);
+
+    assert "system_root" in _process_cache , (
+        "_process_cache must contain 'system_root' after first context init"
+    );
+    cached = _process_cache["system_root"];
+    assert isinstance(cached, NodeAnchor) , (
+        f"Cached value must be a NodeAnchor, got {type(cached).__name__}"
+    );
+    assert cached.id == UUID(Con.SUPER_ROOT_UUID) , (
+        f"Cached anchor id {cached.id} != SUPER_ROOT_UUID"
+    );
+    _reset_process_cache();
+}
+
+
+"""First init must fetch the system root from MongoDB (fetch_count >= 1).
+Second init must find it in L1 from the process cache (fetch_count == 0).
+
+Each JScaleExecutionContext creates a fresh MongoBackend with fetch_count=0,
+so the count measured is per-context, not cumulative.
+"""
+test "system root cache: second context init skips MongoDB fetch" {
+    _reset_process_cache();
+    _reset_mongo();
+    (_, uri) = _get_mongo();
+
+    ctx1 = _new_jscale_ctx(uri);
+    first_fetches = _ctx_l3_fetch_count(ctx1);
+    assert first_fetches >= 1 , (
+        f"First context init must fetch system root from MongoDB "
+        f"(got fetch_count={first_fetches})"
+    );
+    assert "system_root" in _process_cache , "Cache must be warm after first init";
+
+    ctx2 = _new_jscale_ctx(uri);
+    second_fetches = _ctx_l3_fetch_count(ctx2);
+    assert second_fetches == 0 , (
+        f"Second context init issued {second_fetches} MongoDB fetch(es) "
+        "for system root, expected 0. "
+        "_process_cache pre-injection into L1 is not working."
+    );
+    _reset_process_cache();
+}
+
+
+"""When _process_cache is empty (fresh process), context init must succeed
+and set system_root, user_root, and entry_node correctly."""
+test "system root cache: cold cache still produces a valid system root" {
+    import from uuid { UUID }
+    import from jaclang.jac0core.constant { Constants as Con }
+
+    _reset_process_cache();
+    _reset_mongo();
+    (_, uri) = _get_mongo();
+
+    ctx = _new_jscale_ctx(uri);
+
+    assert ctx.system_root is not None , "system_root must not be None";
+    assert ctx.system_root.id == UUID(Con.SUPER_ROOT_UUID) , (
+        f"system_root.id {ctx.system_root.id} != SUPER_ROOT_UUID"
+    );
+    assert ctx.user_root is ctx.system_root , (
+        "user_root must default to system_root before auth"
+    );
+    assert ctx.entry_node is ctx.system_root , (
+        "entry_node must default to system_root before auth"
+    );
+    _reset_process_cache();
+}
+
+
+"""After the first init warms the cache, inits 2..N must each cost 0 fetches.
+Total MongoDB fetches for the system root across N inits equals the first
+init's fetch count, not N times that."""
+test "system root cache: N consecutive inits cost one MongoDB fetch total" {
+    N = 10;
+
+    _reset_process_cache();
+    _reset_mongo();
+    (_, uri) = _get_mongo();
+
+    ctx_first = _new_jscale_ctx(uri);
+    first_cost = _ctx_l3_fetch_count(ctx_first);
+    assert first_cost >= 1 , "First init must fetch from MongoDB";
+
+    for i in range(N - 1) {
+        ctx = _new_jscale_ctx(uri);
+        extra = _ctx_l3_fetch_count(ctx);
+        assert extra == 0 , (
+            f"Context init #{i + 2} of {N} issued {extra} MongoDB fetch(es) "
+            "for system root. Expected 0 — cache should be warm."
+        );
+    }
+    _reset_process_cache();
 }

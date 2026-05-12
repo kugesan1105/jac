@@ -47,19 +47,18 @@ impl ASTValidationPass.enter_binary_expr(
     }
 }
 
-"""Validate 'pass' and 'new' keywords are not used as identifiers."""
+"""Validate 'pass' is not used as an identifier.
+
+`new` was historically rejected here, but is now an ambient builtin
+(`new(Cls, ...args)`) supplied by `jaclang.runtimelib.builtin`. The
+ambient builtin lowers to `Cls(*args)` on the server and to
+`Reflect.construct(Cls, [args])` in `cl` blocks, so it is a legitimate
+identifier in every codespace. The historical JS-keyword form
+`new Foo()` is still rejected by the parser as a syntax error.
+"""
 impl ASTValidationPass.enter_name(self: ASTValidationPass, nd: uni.Name) -> None {
     if nd.value == "pass" {
         self.emit(E0010, node_override=nd, keyword="pass");
-    } elif nd.value == "new" {
-        # Only flag 'new' as a standalone identifier, not as an attribute
-        # access (e.g. hmac.new is valid Python interop).
-        is_attr = isinstance(nd.parent, uni.AtomTrailer)
-        and nd.parent.is_attr
-        and nd.parent.right is nd;
-        if not is_attr {
-            self.emit(E0010, node_override=nd, keyword="new");
-        }
     }
 }
 
@@ -155,9 +154,9 @@ impl ASTValidationPass.enter_switch_stmt(
 impl ASTValidationPass.enter_assignment(
     self: ASTValidationPass, nd: uni.Assignment
 ) -> None {
-    # super compiles to a function call which cannot appear on the left
-    # side of an assignment in Python.
-    non_assignable = {Tok.KW_SUPER};
+    # root and super compile to function calls (e.g. Jac.root()) which
+    # cannot appear on the left side of an assignment in Python.
+    non_assignable = {Tok.KW_ROOT,Tok.KW_SUPER};
     for target in nd.target {
         ref_node: (uni.SpecialVarRef | None) = None;
         if isinstance(target, uni.SpecialVarRef) {

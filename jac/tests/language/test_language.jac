@@ -878,7 +878,7 @@ test "root keyword trigger raises TypeError at runtime" {
         run_jac(os.path.join(FIXTURES, "root_keyword_trigger.jac"));
     } except TypeError as e {
         raised = True;
-        assert "root" in str(e), f"Expected 'root' hint in TypeError, got: {e}";
+        assert "root" in str(e) , f"Expected 'root' hint in TypeError, got: {e}";
     }
-    assert raised, "Expected TypeError when walker ability uses `root` instance as trigger";
+    assert raised , "Expected TypeError when walker ability uses `root` instance as trigger";
 }

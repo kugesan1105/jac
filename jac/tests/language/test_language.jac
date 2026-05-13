@@ -873,12 +873,11 @@ test "bidirectional edge traversal" {
 }
 
 test "root keyword trigger raises TypeError at runtime" {
-    raised = False;
-    try {
-        run_jac(os.path.join(FIXTURES, "root_keyword_trigger.jac"));
-    } except TypeError as e {
-        raised = True;
-        assert "root" in str(e) , f"Expected 'root' hint in TypeError, got: {e}";
-    }
-    assert raised , "Expected TypeError when walker ability uses `root` instance as trigger";
+    output = run_jac(os.path.join(FIXTURES, "root_keyword_trigger.jac"));
+    assert "GoodWalker: ok" in output , "GoodWalker with Root entry should run fine";
+    assert "BadWalker:" in output , "bare `root` must raise TypeError";
+    assert "BadUnion:" in output , "`Root | root` union must raise TypeError";
+    assert "BadTuple:" in output , "`(Root, root)` tuple must raise TypeError";
+    assert "root" in output , "at least one error must mention 'root'";
+    assert "should not reach here" not in output , "no bad walker should reach its ability body";
 }

@@ -384,7 +384,19 @@ impl ObjectSpatialFunction.trigger -> (
         if ty == _empty {
             return None;
         }
-        if not isinstance(ty, (type, UnionType, tuple)) {
+        def all_types(t: object) -> bool {
+            if isinstance(t, type) {
+                return True;
+            }
+            if isinstance(t, UnionType) {
+                return all(all_types(m) for m in t.__args__);
+            }
+            if isinstance(t, tuple) {
+                return all(all_types(m) for m in t);
+            }
+            return False;
+        }
+        if not all_types(ty) {
             raise TypeError(
                 f"Ability trigger annotation must be a type (class), got {ty!r}. "
                 "If you wrote `with root entry`, use `with Root entry` instead."

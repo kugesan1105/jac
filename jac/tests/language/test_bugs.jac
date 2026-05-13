@@ -1,4 +1,4 @@
-"""Bug regression tests - migrated from tests/language/test_bugs.py."""
+"""Bug regression tests – migrated from tests/language/test_bugs.py."""
 
 import os;
 import from pathlib { Path }

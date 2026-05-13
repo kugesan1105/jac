@@ -1073,9 +1073,6 @@ test "ability_trigger_archetype" {
 }
 
 test "root_keyword_as_walker_trigger" {
-    # Issue #5049 — writing `with root entry` instead of `with Root entry`
-    # silently skipped the ability body at runtime with no error. The checker
-    # must catch it and emit E1116 so the mistake is found at compile time.
     path = os.path.join(CHECKER_FIXTURES, "checker_root_keyword_trigger.jac");
     program = JacProgram();
     mod = program.compile(path, options=NO_TC);

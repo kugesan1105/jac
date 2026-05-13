@@ -871,3 +871,14 @@ test "bidirectional edge traversal" {
     assert "Backward from f:\nFollower found: 5" in output;
     assert "Backward from e:\nDone." in output;
 }
+
+test "root keyword trigger raises TypeError at runtime" {
+    raised = False;
+    try {
+        run_jac(os.path.join(FIXTURES, "root_keyword_trigger.jac"));
+    } except TypeError as e {
+        raised = True;
+        assert "root" in str(e), f"Expected 'root' hint in TypeError, got: {e}";
+    }
+    assert raised, "Expected TypeError when walker ability uses `root` instance as trigger";
+}

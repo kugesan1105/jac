@@ -613,7 +613,6 @@ impl TypeCheckPass._check_event_trigger_archetype(
     self: TypeCheckPass, nd: uni.Ability
 ) -> None {
     import from jaclang.compiler.type_system { types }
-    import from jaclang.jac0core.constant { Tokens as Tok }
     sig = nd.signature;
     if not isinstance(sig, uni.EventSignature) or sig.arch_tag_info is None {
         return;

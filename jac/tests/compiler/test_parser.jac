@@ -222,7 +222,7 @@ test "connect_disconnect_missing_rhs" {
         for e in prog.errors_had
         if e.code and e.code.code == "E0004"
     ];
-    assert len(bad) == 0 , f"E0004 leaked through after E0026 fix:\n" + "\n---\n".join(
+    assert len(bad) == 0 , "E0004 leaked through after E0026 fix:\n" + "\n---\n".join(
         e.pretty_print() for e in bad
     );
 }
@@ -941,8 +941,8 @@ test "decorated class in code block parses as archetype" {
     (mod, err) = rd_parse(load_fixture("decorated_decl_in_code_block.jac"), "");
     assert not err , "Parser reported errors for decorated declarations in code blocks";
 
-    def collect(nd: uni.UniNode) -> list {
-        results: list = [];
+    def collect(nd: uni.UniNode) -> list[uni.Archetype] {
+        results: list[uni.Archetype] = [];
         if isinstance(nd, uni.Archetype) {
             results.append(nd);
         }

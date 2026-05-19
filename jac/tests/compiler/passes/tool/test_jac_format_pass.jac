@@ -169,11 +169,11 @@ test "fstring comment not injected" {
     assert fstring_idx is not None , "f-string statement was lost";
     assert after_idx is not None , "'# Comment after' was lost";
     assert before_idx < fstring_idx , (
-        f"Comment before f-string was displaced after it "
+        "Comment before f-string was displaced after it "
         f"(comment at line {before_idx + 1}, f-string at line {fstring_idx + 1}):\n" + formatted
     );
     assert after_idx > fstring_idx , (
-        f"Comment after f-string was displaced before it "
+        "Comment after f-string was displaced before it "
         f"(comment at line {after_idx + 1}, f-string at line {fstring_idx + 1}):\n" + formatted
     );
 

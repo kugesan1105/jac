@@ -14,8 +14,8 @@ glob JAC_ROOT = str(Path(jaclang.__file__).parent.parent),
      );
 
 """Collect every ESTree node in a depth-first traversal."""
-def walk_es_nodes(nd: es.Node) -> list {
-    result: list = [nd];
+def walk_es_nodes(nd: es.Node) -> list[es.Node] {
+    result: list[es.Node] = [nd];
     for value in vars(nd).values() {
         if isinstance(value, es.Node) {
             result.extend(walk_es_nodes(value));

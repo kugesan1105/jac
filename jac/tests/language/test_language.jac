@@ -880,7 +880,7 @@ test "root keyword trigger raises TypeError at runtime" {
     assert "BadTuple:" in output , "`(Root, root)` tuple must raise TypeError";
     assert "root" in output , "at least one error must mention 'root'";
     assert "should not reach here" not in output , "no bad walker should reach its ability body";
-}    
+}
 
 test "native property getter/setter/deleter with impl separation" {
     # `has <name>: <type> { getter; setter; deleter; }` declares a property

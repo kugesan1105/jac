@@ -1085,8 +1085,16 @@ test "root_keyword_as_walker_trigger" {
     assert len(e1116) == 6 , f"Expected 6 E1116 (3 root keyword + 3 variable instance, bare/union/tuple), got {len(
         e1116
     )}:\n" + "\n---\n".join(e.pretty_print() for e in e1116);
-    var_errors = [e for e in e1116 if "my_node" in e.pretty_print()];
-    root_errors = [e for e in e1116 if e not in var_errors];
+    var_errors = [
+        e
+        for e in e1116
+        if "my_node" in e.pretty_print()
+    ];
+    root_errors = [
+        e
+        for e in e1116
+        if e not in var_errors
+    ];
     assert len(var_errors) == 3 , "Expected 3 E1116 for `my_node` variable instance (bare, union, tuple)";
     assert len(root_errors) == 3 , "Expected 3 E1116 for `root` keyword (bare, union, tuple)";
 }

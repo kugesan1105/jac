@@ -386,7 +386,9 @@ impl ObjectSpatialFunction.trigger -> (
         }
         if isinstance(ty, Archetype) {
             raise TypeError(
-                f"Ability trigger must be a class, not an instance of `{type(ty).__name__}`. "
+                f"Ability trigger must be a class, not an instance of `{type(
+                    ty
+                ).__name__}`. "
                 f"Use `with {type(ty).__name__} entry` instead."
             );
         }

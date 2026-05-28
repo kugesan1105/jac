@@ -71,7 +71,7 @@ jobs:
       needs.parse-release.outputs.has_releases == 'true' &&
       needs.approve-release.result == 'success'
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 20
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.parse-release.outputs.matrix) }}
@@ -158,14 +158,9 @@ jobs:
         run: python -m build
 
       - name: Build plugin wheel
-        if: matrix.name != 'jaclang' && matrix.precompile != true
+        if: matrix.name != 'jaclang'
         working-directory: ${{ matrix.dir }}
-        run: jac bundle
-
-      - name: Build plugin wheel (with precompile)
-        if: matrix.name != 'jaclang' && matrix.precompile == true
-        working-directory: ${{ matrix.dir }}
-        run: jac bundle --precompile
+        run: jac bundle ${{ matrix.precompile == true && '--precompile' || '' }}
 
       - name: Upload package artifacts
         uses: actions/upload-artifact@v4

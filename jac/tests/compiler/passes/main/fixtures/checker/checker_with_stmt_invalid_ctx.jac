@@ -14,6 +14,6 @@ impl NotAContextManager.get -> None { }
 def use_it {
     obj_ = NotAContextManager();
     with obj_.get() {
-        :> "should fail";
+        print("should fail");
     }
 }

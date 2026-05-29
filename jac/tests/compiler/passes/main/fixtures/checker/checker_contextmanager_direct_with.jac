@@ -19,6 +19,6 @@ impl SimpleLock.acquire -> None {
 def use_direct {
     lock = SimpleLock();
     with lock.acquire() {
-        :> "inside";
+        print("inside");
     }
 }

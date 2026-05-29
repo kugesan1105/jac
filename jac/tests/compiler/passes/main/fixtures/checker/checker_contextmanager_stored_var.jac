@@ -20,6 +20,6 @@ def use_stored {
     lock = SimpleLock();
     ctx = lock.acquire();
     with ctx {
-        :> "inside";
+        print("inside");
     }
 }

@@ -4216,7 +4216,6 @@ test "callable_narrowing" {
     );
 }
 
-"""Test hasattr() type narrowing - validates narrowing unions by declared attribute presence."""
 test "hasattr_narrowing" {
     program = JacProgram();
     mod = program.compile(
@@ -4228,7 +4227,6 @@ test "hasattr_narrowing" {
         program.errors_had
     )}:\n" + "\n---\n".join(err.pretty_print() for err in program.errors_had);
 
-    # E1: No hasattr guard — union access rejected.
     assert_error_pretty_found(
         """
         return x.foo;  # <-- Error: attribute is missing from NoFoo
@@ -4236,7 +4234,6 @@ test "hasattr_narrowing" {
         program.errors_had[0].pretty_print()
     );
 
-    # E2: True branch narrowed to WithFoo; `bar` is missing.
     assert_error_pretty_found(
         """
         return x.bar;  # <-- Error: x is WithFoo here, no `bar`
@@ -4244,7 +4241,6 @@ test "hasattr_narrowing" {
         program.errors_had[1].pretty_print()
     );
 
-    # E3: Else branch narrowed to NoFoo; `foo` is missing.
     assert_error_pretty_found(
         """
         return x.foo;  # <-- Error: x is NoFoo here, no `foo`

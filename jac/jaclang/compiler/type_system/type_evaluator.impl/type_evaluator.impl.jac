@@ -4580,9 +4580,7 @@ impl TypeEvaluator._find_predicate_for(
                 }
 
             case NarrowingKind.HASATTR:
-                # narrow_type is unused for HASATTR dispatch; the attr_name
-                # field drives _apply_narrowing's structural filter. Stash
-                # the declared type as a non-null placeholder.
+                # attr_name drives filtering; narrow_type is a placeholder.
                 return NarrowingPredicate(
                     key=key,
                     narrow_type=target.declared_type,
@@ -4810,12 +4808,7 @@ impl TypeEvaluator._type_matches_isinstance(
     return False;
 }
 
-"""Static structural check: does a type carry a declared attribute?
-
-Walks the same lookup path used to resolve `x.attr`, including MRO and
-the `__getattr__` fallback. A class that defines `__getattr__` is treated
-as having every attribute (matching attribute-access semantics).
-"""
+"""True if `t` declares `attr_name` (MRO walk; `__getattr__` makes it always true)."""
 impl TypeEvaluator._type_has_attribute(t: TypeBase, attr_name: str) -> bool {
     if not isinstance(t, types.ClassType) {
         return False;
@@ -4829,12 +4822,7 @@ impl TypeEvaluator._type_has_attribute(t: TypeBase, attr_name: str) -> bool {
     return False;
 }
 
-"""Filter a union type by attribute presence.
-
-When `keep_with_attr` is True (positive `hasattr` branch), returns members
-that have the attribute. When False (else / `not hasattr` branch), returns
-members that do not. Returns None if nothing matches.
-"""
+"""Keep union members whose attribute presence matches `keep_with_attr`."""
 impl TypeEvaluator._filter_union_for_hasattr(
     base_type: TypeBase, attr_name: str, keep_with_attr: bool
 ) -> TypeBase | None {
@@ -5091,12 +5079,7 @@ impl TypeEvaluator._extract_callable_info(condition: uni.Expr) -> str | None {
     return self.create_key_for_reference(condition.params[0]);
 }
 
-"""Parse hasattr(x, "name") → (narrowing_key, attr_name) or None.
-
-Only narrows when the attribute name is a string literal. Dynamic attr
-names like `hasattr(x, some_var)` cannot be statically narrowed and
-return None (the call still type-checks as bool).
-"""
+"""Parse hasattr(x, "name") → (key, attr); None for dynamic attr names."""
 impl TypeEvaluator._extract_hasattr_info(
     condition: uni.Expr
 ) -> tuple[str, str] | None {
@@ -5114,8 +5097,7 @@ impl TypeEvaluator._extract_hasattr_info(
     if narrowing_key is None {
         return None;
     }
-    # String literals parse as MultiString wrapping one or more String parts.
-    # Only narrow on a single-part, non-formatted literal: `hasattr(x, "foo")`.
+    # Only single-part, non-formatted string literals.
     attr_arg = condition.params[1];
     if (
         isinstance(attr_arg, uni.MultiString)

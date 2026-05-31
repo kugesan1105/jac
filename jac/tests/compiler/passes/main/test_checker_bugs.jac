@@ -29,6 +29,7 @@ Bug index:
   #DLOC-1 - Decorated class inside function body parsed as Ability instead of Archetype
   #STUB-VGUARD - Module-level version-guarded stub symbols (e.g. datetime.UTC) resolve as Unknown
   #HOGEN-1 - TypeVars not bound through function-typed args; blocks generic decorator-application
+  #WITHAS-1 - `with cm() as x` bound x to the manager not __enter__'s result; async with used sync protocol
 """
 
 import os;
@@ -861,5 +862,26 @@ test "bug_hogen_1_plain_method_in_with_still_errors" {
     assert e1091 == 1 and e1092 == 1 , (
         "Bug #HOGEN-1 guard: a plain (non-context-manager) method in `with` "
         f"must still produce E1091 + E1092. Got E1091={e1091}, E1092={e1092}."
+    );
+}
+
+# Bug #WITHAS-1: `with cm() as x` bound x to the context manager rather than
+# __enter__'s result, and `async with` was checked against the sync protocol.
+# The alias now binds through __enter__/__aenter__ (awaited for async), and the
+# protocol check picks the methods by the `async with` flag.
+test "bug_withas_1_as_binds_enter_result" {
+    program = compile_and_check("checker_with_as_enter_binding.jac");
+    assert program.errors_had == [] , (
+        "Bug #WITHAS-1: `with cm() as x` must bind x to __enter__'s return "
+        f"type. Got errors: {[str(e) for e in program.errors_had]}"
+    );
+}
+
+test "bug_withas_1_async_with_as_binds_and_checks" {
+    program = compile_and_check("checker_async_with_as_binding.jac");
+    assert program.errors_had == [] , (
+        "Bug #WITHAS-1: `async with cm() as x` must verify the async protocol "
+        "and bind x to the awaited __aenter__ result. "
+        f"Got errors: {[str(e) for e in program.errors_had]}"
     );
 }

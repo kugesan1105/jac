@@ -14,8 +14,8 @@ def is_property_decorator_type(decorator_type: types.TypeBase) -> bool;
 """Check if decorator type is cached_property from functools."""
 def is_cached_property_decorator_type(decorator_type: types.TypeBase) -> bool;
 
-"""Check if decorator type is contextmanager from contextlib."""
-def is_contextmanager_decorator_type(decorator_type: types.TypeBase) -> bool;
+"""Name pre-filter for contextlib (a)contextmanager decorators; provenance checked by caller."""
+def is_contextmanager_decorator_name(decorator_type: types.TypeBase) -> bool;
 
 # =============================================================================
 # Property creation

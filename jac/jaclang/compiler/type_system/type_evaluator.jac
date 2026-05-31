@@ -285,8 +285,9 @@ obj TypeEvaluator {
         # context via a gated lookup, so they never leak into regular .jac.
         na_builtins_module: uni.Module by postinit,
         _CONTEXTLIB_STUB_FILE_PATH: str by postinit,
-        # Loaded lazily on first @contextmanager use — not eager like typing/builtins.
-        contextlib_module: uni.Module | None = None;
+        # Loaded lazily on first @contextmanager use, not eager like typing/builtins.
+        contextlib_module: uni.Module | None = None,
+        _genuine_contextmanagers: dict[str, TypeBase] | None = None;
 
     def postinit -> None;
     def _load_stub_module(path: str) -> uni.Module;
@@ -399,8 +400,8 @@ obj TypeEvaluator {
     def _classify_property_symbol(symbol: uni.Symbol) -> type_utils.PropertyWriteKind;
     # Property type utilities — both delegate to _classify_property_symbol.
     def get_getter_type_from_property(symbol: uni.Symbol) -> (TypeBase | None);
-    # Returns AbstractContextManager instance type for @contextmanager abilities.
-    def _get_contextmanager_return_type(ability: uni.Ability) -> (TypeBase | None);
+    # Manager instance type for a genuine contextlib (a)contextmanager decorator.
+    def _get_contextmanager_return_type(decorator_type: TypeBase) -> (TypeBase | None);
     # Classifies a property symbol's writability for assignment checking.
     # Returns a PropertyWriteResult with kind:
     #   NOT_PROPERTY → normal field, caller should fall through

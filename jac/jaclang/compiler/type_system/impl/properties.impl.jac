@@ -22,12 +22,12 @@ impl is_cached_property_decorator_type(decorator_type: types.TypeBase) -> bool {
     );
 }
 
-"""Check if a decorator type is contextmanager from contextlib."""
-impl is_contextmanager_decorator_type(decorator_type: types.TypeBase) -> bool {
-    if not isinstance(decorator_type, types.FunctionType) {
-        return False;
-    }
-    return decorator_type.func_name == "contextmanager";
+"""Name pre-filter for contextlib (a)contextmanager; provenance is confirmed by the caller."""
+impl is_contextmanager_decorator_name(decorator_type: types.TypeBase) -> bool {
+    return (
+        isinstance(decorator_type, types.FunctionType)
+        and decorator_type.func_name in ["contextmanager", "asynccontextmanager"]
+    );
 }
 
 # =============================================================================

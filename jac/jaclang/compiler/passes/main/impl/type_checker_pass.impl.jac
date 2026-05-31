@@ -1174,31 +1174,31 @@ impl TypeCheckPass.enter_with_stmt(self: TypeCheckPass, nd: uni.WithStmt) -> Non
     }
 }
 
-"""Type-check with statements — verify context manager protocol."""
+"""Type-check with statements: verify the (async) context manager protocol."""
 impl TypeCheckPass.exit_with_stmt(self: TypeCheckPass, nd: uni.WithStmt) -> None {
     import from jaclang.compiler.type_system { types }
+    enter_method = "__aenter__" if nd.is_async else "__enter__";
+    exit_method = "__aexit__" if nd.is_async else "__exit__";
     for item in nd.exprs {
         ctx_item: uni.ExprAsItem = item;
         expr_type = self.evaluator.get_type_of_expression(ctx_item.expr);
         if not isinstance(expr_type, types.UnknownType) {
             enter_result = self.evaluator.get_type_of_magic_method_call(
-                expr_type, "__enter__", [], ctx_item.expr
+                expr_type, enter_method, [], ctx_item.expr
             );
             if enter_result is None {
                 self.emit(E1091, node_override=nd, type=str(expr_type));
             }
-            # Check __exit__ method exists (required for context manager protocol).
-            # Use direct member lookup instead of magic method call because
-            # __exit__ takes 3 params (exc_type, exc_val, exc_tb) that we
-            # don't have at this point — magic method call would fail on
-            # argument matching even when __exit__ exists.
+            # Direct member lookup, not a magic method call: __exit__/__aexit__
+            # take 3 args (exc_type, exc_val, exc_tb) we don't have here, so a
+            # call would fail arg-matching even when the method exists.
             if isinstance(expr_type, types.ClassType) {
                 has_exit = (
                     self.evaluator._lookup_class_member(
-                        expr_type, "__exit__"
+                        expr_type, exit_method
                     ) is not None
                     or self.evaluator._lookup_object_member(
-                        expr_type, "__exit__"
+                        expr_type, exit_method
                     ) is not None
                 );
                 if not has_exit and not expr_type.is_any_type() {

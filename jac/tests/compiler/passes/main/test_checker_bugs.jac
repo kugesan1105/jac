@@ -28,7 +28,7 @@ Bug index:
   #DSTR-1  - Docstring before declaration inside function body triggers W0060 instead of attaching
   #DLOC-1 - Decorated class inside function body parsed as Ability instead of Archetype
   #STUB-VGUARD - Module-level version-guarded stub symbols (e.g. datetime.UTC) resolve as Unknown
-  #CTXMGR-1 - @contextmanager methods produce false-positive E1091/E1092 in with statements
+  #CTXMGR-1 - @contextmanager / @asynccontextmanager methods produce false-positive E1091/E1092 in with statements
 """
 
 import os;
@@ -794,16 +794,13 @@ test "bug_property_setter_duplicate_accessor_reported" {
 }
 
 # =========================================================================
-# Bug #CTXMGR-1: @contextmanager methods produce false-positive E1091/E1092
+# Bug #CTXMGR-1: @contextmanager / @asynccontextmanager methods produce
+# false-positive E1091/E1092
 #
-# The type checker read `acquire -> None` literally and concluded the call
-# returns NoneType, which has no __enter__/__exit__. The fix changes the
-# return type of any @contextmanager-decorated ability to AbstractContextManager
-# inside get_type_of_ability so the with-statement protocol check passes
-# naturally — no special-casing at the call site.
-#
-# Impact: Every @contextmanager method in the codebase (e.g. ReadWriteLock
-#         in rwlock.jac) produced 2 spurious errors per with-block usage.
+# The checker read `acquire -> None` literally and saw NoneType, which has no
+# __enter__/__exit__. The fix retypes a genuinely contextlib-decorated ability
+# to Abstract(Async)ContextManager so the with-statement check passes. A
+# same-named local def is rejected by the provenance check.
 # =========================================================================
 test "bug_ctxmgr_1_direct_with_no_false_positive" {
     program = compile_and_check("checker_contextmanager_direct_with.jac");
@@ -841,6 +838,36 @@ test "bug_ctxmgr_1_non_ctx_mgr_still_errors" {
     assert e1091_count == 1 and e1092_count == 1 , (
         "Bug #CTXMGR-1 regression guard: a plain method (no @contextmanager) "
         "used in `with` must still produce E1091 + E1092. "
+        f"Got E1091={e1091_count}, E1092={e1092_count}."
+    );
+}
+
+test "bug_ctxmgr_1_async_with_no_false_positive" {
+    program = compile_and_check("checker_contextmanager_async.jac");
+    assert len(program.errors_had) == 0 , (
+        "Bug #CTXMGR-1: @asynccontextmanager method used in `async with` must "
+        "produce 0 errors. "
+        f"Got {len(program.errors_had)} error(s): "
+        f"{[e.pretty_print() for e in program.errors_had]}"
+    );
+}
+
+test "bug_ctxmgr_1_local_shadow_still_errors" {
+    program = compile_and_check("checker_contextmanager_local_shadow.jac");
+    e1091_count = sum(
+        1
+        for e in program.errors_had
+        if e.code and e.code.code == "E1091"
+    );
+    e1092_count = sum(
+        1
+        for e in program.errors_had
+        if e.code and e.code.code == "E1092"
+    );
+    assert e1091_count == 1 and e1092_count == 1 , (
+        "Bug #CTXMGR-1 provenance guard: a local def named `contextmanager` "
+        "(not contextlib's) must NOT be treated as a context manager, so the "
+        "`with` must still produce E1091 + E1092. "
         f"Got E1091={e1091_count}, E1092={e1092_count}."
     );
 }

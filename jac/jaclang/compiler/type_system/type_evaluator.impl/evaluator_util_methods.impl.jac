@@ -870,31 +870,46 @@ impl TypeEvaluator.get_getter_type_from_property(
     return func_type.return_type;
 }
 
-"""Return AbstractContextManager instance type for a @contextmanager-decorated ability.
+"""Manager instance type for a genuine contextlib (a)contextmanager decorator, else None.
 
-Lazily loads contextlib the first time it is needed, looks up
-AbstractContextManager (which directly defines __enter__ and __exit__),
-and returns it as an instance type. This is what a @contextmanager call
-actually produces at runtime — the with-statement checker then finds the
-context-manager protocol naturally without any special-casing.
-
-Returns None if contextlib cannot be loaded (graceful fallback).
+Confirms provenance by identity against the cached contextlib symbols so a
+same-named local def cannot impersonate it (func_name alone is not provenance).
 """
 impl TypeEvaluator._get_contextmanager_return_type(
-    ability: uni.Ability
+    decorator_type: TypeBase
 ) -> (TypeBase | None) {
-    if self.contextlib_module is None {
-        self.contextlib_module = self._load_stub_module(
-            self._CONTEXTLIB_STUB_FILE_PATH
-        );
+    if self._genuine_contextmanagers is None {
+        if self.contextlib_module is None {
+            self.contextlib_module = self._load_stub_module(
+                self._CONTEXTLIB_STUB_FILE_PATH
+            );
+        }
+        self._genuine_contextmanagers = {
+            "contextmanager": self._get_type_from_module(
+                self.contextlib_module, "contextmanager"
+            ),
+            "asynccontextmanager": self._get_type_from_module(
+                self.contextlib_module, "asynccontextmanager"
+            ),
+
+        };
     }
-    ctx_mgr_class = self._get_type_from_module(
-        self.contextlib_module, "AbstractContextManager"
-    );
-    if isinstance(ctx_mgr_class, types.UnknownType) {
+    manager_class_name = None;
+    if decorator_type is self._genuine_contextmanagers["contextmanager"] {
+        manager_class_name = "AbstractContextManager";
+    } elif decorator_type is self._genuine_contextmanagers["asynccontextmanager"] {
+        manager_class_name = "AbstractAsyncContextManager";
+    }
+    if manager_class_name is None {
         return None;
     }
-    return self._convert_to_instance(ctx_mgr_class);
+    manager_class = self._get_type_from_module(
+        self.contextlib_module, manager_class_name
+    );
+    if isinstance(manager_class, types.UnknownType) {
+        return None;
+    }
+    return self._convert_to_instance(manager_class);
 }
 
 """Classify a symbol's writability for property-aware assignment checking.

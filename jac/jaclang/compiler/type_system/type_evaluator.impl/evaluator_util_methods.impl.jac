@@ -90,12 +90,16 @@ impl TypeEvaluator._build_field_params(
 
 """Build a literal-typed instance from a `Literal[...]` argument expression.
 
-Maps a str/int/bool literal node to its base class cloned with the literal
-value. Returns None for unsupported argument forms.
+Maps a str/int/bool/None literal node (including negated int literals) to its
+type. Returns None for unsupported argument forms.
 """
 impl TypeEvaluator._literal_type_from_expr(val: uni.Expr) -> types.TypeBase | None {
     if not self.prefetch {
         return None;
+    }
+    # `Literal[None]` resolves to NoneType, not a literal-valued class.
+    if isinstance(val, uni.Null) and self.prefetch.none_type_class {
+        return self._convert_to_instance(self.prefetch.none_type_class);
     }
     base: types.ClassType | None = None;
     value: str | int | bool | None = None;
@@ -107,6 +111,14 @@ impl TypeEvaluator._literal_type_from_expr(val: uni.Expr) -> types.TypeBase | No
     } elif isinstance(val, uni.Int) {
         base = self.prefetch.int_class;
         value = val.lit_value;
+    } elif (
+        isinstance(val, uni.UnaryExpr)
+        and val.op.name == Tok.MINUS
+        and isinstance(val.operand, uni.Int)
+    ) {
+        # Negative int literals parse as unary minus over an Int.
+        base = self.prefetch.int_class;
+        value = -val.operand.lit_value;
     } elif isinstance(val, uni.String) and isinstance(val.lit_value, str) {
         base = self.prefetch.str_class;
         value = val.lit_value;

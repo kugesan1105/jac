@@ -46,6 +46,15 @@ def ok_assign -> str {
     return f"{x}{n}{flag}";
 }
 
+# Literal[None] resolves to NoneType; negative ints resolve too.
+def ok_none(x: Literal[None]) -> None {
+    return x;
+}
+
+def ok_negative(n: Literal[-1, -2]) -> int {
+    return n;
+}
+
 # --- Invalid: each line is one error ---
 def bad_arg -> str {
     return take_mode('x');

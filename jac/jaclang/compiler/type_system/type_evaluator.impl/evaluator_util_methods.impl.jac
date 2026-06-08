@@ -856,7 +856,29 @@ impl TypeEvaluator._set_module_item_symbol_and_type(
     if node_.alias {
         node_.alias.sym = sym;
     }
-    node_.name.type = self.get_type_of_symbol(sym);
+    sym_type = self.get_type_of_symbol(sym);
+    # An imported @overload-ed function keeps only its primary signature here
+    # unless we gather the sibling overloads from its source scope (mirrors the
+    # module-attribute path, e.g. `math.floor`).
+    if isinstance(sym_type, types.FunctionType) and sym.parent_tab {
+        overloaded_fns: list[types.FunctionType] = [sym_type];
+        for overload_symbol in type_utils.collect_member_syms(
+            sym.parent_tab, sym.sym_name
+        ) {
+            if overload_symbol == sym {
+                continue;
+            }
+            overload_type = self.get_type_of_symbol(overload_symbol);
+            if isinstance(overload_type, types.FunctionType) {
+                overloaded_fns.append(overload_type);
+            }
+        }
+        if len(overloaded_fns) > 1 {
+            node_.name.type = types.OverloadedType(overloads=overloaded_fns);
+            return node_.name.type;
+        }
+    }
+    node_.name.type = sym_type;
     return node_.name.type;
 }
 

@@ -241,6 +241,27 @@ test "from_import" {
     );
 }
 
+"""An imported @overload-ed function keeps its full overload set; collapsing to
+the first signature wrongly rejected calls matching a later overload."""
+test "imported_overloaded_function_keeps_overloads" {
+    import jaclang.jac0core.unitree as uni;
+    import from jaclang.compiler.type_system.types { OverloadedType }
+
+    path = os.path.join(CHECKER_FIXTURES, "checker_imported_overload.jac");
+    program = JacProgram();
+    mod = program.compile(path, type_check=True);
+
+    item = [
+        mi
+        for mi in mod.get_all_sub_nodes(uni.ModuleItem)
+        if isinstance(mi.name, uni.Name) and mi.name.value == "make"
+    ][0];
+    assert isinstance(item.name.type, OverloadedType) , f"imported `make` should resolve to OverloadedType, got {type(
+        item.name.type
+    )}";
+    assert len(item.name.type.overloads) == 2;
+}
+
 test "call_expr" {
     path = os.path.join(CHECKER_FIXTURES, "checker_expr_call.jac");
     program = JacProgram();

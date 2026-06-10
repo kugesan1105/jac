@@ -2427,7 +2427,9 @@ impl JacAPIServer.start(
     configured_root = config.serve.base_route_app if config else "";
     base_route_app = self.introspector.resolve_root_app(configured_root);
     if self.server is None {
-        raise RuntimeError("Cannot start server: no socket was bound (test mode, port=0)");
+        raise RuntimeError(
+            "Cannot start server: no socket was bound (test mode, port=0)"
+        );
     }
     with self.server as httpd {
         console.print(f"Jac API Server running on http://0.0.0.0:{self.port}");

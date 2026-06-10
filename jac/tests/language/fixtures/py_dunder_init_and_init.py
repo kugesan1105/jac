@@ -8,8 +8,8 @@ Jac must succeed. See run_py_dunder_init_and_init.jac.
 
 
 class PyCodec:
-    def __init__(self, mode):
+    def __init__(self, mode: str) -> None:
         self.mode = mode
 
-    def init(self, args):
+    def init(self, args: list) -> None:
         self.args = args

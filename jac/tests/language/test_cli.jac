@@ -127,6 +127,38 @@ test "jac cli run" {
     assert "Hello World!" in stdout_value;
 }
 
+test "jac run imports py class with both __init__ and init" {
+    # Regression for Bug #PY-INIT-REWRITE: the pyast loader rewrites Python
+    # `__init__` to Jac's `init`. A Python class may legitimately define BOTH
+    # `__init__` and an unrelated `init`; rewriting unconditionally collapsed
+    # them into one name and raised `E0076: Duplicate method 'init'`.
+    #
+    # It only surfaced on a COLD cache — a warm `.jac/cache` served the
+    # compiled result and skipped validation, so `cache=False` here forces the
+    # validation pass to run over the imported `.py` on every invocation.
+    captured_out = io.StringIO();
+    captured_err = io.StringIO();
+    old_stdout = sys.stdout;
+    old_stderr = sys.stderr;
+    sys.stdout = captured_out;
+    sys.stderr = captured_err;
+    try {
+        result = execution.run(
+            fixture_path("run_py_dunder_init_and_init.jac"), cache=False
+        );
+    } finally {
+        sys.stdout = old_stdout;
+        sys.stderr = old_stderr;
+    }
+    combined = captured_out.getvalue() + captured_err.getvalue();
+    assert "E0076" not in combined , (
+        "Importing a Python class with both `__init__` and `init` must not "
+        f"raise E0076 (duplicate method). Output:\n{combined}"
+    );
+    assert result == 0 , f"Expected exit code 0, got {result}. Output:\n{combined}";
+    assert "loaded" in combined;
+}
+
 test "diagnostics flag" {
     err_file = os.path.join(
         JAC_ROOT, "tests", "compiler", "fixtures", "new_keyword_err.jac"

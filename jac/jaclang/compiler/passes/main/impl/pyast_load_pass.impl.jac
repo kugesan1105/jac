@@ -2622,9 +2622,20 @@ impl PyastBuildPass.proc_class_def(nd: py_ast.ClassDef) -> (uni.Archetype | uni.
         pos_end=0
     );
     body = [self.convert(i) for i in nd.body];
+    # `__init__` is rewritten to Jac's `init`, but only when the class does
+    # not already declare a method literally named `init`. Python allows a
+    # class to define both `__init__` and an unrelated `init`; rewriting
+    # unconditionally would collapse them into one name and trip the
+    # duplicate-method check (E0076) on a perfectly valid Python source.
+    has_real_init: bool = any(
+        isinstance(body_stmt, uni.Ability)
+        and isinstance(body_stmt.name_ref, uni.Name)
+        and (body_stmt.name_ref.value == 'init') for body_stmt in body
+    );
     for body_stmt in body {
         if (
-            isinstance(body_stmt, uni.Ability)
+            not has_real_init
+            and isinstance(body_stmt, uni.Ability)
             and isinstance(body_stmt.name_ref, uni.Name)
             and (body_stmt.name_ref.value == '__init__')
         ) {

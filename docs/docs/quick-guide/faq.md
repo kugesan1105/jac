@@ -132,6 +132,16 @@ Answers to common questions about Jac, organized by topic. Click a category to e
     ??? question "`jac create --use client` fails or asks about Bun."
         The `--use client` template requires [Bun](https://bun.sh) for frontend bundling. If Bun isn't installed, `jac create` will offer to install it automatically. You can also install it manually: `curl -fsSL https://bun.sh/install | bash`.
 
+    ??? question "How can I open a WSL file from Windows Terminal?"
+        In Windows Terminal, open your WSL shell (`wsl`), then use `explorer.exe` with a Windows path:
+        ```bash
+        explorer.exe "$(wslpath -w ~/path/to/file.txt)"
+        ```
+        To open the current folder instead:
+        ```bash
+        explorer.exe .
+        ```
+
 ??? "Debugging & Support"
 
     ??? question "Where's the best place to get help?"

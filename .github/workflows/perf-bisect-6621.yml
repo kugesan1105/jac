@@ -1,0 +1,112 @@
+name: Perf Bisect (#6621)
+
+# Manually-triggered bisect for the Jun 10-11 self-compile / startup perf
+# regression reported in issue #6621. Runs the same measurements against a list
+# of commits across the suspected window and posts a comparison table to the run
+# summary. Default commits span pre-#6536 baseline through the post-window head.
+#
+# Trigger from the Actions tab (workflow_dispatch). Override `commits` to bisect
+# a narrower range, e.g. just "f856cc7f~1 f856cc7f" to isolate #6536.
+
+on:
+  workflow_dispatch:
+    inputs:
+      commits:
+        description: 'Space-separated commits/refs to benchmark (oldest first)'
+        required: false
+        default: '790d3378 f856cc7f c4f648ec f9ad1d86'
+      check_path:
+        description: 'Path passed to `jac check` (the forced-inference workload)'
+        required: false
+        default: 'jac/jaclang'
+
+jobs:
+  bisect:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0   # need full history to check out arbitrary commits
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run perf bisect
+        env:
+          COMMITS: ${{ github.event.inputs.commits }}
+          CHECK_PATH: ${{ github.event.inputs.check_path }}
+        run: |
+          set -u
+          REPO="$PWD"
+          RESULTS="$REPO/perf-bisect-results.tsv"
+          # header: commit  subject  pip_s  bootstrap_s  jaccheck_s  check_files  peakRSS_kb
+          printf 'commit\tsubject\tpip_install_s\tbootstrap_compile_s\tjac_check_s\tcheck_files\tpeak_rss_kb\n' > "$RESULTS"
+
+          for ref in $COMMITS; do
+            sha=$(git rev-parse --short "$ref")
+            subj=$(git log -1 --format=%s "$ref" | cut -c1-50 | tr '\t' ' ')
+            echo "::group::Benchmark $sha — $subj"
+
+            wt="/tmp/wt-$sha"
+            venv="/tmp/venv-$sha"
+            cache="/tmp/cache-$sha"
+            rm -rf "$wt" "$venv" "$cache"; mkdir -p "$cache"
+
+            git worktree add --detach "$wt" "$ref"
+            python -m pip install --upgrade -q pip virtualenv
+            python -m venv "$venv"
+
+            # 1) pip install -e (the issue's measured self-compile-on-install step)
+            t0=$(date +%s.%N)
+            "$venv/bin/pip" install -q -e "$wt/jac" || { echo "pip FAILED for $sha"; }
+            t1=$(date +%s.%N)
+            pip_s=$(awk "BEGIN{printf \"%.1f\", $t1-$t0}")
+
+            # 2) cold bootstrap self-compile (first jac invocation, isolated cache)
+            t0=$(date +%s.%N)
+            XDG_CACHE_HOME="$cache" "$venv/bin/jac" --version >/tmp/boot-$sha.log 2>&1 || true
+            t1=$(date +%s.%N)
+            boot_s=$(awk "BEGIN{printf \"%.1f\", $t1-$t0}")
+
+            # 3) jac check over the tree — forces TypeInferencePass on every file
+            #    (the pass #6536 toggles from off->on for codegen compiles). This is
+            #    the workload that should expose the regression if it is inference.
+            t0=$(date +%s.%N)
+            XDG_CACHE_HOME="$cache" "$venv/bin/jac" check "$wt/$CHECK_PATH" --nowarn >/tmp/check-$sha.log 2>&1 || true
+            t1=$(date +%s.%N)
+            check_s=$(awk "BEGIN{printf \"%.1f\", $t1-$t0}")
+            nfiles=$(grep -c 'Compiling ' /tmp/check-$sha.log || echo 0)
+
+            # 4) peak RSS of a cold start
+            rm -rf "$cache"; mkdir -p "$cache"
+            XDG_CACHE_HOME="$cache" /usr/bin/time -v "$venv/bin/jac" --version >/tmp/mem-$sha.log 2>&1 || true
+            rss=$(grep "Maximum resident" /tmp/mem-$sha.log | grep -oE '[0-9]+' | head -1)
+
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$sha" "$subj" "$pip_s" "$boot_s" "$check_s" "${nfiles:-0}" "${rss:-0}" >> "$RESULTS"
+
+            git worktree remove --force "$wt" || true
+            rm -rf "$venv" "$cache"
+            echo "::endgroup::"
+          done
+
+          echo "## Perf bisect for #6621" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Runner: \`${{ runner.name }}\` · \`jac check $CHECK_PATH\` is the forced-inference workload." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| commit | subject | pip install (s) | bootstrap compile (s) | jac check (s) | files | peak RSS (MB) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- | ---: | ---: | ---: | ---: | ---: |" >> "$GITHUB_STEP_SUMMARY"
+          tail -n +2 "$RESULTS" | while IFS=$'\t' read -r c s pip boot chk nf rss; do
+            rss_mb=$(awk "BEGIN{printf \"%.0f\", ${rss:-0}/1024}")
+            echo "| \`$c\` | $s | $pip | $boot | $chk | $nf | $rss_mb |" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Upload raw results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-bisect-results
+          path: |
+            perf-bisect-results.tsv

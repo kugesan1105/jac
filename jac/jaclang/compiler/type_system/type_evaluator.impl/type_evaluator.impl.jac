@@ -784,15 +784,6 @@ impl TypeEvaluator._get_type_of_expression_core(
                         expr.right.type = overloaded_ty or member_ty;
                         return expr.right.type;
                     }
-                    # Any-like base: the attribute may well exist at runtime —
-                    # `any?.attr` must stay Any, not collapse to NoneType (which
-                    # would poison every downstream use of the result). Checked
-                    # before the ?. fallback below for exactly that reason.
-                    if self.is_any_type(lookup_type)
-                    and self.prefetch.any_class is not None {
-                        expr.right.type = self.prefetch.any_class;
-                        return expr.right.type;
-                    }
                     # Optional chaining (?.): attribute not found is not an error —
                     # the ?. operator returns None when the attribute doesn't exist.
                     if expr.is_null_ok {
@@ -1048,15 +1039,6 @@ impl TypeEvaluator._get_type_of_expression_core(
                         expr.right.type = getattr_return;
                         expr.right.is_getattr_resolved = True;
                         return getattr_return;
-                    }
-                    # Any-like base: the attribute may well exist at runtime —
-                    # `any?.attr` must stay Any, not collapse to NoneType (which
-                    # would poison every downstream use of the result). Checked
-                    # before the ?. fallback below for exactly that reason.
-                    if self.is_any_type(base_type)
-                    and self.prefetch.any_class is not None {
-                        expr.right.type = self.prefetch.any_class;
-                        return expr.right.type;
                     }
                     # Optional chaining (?.): attribute not found is not an error —
                     # the ?. operator returns None when the attribute doesn't exist.
@@ -3180,13 +3162,6 @@ caught the same way.
 
 `Any` *destination* still accepts any source — that is the user opting
 in to permissive output, not Any leaking silently into a typed slot.
-
-Callers pass `strict=False` for assignments that carry an explicit type
-annotation (`x: T = ...`, `has x: T = ...`): the annotation is the dev
-explicitly absorbing the permissive source into a declared type, so it
-is not a *silent* leak. Returns, call arguments, and unannotated
-reassignments remain strict — that is what forces a type to be written
-at every Any boundary.
 """
 impl TypeEvaluator.assign_type(
     src_type: TypeBase, dest_type: TypeBase, strict: bool = False

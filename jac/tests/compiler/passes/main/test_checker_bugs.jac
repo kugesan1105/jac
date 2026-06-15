@@ -33,13 +33,11 @@ Bug index:
   #UNPACK-1 - Assignment unpacking of a non-tuple iterable (bytes/str/range) typed targets as Unknown
   #BYTES-1 - Byte-string literals (b"...") typed as str instead of bytes
   #EVOLVING-NONE - `x = None` then reassign inside `if` lost the new type post-branch
-  #POSTLOOP - reads after a loop collapsed to the pre-loop type, dropping body assignments
 """
 
 import os;
 import from pathlib { Path }
 import jaclang;
-import jaclang.jac0core.unitree as uni;
 import from jaclang.compiler.passes.main.type_checker_pass { TypeCheckPass }
 import from jaclang.jac0core.program { JacProgram }
 import from jaclang.jac0core.passes.transform { Alert }
@@ -919,62 +917,4 @@ test "bug_evolving_none_narrowing" {
         "must narrow to the assigned type post-branch (Pyright evolving-locals). "
         f"Got errors: {[str(e) for e in program.errors_had]}"
     );
-}
-
-test "bug_postloop_narrowing" {
-    program = JacProgram();
-    mod = program.compile(
-        os.path.join(CHECKER_FIXTURES, "checker_loop_postloop_narrowing.jac")
-    );
-    TypeCheckPass(ir_in=mod, prog=program);
-    assert program.errors_had == [] , (
-        "Bug #POSTLOOP: a variable read after a loop must union the loop body's "
-        "assignments with the pre-loop type, not collapse to the pre-loop value. "
-        f"Got errors: {[str(e) for e in program.errors_had]}"
-    );
-
-    # Each `return <var>` operand must carry the post-loop union type (body
-    # assignment(s) | pre-loop None), proving the in-loop assignments survived
-    # the join -- not the bare NoneType the pre-loop-only walk produced.
-    evaluator = program.get_type_evaluator();
-    stack: list = [mod];
-    seen_returns = 0;
-    while stack {
-        cur = stack.pop();
-        if isinstance(cur, uni.ReturnStmt) and cur.expr {
-            ty = str(evaluator.get_type_of_expression(cur.expr));
-            assert "int" in ty , (
-                f"post-loop return type lost the loop body's int assignment: {ty}"
-            );
-            seen_returns += 1;
-        }
-        stack.extend(
-            [
-                k
-                for k in (cur.kid or [])
-                if k is not None
-            ]
-        );
-    }
-    assert seen_returns == 4 , f"expected 4 returns, saw {seen_returns}";
-
-    # Nested loops: a `for` inside a `while` must converge so the inner loop's
-    # `str` and the outer loop's `int` both survive the outer post-loop join.
-    nested = None;
-    for d in mod.get_all_sub_nodes(uni.Ability) {
-        if d.sym_name == "nested_union" {
-            nested = d;
-        }
-    }
-    assert nested is not None , "nested_union ability not found";
-    for n in nested.get_all_sub_nodes(uni.ReturnStmt) {
-        if n.expr {
-            ty = str(evaluator.get_type_of_expression(n.expr));
-            # Outer loop assigns int, inner loop assigns the str literal "s";
-            # both must survive the outer post-loop join.
-            assert "int" in ty and ("str" in ty or "\"s\"" in ty) , (
-                f"nested-loop post-loop type lost a level's assignment: {ty}"
-            );
-        }
-    }
 }

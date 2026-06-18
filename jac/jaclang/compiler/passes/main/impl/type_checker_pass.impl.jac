@@ -172,6 +172,19 @@ impl TypeCheckPass.exit_func_call(self: TypeCheckPass, nd: uni.FuncCall) -> None
         ability_of_symbol,
         resolve_expr_symbol
     }
+    # A call inside a lambda body must not be validated by this post-order
+    # traversal: it runs before the enclosing call seeds the lambda's params
+    # (e.g. `sorted(words, key=lambda s: len(s))` visits `len(s)` while `s`
+    # is still Unknown), which would emit spurious arg-type errors from an
+    # unsolved param. The lambda's own evaluation re-checks the body once its
+    # params are bound from the expected callable, so this is not a coverage
+    # gap. Still stamp call-kind/callee so backends have their facts.
+    if nd.find_parent_of_type(uni.LambdaExpr) is not None {
+        self.evaluator.get_type_of_expression(nd.target);
+        nd.call_kind = classify_call(nd).value;
+        nd.callee_decl = ability_of_symbol(resolve_expr_symbol(nd.target));
+        return;
+    }
     self.evaluator.get_type_of_expression(nd);
 
     # Stamp the call-site classification on the tree so backends dispatch

@@ -540,6 +540,7 @@ impl TypeEvaluator._get_type_of_expression_core(
         case uni.LambdaExpr():
             return_type: TypeBase = types.UnknownType();
             parameters: list[types.Parameter] = [];
+            has_unresolved_param = False;
             # Bidirectional inference: if expected_type is a FunctionType,
             # seed untyped lambda params from the expected callable signature.
             expected_func: types.FunctionType | None = None;
@@ -556,6 +557,7 @@ impl TypeEvaluator._get_type_of_expression_core(
                     );
                 }
                 sig_params = expr.signature.get_parameters();
+                seeded_param = False;
                 for (idx, param) in enumerate(sig_params) {
                     param_type: TypeBase | None = None;
                     if param.type_tag {
@@ -568,6 +570,21 @@ impl TypeEvaluator._get_type_of_expression_core(
                         and idx < len(expected_func.parameters)
                     ) {
                         param_type = expected_func.parameters[idx].param_type;
+                        # Publish the inferred type onto the param's Name so the
+                        # body resolves the param to it (an unannotated lambda
+                        # param has no symbol type of its own). _get_type_of_symbol
+                        # reads this back for unannotated ParamVars. Also stamp the
+                        # ParamVar node itself: exit_param_var ran during traversal
+                        # before this inference and cached Unknown there, which is
+                        # what hover/LSP reads off the declaration.
+                        if param_type is not None {
+                            param.name.type = param_type;
+                            param.type = param_type;
+                            seeded_param = True;
+                        }
+                    }
+                    if param_type is None {
+                        has_unresolved_param = True;
                     }
                     parameters.append(
                         types.Parameter(
@@ -578,6 +595,28 @@ impl TypeEvaluator._get_type_of_expression_core(
                         )
                     );
                 }
+                # The body (and any sub-expression referencing a seeded param)
+                # may have been cached as Unknown by an earlier expected-less
+                # pass; drop those caches so the body re-resolves against the
+                # freshly seeded param types. Only expression-bodied lambdas
+                # need this: a block body is a CodeBlockStmt sequence, not an
+                # Expr, and is re-typed via its own statement traversal.
+                if seeded_param and isinstance(expr.body, uni.Expr) {
+                    self._invalidate_expr_type_cache(expr.body);
+                }
+            }
+            # Skip body evaluation while a param is still untyped: this happens
+            # during speculative overload matching (e.g. the `key: None` overload
+            # of `sorted` reaches here before the callable overload). Typing the
+            # body against Unknown params would emit spurious diagnostics from a
+            # candidate that is about to be discarded. The body is evaluated in
+            # the pass where the params are resolved.
+            if has_unresolved_param {
+                return types.FunctionType(
+                    func_name="<lambda>",
+                    return_type=types.UnknownType(),
+                    parameters=parameters,
+                );
             }
             if isinstance(expr.body, uni.Expr) {
                 body_type = self.get_type_of_expression(expr.body);
@@ -2283,6 +2322,12 @@ impl TypeEvaluator._get_type_of_symbol(symbol: uni.Symbol) -> TypeBase {
                 }
                 return self._convert_to_instance(annotation_type);
             }
+            # Unannotated param: an inferred type may have been published onto
+            # the param's Name (lambda bidirectional inference seeds it from the
+            # expected callable). Honor it so the body resolves the param.
+            if node_.name.type is not None {
+                return node_.name.type;
+            }
 
         # This actually defined in the function getTypeForDeclaration();
         # Pyright has DeclarationType.Variable.
@@ -3571,13 +3616,25 @@ impl TypeEvaluator.get_type_of_expression(
         return self.get_type_of_ability(node_);
     }
     # Use cached result if available, UNLESS expected_type is provided
-    # for a container literal or comprehension that could benefit from
-    # bidirectional inference (ListCompr also covers Set/Gen comprehensions
-    # by inheritance).
+    # for a container literal, comprehension, or lambda that could benefit
+    # from bidirectional inference (ListCompr also covers Set/Gen
+    # comprehensions by inheritance). A lambda must re-evaluate when an
+    # expected callable arrives: an unannotated param seeds its type from
+    # the expected signature, and the first (expected-less or wrong-overload)
+    # pass caches it as Unknown, which would otherwise stick.
     if node_.type is not None {
         if expected_type is None
         or not isinstance(
-            node_, (uni.ListVal, uni.DictVal, uni.SetVal, uni.TupleVal, uni.ListCompr)
+            node_,
+            (
+                uni.ListVal,
+                uni.DictVal,
+                uni.SetVal,
+                uni.TupleVal,
+                uni.ListCompr,
+                uni.LambdaExpr,
+
+            )
         ) {
             # Whole-expression CFG narrowing: chained subscripts like
             # `self.squares[r][c]` aren't narrowed by the AtomTrailer

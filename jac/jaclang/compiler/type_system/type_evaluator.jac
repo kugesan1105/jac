@@ -298,6 +298,10 @@ obj TypeEvaluator {
     def _prefetch_types;
     def get_none_type -> TypeBase;
     def emit_diag(diag: DiagnosticInfo, nd: uni.UniNode, **kwargs: object) -> None;
+    # Clear the memoized `.type` on an expression and every sub-expression so
+    # they re-resolve. Used when a lambda body must be re-typed after its
+    # params are seeded by bidirectional inference.
+    def _invalidate_expr_type_cache(node_: uni.UniNode) -> None;
     def get_index_of_symbol_resolution(symbol: uni.Symbol) -> int | None;
     def push_symbol_resolution(symbol: uni.Symbol) -> bool;
     def pop_symbol_resolution(symbol: uni.Symbol) -> bool;
@@ -557,6 +561,12 @@ obj TypeEvaluator {
 
     def _is_unbound_method_call(expr: uni.FuncCall) -> bool;
     def validate_call_args(expr: uni.FuncCall) -> TypeBase;
+    # If a call argument is a lambda with at least one unannotated parameter,
+    # return that parameter's name (for an actionable overload-mismatch hint);
+    # else None. Jac does not yet infer lambda param types from the expected
+    # callable, so an unannotated lambda param stays Unknown and can silently
+    # break overload resolution.
+    def _unannotated_lambda_arg_name(expr: uni.FuncCall) -> str | None;
     # --- async / await modeling ---
     # Wrap a return type as `Coroutine[Any, Any, inner]` (the value an
     # `async def` call evaluates to). Returns `inner` unchanged if Coroutine

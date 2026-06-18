@@ -4,25 +4,44 @@ impl TypeEvaluator.validate_arg_types(
     args: MatchArgsToParamsResult, checking_overload: bool = False
 ) -> bool {
     has_errors: bool = False;
+
+    # Bidirectional inference for lambda args: a param annotated with a
+    # generic callable (e.g. `key: Callable[[_T], ...]` in `sorted`) only
+    # gives a lambda a useful expected type once `_T` is solved. So bind
+    # TypeVars from the concrete (non-lambda) args first, then substitute
+    # those bindings into each param's expected type. Without this, the
+    # lambda param stays Unknown and no overload matches (pyright solves
+    # `_T` from `iterable` before typing `key`'s lambda the same way).
+    bindings: dict[str, TypeBase] = {};
     for (arg, param) in args.arg_params.items() {
         if param is None or param.param_type is None {
             continue;
         }
-        # Pass param type as expected_type for bidirectional inference
-        if isinstance(arg, uni.KWPair) {
-            arg_type = self.get_type_of_expression(
-                arg.value, expected_type=param.param_type
-            );
-        } else {
-            arg_type = self.get_type_of_expression(arg, expected_type=param.param_type);
+        value = arg.value if isinstance(arg, uni.KWPair) else arg;
+        if isinstance(value, uni.LambdaExpr) {
+            continue;
         }
+        self.assign_type_to_type_var(
+            param.param_type, self.get_type_of_expression(value), bindings
+        );
+    }
+
+    for (arg, param) in args.arg_params.items() {
+        if param is None or param.param_type is None {
+            continue;
+        }
+        expected = param.param_type;
+        if bindings {
+            expected = type_utils.apply_solved_type_vars(expected, bindings);
+        }
+        # Pass param type as expected_type for bidirectional inference
+        value = arg.value if isinstance(arg, uni.KWPair) else arg;
+        arg_type = self.get_type_of_expression(value, expected_type=expected);
 
         # Layer 2 strict-Any dispatch: the call site's containing module
         # decides strictness (see `_is_strict_site`). A leak across a
         # Python -> Jac boundary gets caught at the Jac call site.
-        if not self.assign_type(
-            arg_type, param.param_type, strict=self._is_strict_site(arg)
-        ) {
+        if not self.assign_type(arg_type, expected, strict=self._is_strict_site(arg)) {
             has_errors = True;
             if not checking_overload {
                 self.emit_diag(
@@ -30,7 +49,7 @@ impl TypeEvaluator.validate_arg_types(
                     arg,
                     actual=str(arg_type),
                     name=param.name,
-                    expected=str(param.param_type)
+                    expected=str(expected)
                 );
             }
         }
@@ -257,7 +276,18 @@ impl TypeEvaluator.validate_call_args(expr: uni.FuncCall) -> TypeBase {
         if _fallback_result is not None {
             return _fallback_result;
         }
-        self.emit_diag(E1054, expr);
+        lambda_param = self._unannotated_lambda_arg_name(expr);
+        if lambda_param is not None {
+            self.emit_diag(
+                E1054,
+                expr,
+                help_text=(
+                    "Unannotated lambda parameter '" + lambda_param + "' could not be inferred from the call context, so it stays Unknown and no overload matches. Annotate it, e.g. `lambda " + lambda_param + ": <type> : ...`, or pass a typed `def` as the callback."
+                )
+            );
+        } else {
+            self.emit_diag(E1054, expr);
+        }
         return types.UnknownType();
     }
     if self.is_typevar_class(caller_type) {
@@ -597,6 +627,30 @@ impl TypeEvaluator.match_args_to_params(
     return MatchArgsToParamsResult(
         arg_params=arg_params, argument_errors=argument_errors
     );
+}
+
+"""
+Scan call arguments for a lambda with an unannotated parameter and return
+that parameter's name, else None. Drives the E1054 hint that tells the user
+to annotate the lambda param (Jac does not yet infer it from the expected
+callable, so it stays Unknown and breaks overload resolution).
+"""
+impl TypeEvaluator._unannotated_lambda_arg_name(expr: uni.FuncCall) -> str | None {
+    if expr.params is None {
+        return None;
+    }
+    for arg in expr.params {
+        lam = arg.value if isinstance(arg, uni.KWPair) else arg;
+        if not isinstance(lam, uni.LambdaExpr) or lam.signature is None {
+            continue;
+        }
+        for param in lam.signature.get_parameters() {
+            if param.type_tag is None {
+                return param.name.value;
+            }
+        }
+    }
+    return None;
 }
 
 """

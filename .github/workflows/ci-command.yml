@@ -25,10 +25,10 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  actions: write        # re-run the pull_request workflow runs
-  issues: write         # emoji reaction on the /test comment
-  pull-requests: read   # resolve the PR head SHA
-  contents: read        # read collaborator permission
+  actions: write          # re-run the pull_request workflow runs
+  issues: write           # reaction on an issue comment
+  pull-requests: write    # reaction on a PR review comment thread
+  contents: read          # read collaborator permission
 
 jobs:
   rerun:

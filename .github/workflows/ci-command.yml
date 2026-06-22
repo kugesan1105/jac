@@ -58,7 +58,7 @@ jobs:
             const react = (content) =>
               github.rest.reactions.createForIssueComment({
                 owner, repo, comment_id: comment.id, content,
-              }).catch(() => {});
+              }).catch((e) => core.warning(`reaction '${content}' failed: ${e.status} ${e.message}`));
 
             const args = comment.body.trim().split(/\s+/).slice(1).map(a => a.toLowerCase());
 

@@ -1,16 +1,18 @@
-// Returns the Set of CI suites requested for a PR's CURRENT head commit via
-// `/test <suites>` comments from repo collaborators (read access or above).
+// Returns the Set of CI suites requested for a PR via `/test <suites>` comments
+// from repo collaborators (read access or above).
 //
-// Used by the `plan` job of each test workflow so that, on a pull_request run,
-// a suite executes only when explicitly requested - keeping unrequested PRs at
-// ~$0 while the requested suites run as native PR checks. Requests are read
-// straight from the PR's comments, so no commit statuses or marker check-runs
-// are created (the PR's check list stays clean - only real test jobs show).
+// Used by the `plan` job of each test workflow so that a suite executes only
+// when explicitly requested - keeping unrequested PRs at ~$0 while the
+// requested suites run as native PR checks. Requests are read straight from the
+// PR's comments, so no commit statuses or marker check-runs are created (the
+// PR's check list stays clean - only real test jobs show).
 //
-// Stale requests are not a concern: this runs in a `plan` job that only ever
-// executes for the PR's CURRENT head SHA, so any `/test` comment it reads is
-// scoped to the code under test by construction. (A new push starts a fresh
-// run whose plan re-reads comments against the new SHA.)
+// Freshness: a `/test` request only takes effect when ci-command RE-RUNS this
+// workflow (run attempt > 1). The automatic run that fires on PR open/push is
+// always attempt 1, so it requests nothing - every suite skips until a
+// collaborator explicitly comments `/test`, which makes ci-command re-run.
+// This means a new push starts clean (its auto run is attempt 1 again),
+// without relying on fragile commit-timestamp comparisons.
 //
 // `aliases` maps extra command keywords to a canonical suite (e.g. a single-job
 // workflow passes { check: 'check' } and asks for its own suite). `all`
@@ -21,6 +23,10 @@ module.exports = async ({ github, context, suites, aliases = {} }) => {
   const pr = context.payload.pull_request;
   const requested = new Set();
   if (!pr) return requested;
+
+  // Attempt 1 = the automatic open/push run: request nothing. Only a /test
+  // re-run (attempt > 1) reads the request comments.
+  if (Number(context.runAttempt) <= 1) return requested;
 
   const known = new Set(suites);
   const canon = (tok) => (known.has(tok) ? tok : aliases[tok]);

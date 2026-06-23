@@ -1,5 +1,7 @@
 # On-demand CI
 
+<!-- PR smoke test of the /test comment flow. -->
+
 CI no longer runs automatically on PR pushes. A repo collaborator (read access
 or higher) runs suites by commenting on the PR:
 

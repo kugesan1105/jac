@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Handles a `/test ...` PR comment: reacts to it and re-runs the latest
-# pull_request run of each affected test workflow so their shared `plan` job
-# re-evaluates the request (see ci-requested-suites.sh). Posts NO comments and
-# creates NO status/check rows - the only acknowledgement is an emoji reaction.
+# pull_request run of the affected workflow(s) so their `plan` re-evaluates the
+# request (see ci-requested-suites.sh). Posts NO comments and creates NO
+# status/check rows - the only acknowledgement is an emoji reaction.
+#
+# All on-demand suites are owned by the single orchestrator ci.yml, so a /test
+# almost always just re-runs that one workflow. The exception is `contrib`
+# (contribution-checks.yml), which stays auto-on-PR and is re-run directly.
 #
 # Invoked by ci-command.yml on `issue_comment`. Requires: gh (authenticated via
 # GH_TOKEN), jq. Reads the event from $GITHUB_EVENT_PATH.
@@ -21,20 +25,9 @@ react() { # react <content>  (best-effort; never fails the job)
     -f "content=$1" >/dev/null 2>&1 || echo "::warning::reaction '$1' failed"
 }
 
-# suite -> space-separated workflow file(s) that own its jobs. `core` spans
-# test-binary.yml (build/compiler/runtime) and test-jaseci.yml (solid-jsdom).
-suite_workflows() {
-  case "$1" in
-    core)      echo "test-binary.yml test-jaseci.yml" ;;
-    client|scale|mcp|byllm|docs|desktop|macos|pypi) echo "test-jaseci.yml" ;;
-    k8s)       echo "test-jaseci.yml k8s-microservice-real-e2e.yml" ;;
-    check)     echo "jac-check.yml" ;;
-    contrib)   echo "contribution-checks.yml" ;;
-    installer) echo "test-installer.yml" ;;
-    *)         echo "" ;;
-  esac
-}
-ALL="core client scale mcp byllm docs desktop macos pypi k8s check contrib installer"
+# Suites owned by the ci.yml orchestrator (everything except `contrib`).
+ORCHESTRATED="core client scale mcp byllm docs desktop macos pypi k8s check installer"
+ALL="$ORCHESTRATED contrib"
 
 # tokens after `/test`, lowercased
 read -ra toks <<< "${body#*/test}"
@@ -67,17 +60,20 @@ react rocket
 
 sha="$(gh api "repos/$repo/pulls/$pr" --jq '.head.sha')"
 
-# Affected workflows (deduped).
+# Which workflow files need a re-run. ci.yml covers all orchestrated suites;
+# contribution-checks.yml only if `contrib` was named.
 workflows=""
 for s in $requested; do
-  for wf in $(suite_workflows "$s"); do
-    [[ " $workflows " == *" $wf "* ]] || workflows="$workflows $wf"
-  done
+  if [[ " $ORCHESTRATED " == *" $s "* ]]; then
+    [[ " $workflows " == *" ci.yml "* ]] || workflows="$workflows ci.yml"
+  elif [[ "$s" == contrib ]]; then
+    [[ " $workflows " == *" contribution-checks.yml "* ]] || workflows="$workflows contribution-checks.yml"
+  fi
 done
 
 # Re-run each affected workflow's latest pull_request run for this commit so its
-# plan job re-reads the comments. A run that's still in progress can't be re-run
-# yet, so wait briefly for it to finish first.
+# plan re-reads the comments. A run that's still in progress can't be re-run yet,
+# so wait briefly for it to finish first.
 any_rerun=false
 for wf in $workflows; do
   rerun=false

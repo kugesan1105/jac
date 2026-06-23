@@ -1,34 +1,15 @@
 name: Jac Type Check
 
-# On a PR this skips unless a collaborator requested the `check` suite via `/test
-# check` (see ci-command.yml); push to main always runs.
+# Called by the ci.yml orchestrator, which owns the on-demand gate and only
+# invokes this workflow when the `check` suite was requested (or on push to main).
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_call:
 
-# Read scopes are the cap for the called `plan` workflow (ci-plan.yml), which
-# reads PR comments + collaborator permission to decide which suites run.
 permissions:
   contents: read
-  pull-requests: read
-  issues: read
-
-# Cancel superseded PR runs; never cancel a run for a commit on main.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Shared on-demand gate (see ci-plan.yml).
-  plan:
-    uses: ./.github/workflows/ci-plan.yml
-
   jac-check:
-    needs: plan
-    # `check` suite (`/test check` / `/test all`); runs on push too.
-    if: contains(format(' {0} ', needs.plan.outputs.requested), ' check ')
     runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:

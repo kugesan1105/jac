@@ -40,7 +40,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.run == 'true'
     name: microk8s real-app smoke
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 25
 
     steps:

@@ -58,7 +58,7 @@ jobs:
     needs: plan
     # Part of the `core` suite. Runs when core is requested (or on push to main).
     if: needs.plan.outputs.core == 'true'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
     - name: Check out code
       uses: actions/checkout@v5
@@ -84,7 +84,7 @@ jobs:
   test-client:
     needs: plan
     if: needs.plan.outputs.client == 'true'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
     - name: Check out code
       uses: actions/checkout@v5
@@ -113,7 +113,7 @@ jobs:
     # Not a required check. Tests jac-byllm + builds/validates docs. Skip on PRs
     # that touch none of jac core, jac-byllm, docs; always run on push/dispatch.
     if: needs.plan.outputs.byllm == 'true' || needs.plan.outputs.docs == 'true'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
     - name: Check out code
       uses: actions/checkout@v5
@@ -170,7 +170,7 @@ jobs:
     needs: plan
     # Not a required check. Skip on PRs that touch neither jac core nor jac-desktop; always run on push/dispatch.
     if: needs.plan.outputs.desktop == 'true'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
     - name: Check out code
       uses: actions/checkout@v5
@@ -220,7 +220,7 @@ jobs:
     needs: plan
     # Not a required check. Skip on PRs that touch neither jac core nor jac-mcp; always run on push/dispatch.
     if: needs.plan.outputs.mcp == 'true'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
     - name: Check out code
       uses: actions/checkout@v5
@@ -243,7 +243,7 @@ jobs:
     needs: plan
     # Not a required check. Skip on PRs that touch neither jac core nor jac-scale; always run on push/dispatch.
     if: needs.plan.outputs.scale == 'true'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -286,7 +286,7 @@ jobs:
     # or that carry the 'skip-k8s' label; always runs on push/dispatch.
     if: >-
       needs.plan.outputs.scale == 'true'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -348,7 +348,7 @@ jobs:
     # smoke servers). Skip on PRs that touch none of jac core, jac-scale,
     # jac-byllm; always run on push/dispatch so main stays packaging-clean.
     if: needs.plan.outputs.scale == 'true' || needs.plan.outputs.byllm == 'true'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
     - name: Check out code
       uses: actions/checkout@v5

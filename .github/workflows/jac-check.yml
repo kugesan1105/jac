@@ -3,9 +3,6 @@ name: Jac Type Check
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
 
 # Cancel superseded PR runs; never cancel a run for a commit on main.
@@ -46,7 +43,7 @@ jobs:
           jac check . --ignore tests checker_*.jac *_err.jac $(grep -v '^#' .jacignore | grep -v '^[[:space:]]*$' | tr '\n' ' ') --nowarn
 
       - name: Error-code breakdown (label "type-error-report")
-        if: contains(github.event.pull_request.labels.*.name, 'type-error-report')
+        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'type-error-report')
         run: |
           set +e
           echo "Scanning the whole codebase (no ignores) for an error-code breakdown..."

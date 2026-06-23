@@ -1,0 +1,171 @@
+name: Comment CI
+
+# On-demand CI for pull requests. A repo collaborator (read+ permission) comments
+# `/test <suites>` on a PR and only the named suites run, surfaced as native
+# commit-status checks on the PR head sha (clickable, requireable for merge). No
+# CI runs automatically on PRs anymore; pushing to main still runs everything.
+#
+# issue_comment workflows execute from the DEFAULT-BRANCH copy of this file and do
+# not check out the PR branch - the head ref/sha is resolved explicitly below.
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read         # resolve refs
+  checks: write          # create/update native checks on the PR head sha
+  actions: write         # dispatch the suite workflows
+  pull-requests: read    # resolve head sha/ref
+  issues: write          # the rocket reaction
+
+# Newest /test on a PR cancels an in-flight orchestrator for that PR, so the
+# latest comment wins.
+concurrency:
+  group: comment-ci-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    # Cheap gate: only PR comments that start with /test reach the runner.
+    if: >-
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/test')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          BODY: ${{ github.event.comment.body }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const commentId = context.payload.comment.id;
+            const prNumber  = context.payload.issue.number;
+            const actor     = context.payload.comment.user.login;
+
+            // suite -> { file, input } : input is the workflow_dispatch `suite`
+            // value (test-jaseci.yml selects one job per suite); whole-file
+            // workflows take no input.
+            const SUITES = {
+              core:      { file: 'test-binary.yml' },
+              client:    { file: 'test-jaseci.yml', input: 'client' },
+              scale:     { file: 'test-jaseci.yml', input: 'scale' },
+              mcp:       { file: 'test-jaseci.yml', input: 'mcp' },
+              byllm:     { file: 'test-jaseci.yml', input: 'byllm' },
+              docs:      { file: 'test-jaseci.yml', input: 'docs' },
+              desktop:   { file: 'test-jaseci.yml', input: 'desktop' },
+              macos:     { file: 'test-jaseci.yml', input: 'macos' },
+              pypi:      { file: 'test-jaseci.yml', input: 'pypi' },
+              k8s:       { file: 'k8s-microservice-real-e2e.yml' },
+              check:     { file: 'jac-check.yml' },
+              contrib:   { file: 'contribution-checks.yml' },
+              installer: { file: 'test-installer.yml' },
+            };
+            const ALL = Object.keys(SUITES);
+
+            // 1) AUTH GATE. issue_comment carries a write token on the BASE repo
+            // even for fork PRs, so gate before doing anything privileged. This
+            // job never checks out PR code.
+            let perm = 'none';
+            try {
+              perm = (await github.rest.repos.getCollaboratorPermissionLevel(
+                { owner, repo, username: actor })).data.permission;
+            } catch (e) { /* outside collaborators -> none */ }
+            if (!['read', 'triage', 'write', 'maintain', 'admin'].includes(perm)) {
+              core.info(`@${actor} lacks read+ permission (${perm}); ignoring.`);
+              return;
+            }
+
+            // 2) PARSE
+            const tokens = process.env.BODY.trim().split(/\s+/).slice(1);
+
+            if (tokens.length === 0 || tokens.includes('help')) {
+              await github.rest.reactions.createForIssueComment(
+                { owner, repo, comment_id: commentId, content: 'eyes' });
+              await core.summary
+                .addHeading('/test usage')
+                .addRaw('`/test all`  |  `/test core client scale`  |  `/test help`')
+                .addBreak()
+                .addRaw('Suites: ' + ALL.join(', '))
+                .write();
+              return;
+            }
+
+            // 3) ACK
+            await github.rest.reactions.createForIssueComment(
+              { owner, repo, comment_id: commentId, content: 'rocket' });
+
+            const requested = [...new Set(
+              tokens.includes('all') ? ALL : tokens.filter(t => SUITES[t]))];
+            if (requested.length === 0) {
+              core.info('No known suites in comment; nothing to run.');
+              return;
+            }
+
+            // 4) RESOLVE PR HEAD (bind checks to the sha at comment time -> a new
+            // commit starts clean, old /test comments do not carry over).
+            const pr = (await github.rest.pulls.get(
+              { owner, repo, pull_number: prNumber })).data;
+            const headSha  = pr.head.sha;
+            const sameRepo = pr.head.repo &&
+              pr.head.repo.full_name === `${owner}/${repo}`;
+            // createWorkflowDispatch can only target a ref in THIS repo, so fork
+            // head refs are unreachable; fall back to the base ref for forks.
+            const ref = sameRepo ? pr.head.ref : pr.base.ref;
+            if (!sameRepo) {
+              core.warning(
+                'Fork PR: dispatching against base ref; checks reflect base, ' +
+                'not the fork branch. Push the branch in-repo for full coverage.');
+            }
+
+            const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+            // 5) Per suite: create the check, dispatch, poll, mirror conclusion.
+            const runOne = async (suite) => {
+              const { file, input } = SUITES[suite];
+              const check = (await github.rest.checks.create({
+                owner, repo, name: `ci / ${suite}`, head_sha: headSha,
+                status: 'in_progress',
+              })).data;
+
+              const since = new Date(Date.now() - 60000).toISOString();
+              await github.rest.actions.createWorkflowDispatch({
+                owner, repo, workflow_id: file, ref,
+                inputs: input ? { suite: input } : {},
+              });
+
+              // Find the run this dispatch created (newest dispatch run on `ref`
+              // for this workflow created after we fired it).
+              let run = null;
+              for (let i = 0; i < 20 && !run; i++) {
+                await sleep(6000);
+                const runs = (await github.rest.actions.listWorkflowRuns({
+                  owner, repo, workflow_id: file, event: 'workflow_dispatch',
+                  branch: ref, per_page: 20,
+                })).data.workflow_runs;
+                run = runs.find(r => r.created_at >= since) || null;
+              }
+              if (!run) {
+                await github.rest.checks.update({
+                  owner, repo, check_run_id: check.id, status: 'completed',
+                  conclusion: 'failure',
+                  output: { title: suite, summary: 'Could not locate the dispatched run.' },
+                });
+                return;
+              }
+
+              // Poll to completion (up to ~2h; heavy suites are long).
+              let status = run.status, conclusion = run.conclusion, url = run.html_url;
+              for (let i = 0; i < 1200 && status !== 'completed'; i++) {
+                await sleep(6000);
+                const got = (await github.rest.actions.getWorkflowRun(
+                  { owner, repo, run_id: run.id })).data;
+                status = got.status; conclusion = got.conclusion; url = got.html_url;
+              }
+              await github.rest.checks.update({
+                owner, repo, check_run_id: check.id, status: 'completed',
+                conclusion: conclusion || 'failure', details_url: url,
+                output: { title: suite, summary: `[Run details](${url})` },
+              });
+            };
+
+            await Promise.all(requested.map(runOne));

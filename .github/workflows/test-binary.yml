@@ -11,18 +11,38 @@ name: jac single-binary self-test
 # build work eliminated). Runs on 4-vCPU runners so `-n auto` spins up ~4 xdist
 # workers per job instead of ~2 on a free runner.
 
+# On a PR this skips unless a collaborator requested the `core` suite via `/test
+# core` (see ci-command.yml); push to main/feat runs it for full coverage.
 on:
-  workflow_dispatch:
   pull_request:
     branches: [main]
   push:
     branches: [main, "feat/**"]
 
+# Read scopes are the cap for the called `plan` workflow (ci-plan.yml), which
+# reads PR comments + collaborator permission to decide which suites run. A
+# reusable workflow's token cannot exceed the caller's, so these must be granted
+# here even though the test jobs themselves only need `contents: read`.
 permissions:
   contents: read
+  pull-requests: read
+  issues: read
+
+# Cancel superseded PR runs; never cancel a run for a commit on main.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Shared on-demand gate (see ci-plan.yml).
+  plan:
+    uses: ./.github/workflows/ci-plan.yml
+
   build:
+    needs: plan
+    # `core` suite: the binary build + compiler + runtime. test-compiler /
+    # test-runtime depend on this job, so they inherit the gate.
+    if: contains(format(' {0} ', needs.plan.outputs.requested), ' core ')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4

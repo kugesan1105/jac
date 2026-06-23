@@ -4,12 +4,20 @@ name: Test Installer
 # self-contained native `jac` binary from the latest GitHub Release and runs it.
 # jaclang is no longer on PyPI -- there is no uv/pip install path to test.
 
+# On a PR this skips unless a collaborator requested the `installer` suite via
+# `/test installer` (see ci-command.yml); push to main always runs.
 on:
   pull_request:
-    paths:
-      - "scripts/install.sh"
-      - ".github/workflows/test-installer.yml"
-  workflow_dispatch:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Read scopes are the cap for the called `plan` workflow (ci-plan.yml), which
+# reads PR comments + collaborator permission to decide which suites run.
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
 
 # Cancel superseded PR runs; never cancel a run for a commit on main.
 concurrency:
@@ -17,7 +25,14 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Shared on-demand gate (see ci-plan.yml).
+  plan:
+    uses: ./.github/workflows/ci-plan.yml
+
   shellcheck:
+    needs: plan
+    # `installer` suite (`/test installer` / `/test all`); runs on push too.
+    if: contains(format(' {0} ', needs.plan.outputs.requested), ' installer ')
     name: ShellCheck install.sh
     runs-on: ubuntu-latest
     steps:
@@ -25,6 +40,8 @@ jobs:
       - run: shellcheck scripts/install.sh
 
   install:
+    needs: plan
+    if: contains(format(' {0} ', needs.plan.outputs.requested), ' installer ')
     name: "Install: ${{ matrix.platform }}"
     runs-on: ${{ matrix.os }}
     strategy:

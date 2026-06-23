@@ -233,3 +233,5 @@ All Jaseci open source software is distributed under the terms of both the MIT l
 within with various other licenses that are very permissive.
 
 See [LICENSE-MIT](.github/LICENSE) for details.
+
+ci smoke probe

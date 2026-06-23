@@ -38,7 +38,7 @@ jobs:
     # run just that file in its own lean job.
     # Not a required check. Skip on PRs that don't touch jac core; always run on push/dispatch.
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'client' || github.event_name == 'push' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
     - name: Check out code
       uses: actions/checkout@v5
@@ -63,7 +63,7 @@ jobs:
 
   test-client:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'client' || github.event_name == 'push' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
     - name: Check out code
       uses: actions/checkout@v5
@@ -91,7 +91,7 @@ jobs:
     # Not a required check. Tests jac-byllm + builds/validates docs. Skip on PRs
     # that touch none of jac core, jac-byllm, docs; always run on push/dispatch.
     if: ${{ github.event_name == 'workflow_dispatch' && (inputs.suite == 'byllm' || inputs.suite == 'docs') || github.event_name == 'push' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
     - name: Check out code
       uses: actions/checkout@v5
@@ -147,7 +147,7 @@ jobs:
     # embedded-Python *runtime* behavior is covered by a separate, gated tier.
     # Not a required check. Skip on PRs that touch neither jac core nor jac-desktop; always run on push/dispatch.
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'desktop' || github.event_name == 'push' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
     - name: Check out code
       uses: actions/checkout@v5
@@ -195,7 +195,7 @@ jobs:
   test-mcp:
     # Not a required check. Skip on PRs that touch neither jac core nor jac-mcp; always run on push/dispatch.
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'mcp' || github.event_name == 'push' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
     - name: Check out code
       uses: actions/checkout@v5
@@ -217,7 +217,7 @@ jobs:
   test-scale:
     # Not a required check. Skip on PRs that touch neither jac core nor jac-scale; always run on push/dispatch.
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'scale' || github.event_name == 'push' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -257,7 +257,7 @@ jobs:
   test-scale-k8s:
     # Runs on push to main, and on demand via /test scale (workflow_dispatch).
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'scale' || github.event_name == 'push' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -318,7 +318,7 @@ jobs:
     # smoke servers). Skip on PRs that touch none of jac core, jac-scale,
     # jac-byllm; always run on push/dispatch so main stays packaging-clean.
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'pypi' || github.event_name == 'push' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
     - name: Check out code
       uses: actions/checkout@v5

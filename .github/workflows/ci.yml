@@ -1,22 +1,19 @@
 name: Tests
 
-# The on-demand CI orchestrator. PRs no longer auto-run the heavy suites; a
-# collaborator requests them by commenting `/test <suites>` (see ci-command.yml).
-# This is the ONE workflow that triggers on pull_request: a single `plan` job
-# reads the request, then each suite is invoked as a reusable workflow gated on
-# the result. So the PR shows exactly one gate row (`plan`) plus the real suite
-# checks -- not one gate per workflow.
-#
-# Push to main runs every suite (full post-merge coverage).
+# On-demand CI orchestrator. The ONLY test workflow that triggers on a PR: one
+# cheap `plan` job reads the `/test` request (see ci-requested-suites.sh), then
+# each suite runs as a reusable workflow gated on it. So a PR shows one `plan`
+# row plus the real suite checks, not a gate per workflow. Push to main runs
+# everything (full post-merge coverage).
 
 on:
   pull_request:
     branches: [main]
   push:
-    branches: [main, "feat/**"]
+    branches: [main]
 
-# The `plan` job reads PR comments + collaborator permission to decide which
-# suites run; that needs these read scopes. Called workflows inherit this cap.
+# Read scopes for the plan job (reads PR comments + collaborator permission).
+# Called workflows inherit this cap.
 permissions:
   contents: read
   pull-requests: read
@@ -28,10 +25,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # The single on-demand gate. Returns `requested`: a space-separated list of
-  # suites to run. On push it returns everything; on a PR it returns only what
-  # the latest `/test` comment asked for (empty on the first attempt, so a fresh
-  # commit starts clean -- see ci-requested-suites.sh).
+  # The single on-demand gate. `requested` = space-separated suites to run.
   plan:
     runs-on: ubuntu-latest
     outputs:
@@ -53,9 +47,9 @@ jobs:
     uses: ./.github/workflows/test-binary.yml
     secrets: inherit
 
-  # Plugin / client / docs / pypi / k8s suites all live in one file; it gates
-  # each job internally on the suites it owns. Invoked whenever any of them was
-  # requested (and on push, when `requested` is the full list).
+  # Several suites share one file (it gates each job internally); call it when
+  # any of them was requested. `core` is here too: its solid-jsdom job lives in
+  # this file; `k8s` likewise has a job here alongside the standalone k8s suite.
   jaseci:
     needs: plan
     if: >-

@@ -1,20 +1,8 @@
 name: CI command (/test)
 
-# Quiet, on-demand CI for pull requests. The test workflows run on
-# `pull_request` but every suite skips unless a collaborator requested it by
-# commenting `/test <suites>`, so an unrequested PR costs almost nothing.
-#
+# Handles `/test <suites>` PR comments. Reacts with an emoji and re-runs ci.yml
+# so its plan job re-reads the request -- no bot comments, no status rows.
 #   /test all | /test core | /test core client scale | /test help
-#
-# This workflow does NOT post comments or create status rows - the requested
-# suites simply start running as native checks on the commit (the status dot
-# next to the commit / the PR's Checks list). The only acknowledgement is an
-# emoji reaction on the `/test` comment.
-#
-# Mechanism: the test workflows share one `plan` job (ci-plan.yml) that reads
-# `/test` comments at run time. To make a new request take effect, this workflow
-# re-runs the latest pull_request run for the head commit (after it finishes) so
-# each `plan` re-evaluates. Push to main always runs the full suite.
 
 on:
   issue_comment:
@@ -25,23 +13,28 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  actions: write          # re-run the pull_request workflow runs
-  issues: write           # reaction on an issue comment
-  pull-requests: write    # reaction on a PR review comment thread
-  contents: read          # read collaborator permission
+  actions: write        # re-run the workflow runs
+  issues: write         # add the emoji reaction
+  pull-requests: read   # read the PR head sha
+  contents: read        # read collaborator permission
 
 jobs:
   rerun:
+    # First-line auth gate: only run for PR `/test` comments from someone with a
+    # write-side association. This blocks outsiders before a runner even starts.
+    # The script still does the authoritative read+ collaborator check (this
+    # coarse filter can't see read/triage roles).
     if: >-
       github.event.issue.pull_request != null &&
-      startsWith(github.event.comment.body, '/test')
+      startsWith(github.event.comment.body, '/test') &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: .github/scripts
           sparse-checkout-cone-mode: false
-      - name: React, authorize, and re-run affected workflows
+      - name: React, authorize, and re-run ci.yml
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/ci-rerun-on-test.sh

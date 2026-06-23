@@ -4,17 +4,16 @@ name: Test Installer
 # self-contained native `jac` binary from the latest GitHub Release and runs it.
 # jaclang is no longer on PyPI -- there is no uv/pip install path to test.
 
+# Triggered on-demand from a /test PR comment (via ci-suites.yml) and on push to
+# main (via ci-main.yml).
 on:
-  pull_request:
-    paths:
-      - "scripts/install.sh"
-      - ".github/workflows/test-installer.yml"
+  workflow_call:
+    inputs:
+      sha:
+        description: 'Commit SHA to check out (PR head, or the main commit)'
+        required: false
+        type: string
   workflow_dispatch:
-
-# Cancel superseded PR runs; never cancel a run for a commit on main.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   shellcheck:
@@ -22,6 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.sha }}
       - run: shellcheck scripts/install.sh
 
   install:
@@ -37,6 +38,8 @@ jobs:
             platform: macos-aarch64
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.sha }}
 
       # The installer downloads from the latest published release. Until a
       # release carries the native `jac-<ver>-<platform>` binary asset (the

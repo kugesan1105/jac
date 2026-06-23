@@ -1,18 +1,30 @@
 name: Run tests for jaseci
 
+# Triggered on-demand from a /test PR comment (via ci-suites.yml) and on push to
+# main (via ci-main.yml). Each plugin/docs suite is gated on the `suite` input so
+# one comment runs only what was asked for. No longer runs automatically on PRs.
 on:
-  pull_request:
-    branches:
-      - main
-  push:
-    branches:
-      - main
+  workflow_call:
+    inputs:
+      sha:
+        description: 'Commit SHA to check out (PR head, or the main commit)'
+        required: false
+        type: string
+      suite:
+        description: 'Which suite to run: client | scale | mcp | byllm | docs | desktop | macos'
+        required: true
+        type: string
+      runner:
+        description: 'Runner label (override to ubuntu-latest for fork testing)'
+        required: false
+        type: string
+        default: blacksmith-4vcpu-ubuntu-2404
   workflow_dispatch:
-
-# Cancel superseded PR runs; never cancel a run for a commit on main.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    inputs:
+      suite:
+        description: 'client | scale | mcp | byllm | docs | desktop | macos'
+        required: true
+        type: string
 
 jobs:
   # NOTE: jaclang's own test suite (formerly test-core-compiler / test-core-runtime,
@@ -21,82 +33,19 @@ jobs:
   # the same changes on PRs to main. Removed here as part of the clean break off the
   # editable install (#6852). The jobs below cover plugins / client / docs / pypi.
 
-  # Cheap path filter on a free GitHub-hosted runner. Used ONLY to skip the
-  # NON-required jobs on PRs that can't affect them. The required client/plugin
-  # jobs (e.g. test-client) are never gated, so the merge gate is unchanged. These
-  # outputs are only consulted for pull_request events - each gated job's `if`
-  # forces a run on push/dispatch, so main always keeps full coverage regardless of
-  # the filter result. `core` (jac/**) is jaclang itself, so it is folded into every
-  # downstream gate.
-  changes:
-    runs-on: ubuntu-latest
-    outputs:
-      core: ${{ steps.filter.outputs.core }}
-      scale: ${{ steps.filter.outputs.scale }}
-      byllm: ${{ steps.filter.outputs.byllm }}
-      mcp: ${{ steps.filter.outputs.mcp }}
-      docs: ${{ steps.filter.outputs.docs }}
-      desktop: ${{ steps.filter.outputs.desktop }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            # Editing this workflow re-runs the full gated suite so CI changes
-            # are validated end-to-end (folded into `core`, the broadest gate).
-            core:
-              - 'jac/**'
-              - '.github/workflows/test-jaseci.yml'
-            scale:
-              - 'jac-scale/**'
-            byllm:
-              - 'jac-byllm/**'
-            mcp:
-              - 'jac-mcp/**'
-            docs:
-              - 'docs/**'
-            desktop:
-              - 'jac-desktop/**'
-
-  test-solid-jsdom:
-    # Runtime exec of the Solid framework backend: compile a Solid component +
-    # the @jac/runtime shim to JS and mount it in jsdom under node, asserting
-    # render + reactivity. Needs a real `bun install` (jsdom + solid-js), so the
-    # test self-skips unless JAC_CLIENT_INTEGRATION is set -- we set it here and
-    # run just that file in its own lean job.
-    needs: changes
-    # Not a required check. Skip on PRs that don't touch jac core; always run on push/dispatch.
-    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.core == 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    steps:
-    - name: Check out code
-      uses: actions/checkout@v5
-      with:
-        submodules: true
-
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-
-    - name: Set up Bun
-      uses: oven-sh/setup-bun@v2
-
-    - name: Set up jac (build the binary)
-      uses: ./.github/actions/setup-jac
-
-    - name: Run Solid jsdom runtime test
-      env:
-        JAC_CLIENT_INTEGRATION: "1"
-      run: jac test jac/tests/runtimelib/test_solid_jsdom.jac -x
+  # NOTE: the old `changes` path-filter job and the per-job pull_request gating
+  # are gone. Suite selection now comes from the /test command (the `suite`
+  # input) instead of dorny/paths-filter. test-solid-jsdom moved to test-binary
+  # (the `core` suite).
 
   test-client:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: inputs.suite == 'client'
+    runs-on: ${{ inputs.runner }}
     steps:
     - name: Check out code
       uses: actions/checkout@v5
       with:
+        ref: ${{ inputs.sha }}
         submodules: true
 
     - name: Set up Node.js
@@ -116,16 +65,14 @@ jobs:
     - name: Run all client tests
       run: jac test jac/tests/runtimelib/client
 
-  test-packages-and-docs:
-    needs: changes
-    # Not a required check. Tests jac-byllm + builds/validates docs. Skip on PRs
-    # that touch none of jac core, jac-byllm, docs; always run on push/dispatch.
-    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.core == 'true' || needs.changes.outputs.byllm == 'true' || needs.changes.outputs.docs == 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+  test-byllm:
+    if: inputs.suite == 'byllm'
+    runs-on: ${{ inputs.runner }}
     steps:
     - name: Check out code
       uses: actions/checkout@v5
       with:
+        ref: ${{ inputs.sha }}
         submodules: true
 
     - name: Set up jac (build the binary)
@@ -140,6 +87,19 @@ jobs:
     - name: Run package tests
       working-directory: jac-byllm
       run: jac test .
+
+  test-docs:
+    if: inputs.suite == 'docs'
+    runs-on: ${{ inputs.runner }}
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v5
+      with:
+        ref: ${{ inputs.sha }}
+        submodules: true
+
+    - name: Set up jac (build the binary)
+      uses: ./.github/actions/setup-jac
 
     - name: Install docs dependencies
       run: jac install -e docs
@@ -175,14 +135,13 @@ jobs:
     # linked artifacts (DT_NEEDED / $ORIGIN) and run handler logic through the sv
     # pathway - NO WebKitGTK, no libpython-dev, no display/Xvfb. The webview /
     # embedded-Python *runtime* behavior is covered by a separate, gated tier.
-    needs: changes
-    # Not a required check. Skip on PRs that touch neither jac core nor jac-desktop; always run on push/dispatch.
-    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.core == 'true' || needs.changes.outputs.desktop == 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: inputs.suite == 'desktop'
+    runs-on: ${{ inputs.runner }}
     steps:
     - name: Check out code
       uses: actions/checkout@v5
       with:
+        ref: ${{ inputs.sha }}
         submodules: true
 
     - name: Set up jac (build the binary)
@@ -195,15 +154,14 @@ jobs:
     # Lean macOS-only coverage for the pure-Jac Mach-O linker changes: the
     # dylib dlopen/dlsym round-trip that guards #6821 plus the executable /
     # dylib arm64 code-signing invariants added in PR #6828.
-    needs: changes
-    # Not a required check. macos-latest is a premium runner; skip on PRs that
-    # don't touch jac core; always run on push/dispatch to keep main covered.
-    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.core == 'true' }}
+    # macos-latest is a premium runner.
+    if: inputs.suite == 'macos'
     runs-on: macos-latest
     steps:
     - name: Check out code
       uses: actions/checkout@v5
       with:
+        ref: ${{ inputs.sha }}
         submodules: true
 
     - name: Set up jac (build the binary)
@@ -225,14 +183,13 @@ jobs:
   # check needs a Windows binary build, tracked as a follow-up.
 
   test-mcp:
-    needs: changes
-    # Not a required check. Skip on PRs that touch neither jac core nor jac-mcp; always run on push/dispatch.
-    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.core == 'true' || needs.changes.outputs.mcp == 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: inputs.suite == 'mcp'
+    runs-on: ${{ inputs.runner }}
     steps:
     - name: Check out code
       uses: actions/checkout@v5
       with:
+        ref: ${{ inputs.sha }}
         submodules: true
 
     - name: Set up jac (build the binary)
@@ -248,10 +205,8 @@ jobs:
       run: jac test .
 
   test-scale:
-    needs: changes
-    # Not a required check. Skip on PRs that touch neither jac core nor jac-scale; always run on push/dispatch.
-    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.core == 'true' || needs.changes.outputs.scale == 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: inputs.suite == 'scale'
+    runs-on: ${{ inputs.runner }}
     strategy:
       fail-fast: false
       matrix:
@@ -260,6 +215,7 @@ jobs:
     - name: Check out code
       uses: actions/checkout@v5
       with:
+        ref: ${{ inputs.sha }}
         submodules: true
 
     - name: Set up Bun
@@ -288,82 +244,19 @@ jobs:
           exit 1
         fi
 
-  test-scale-k8s:
-    needs: changes
-    # Not a required check. Skips on PRs that touch neither jac core nor jac-scale,
-    # or that carry the 'skip-k8s' label; always runs on push/dispatch.
-    if: >-
-      (github.event_name != 'pull_request' ||
-       needs.changes.outputs.core == 'true' ||
-       needs.changes.outputs.scale == 'true') &&
-      !contains(github.event.pull_request.labels.*.name, 'skip-k8s')
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    strategy:
-      fail-fast: false
-      matrix:
-        group: [deploy-core, failure-path]
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v5
-        with:
-          submodules: true
-
-      - name: Set up jac (build the binary)
-        uses: ./.github/actions/setup-jac
-
-      - name: Install Jaseci scale package (jaclang host-provided by the binary)
-        run: jac install -e jac-scale --extras deploy
-
-      - name: Write kind config
-        run: |
-          cat <<EOF > /tmp/kind-config.yaml
-          kind: Cluster
-          apiVersion: kind.x-k8s.io/v1alpha4
-          nodes:
-          - role: control-plane
-            extraPortMappings:
-            - containerPort: 30080
-              hostPort: 30080
-              protocol: TCP
-          EOF
-
-      - name: Create kind cluster
-        uses: helm/kind-action@v1
-        with:
-          cluster_name: jaseci-test
-          wait: 120s
-          config: /tmp/kind-config.yaml
-
-      - name: Run K8 tests (deploy-core)
-        if: matrix.group == 'deploy-core'
-        working-directory: jac-scale
-        env:
-          JAC_TEST_JOBS: "0"
-        run: |
-          jac test jac_scale/tests/test_image_build.jac -x
-          jac test jac_scale/tests/test_pod_env.jac -x
-          jac test jac_scale/tests/test_k8s_utils.jac -x
-          jac test jac_scale/tests/test_deploy_k8s.jac -x -f "not (early and exit)"
-
-      - name: Run K8 tests (failure-path)
-        if: matrix.group == 'failure-path'
-        working-directory: jac-scale
-        env:
-          JAC_TEST_JOBS: "0"
-        run: |
-          jac test jac_scale/tests/test_deploy_k8s.jac -x --test_name "early exit"
+  # NOTE: the kind-based test-scale-k8s matrix moved to
+  # k8s-microservice-real-e2e.yml so the whole `k8s` suite lives in one file.
 
   test-pypi-build:
-    needs: changes
-    # Not a required check, and the heaviest job (builds all wheels + jacpack
-    # smoke servers). Skip on PRs that touch none of jac core, jac-scale,
-    # jac-byllm; always run on push/dispatch so main stays packaging-clean.
-    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.core == 'true' || needs.changes.outputs.scale == 'true' || needs.changes.outputs.byllm == 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # The heaviest job (builds all wheels + jacpack smoke servers). Part of the
+    # `scale` suite.
+    if: inputs.suite == 'scale'
+    runs-on: ${{ inputs.runner }}
     steps:
     - name: Check out code
       uses: actions/checkout@v5
       with:
+        ref: ${{ inputs.sha }}
         submodules: true
 
     - name: Set up Python 3.12

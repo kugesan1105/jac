@@ -11,22 +11,32 @@ name: jac single-binary self-test
 # build work eliminated). Runs on 4-vCPU runners so `-n auto` spins up ~4 xdist
 # workers per job instead of ~2 on a free runner.
 
+# Triggered on-demand from a /test PR comment (via ci-suites.yml) and on push to
+# main (via ci-main.yml). No longer runs automatically on every PR push.
 on:
+  workflow_call:
+    inputs:
+      sha:
+        description: 'Commit SHA to check out (PR head, or the main commit)'
+        required: false
+        type: string
+      runner:
+        description: 'Runner label (override to ubuntu-latest for fork testing)'
+        required: false
+        type: string
+        default: blacksmith-4vcpu-ubuntu-2404
   workflow_dispatch:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main, "feat/**"]
 
 permissions:
   contents: read
 
 jobs:
   build:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.sha }}
           # The type checker loads vendored typeshed stubs, which live in a git
           # submodule (jac/jaclang/vendor/typeshed). Without them the checker is a
           # no-op and ~700 compiler tests fail on missing `typing.pyi`.
@@ -96,10 +106,11 @@ jobs:
   # test-runtime against the same prebuilt binary.
   test-compiler:
     needs: build
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.sha }}
           # The compiler suite runs `jac test` from jac/, where `python -m
           # jaclang` (how the nacompile tests shell out) resolves the in-tree
           # jaclang via -m's cwd-prepend. Native type resolution then loads the
@@ -137,9 +148,11 @@ jobs:
   # with test-compiler against the same prebuilt binary.
   test-runtime:
     needs: build
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
       - name: Download the jac binary
         uses: actions/download-artifact@v4
         with:
@@ -171,3 +184,29 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$rc"
+
+  # Solid framework backend runtime exec: compile a Solid component + the
+  # @jac/runtime shim to JS and mount it in jsdom under node, asserting render +
+  # reactivity. Needs a real `bun install` (jsdom + solid-js), so the test
+  # self-skips unless JAC_CLIENT_INTEGRATION is set -- we set it here. Part of the
+  # `core` suite. Builds its own binary (cached by setup-jac) rather than reusing
+  # the artifact, since it needs node/bun anyway.
+  test-solid-jsdom:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+          submodules: true
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Set up jac (build the binary)
+        uses: ./.github/actions/setup-jac
+      - name: Run Solid jsdom runtime test
+        env:
+          JAC_CLIENT_INTEGRATION: "1"
+        run: jac test jac/tests/runtimelib/test_solid_jsdom.jac -x

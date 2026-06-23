@@ -1,0 +1,219 @@
+name: CI Command
+
+# On-demand CI. Heavy test suites no longer run automatically on every PR push
+# (that was burning paid Blacksmith runners on PRs that did not need them yet).
+# Instead a trusted person comments a slash command on the PR:
+#
+#   /test all                 run every suite
+#   /test core                run one suite
+#   /test core client scale   run several suites
+#   /test help                show the available suites
+#
+# This workflow is the cheap front door (free ubuntu-latest): it authorizes the
+# commenter, parses the command, reacts with an emoji, resolves the PR head SHA,
+# and hands the selected suites to ci-suites.yml, which owns the native PR Check
+# Run for each suite. An unrequested PR triggers nothing here beyond this file's
+# `if` guard, so an idle PR costs ~nothing.
+#
+# Merging to main still runs everything via ci-main.yml, so merged code stays
+# fully covered regardless of which suites were run on the PR.
+
+on:
+  issue_comment:
+    types: [created]
+
+# Latest-comment-only: a newer /test on the same PR cancels the in-flight
+# dispatch so we never re-run a stale command's suite selection.
+concurrency:
+  group: ci-command-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+permissions:
+  checks: write          # create / conclude the per-suite Check Runs
+  pull-requests: read    # resolve the PR head SHA
+  contents: read
+
+jobs:
+  triage:
+    # Cheap idle guard: only PR comments that start with `/test` get past here.
+    # A non-PR comment, or any other comment, never spins up a runner.
+    if: >-
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/test')
+    runs-on: ubuntu-latest
+    outputs:
+      suites: ${{ steps.parse.outputs.suites }}
+      sha: ${{ steps.head.outputs.sha }}
+      base_ref: ${{ steps.head.outputs.base_ref }}
+      pr_number: ${{ github.event.issue.number }}
+      pr_title: ${{ steps.head.outputs.pr_title }}
+      pr_author: ${{ steps.head.outputs.pr_author }}
+      labels: ${{ steps.head.outputs.labels }}
+      run: ${{ steps.parse.outputs.run }}
+    steps:
+      # Collaborator-only: anyone with repo access (read+) can trigger; random
+      # users cannot burn runners. We check the comment author's permission and
+      # bail silently (no bot comment) if they are not authorized.
+      - name: Authorize commenter
+        id: auth
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.event.comment.user.login }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          perm=$(gh api "repos/${REPO}/collaborators/${ACTOR}/permission" \
+                   --jq '.permission' 2>/dev/null || echo "none")
+          echo "permission=$perm"
+          case "$perm" in
+            admin|write|triage|read) echo "ok=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "ok=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Stop if unauthorized
+        if: steps.auth.outputs.ok != 'true'
+        run: |
+          echo "::notice::${{ github.event.comment.user.login }} is not a collaborator (read+); ignoring /test command."
+          exit 0
+
+      # Parse the command into a JSON array of suite names. Knows the suite
+      # registry, expands `all`, and handles `help`. Unknown tokens -> help.
+      - name: Parse command
+        id: parse
+        if: steps.auth.outputs.ok == 'true'
+        env:
+          BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          # Suite registry. Keep in sync with ci-suites.yml.
+          ALL="core client scale mcp byllm docs desktop macos k8s check contrib installer"
+
+          # First line only; require `/test` as a standalone token (so `/testing`
+          # or `/testcore` are not commands). Then normalize whitespace.
+          line=$(printf '%s\n' "$BODY" | head -n1 | tr -s '[:space:]' ' ' | sed -E 's/^ | $//g')
+          if [ "$line" != "/test" ] && ! printf '%s' "$line" | grep -qE '^/test '; then
+            echo "::notice::Comment starts with /test but is not a /test command; ignoring."
+            echo "run=none" >> "$GITHUB_OUTPUT"
+            echo "suites=[]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          args=$(printf '%s' "$line" | sed -E 's#^/test[[:space:]]*##')
+
+          # `/test` or `/test help` -> show help, do not run anything.
+          if [ -z "$args" ] || [ "$args" = "help" ]; then
+            echo "run=help" >> "$GITHUB_OUTPUT"
+            echo "suites=[]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # `/test all` -> every suite.
+          if [ "$args" = "all" ]; then
+            args="$ALL"
+          fi
+
+          selected=""
+          bad=""
+          for tok in $args; do
+            if printf '%s ' $ALL | grep -qw "$tok"; then
+              case " $selected " in *" $tok "*) ;; *) selected="$selected $tok" ;; esac
+            else
+              bad="$bad $tok"
+            fi
+          done
+
+          if [ -n "$bad" ]; then
+            echo "::warning::Unknown suite(s):$bad"
+            echo "run=help" >> "$GITHUB_OUTPUT"
+            echo "suites=[]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Emit a JSON array, e.g. ["core","client"].
+          json=$(printf '%s\n' $selected | sed 's/.*/"&"/' | paste -sd, -)
+          echo "run=suites" >> "$GITHUB_OUTPUT"
+          echo "suites=[$json]" >> "$GITHUB_OUTPUT"
+          echo "Selected suites: $selected"
+
+      # The only "noise" we add: a single reaction on the command comment.
+      # Rocket = dispatched; eyes = nothing to run (help / bad input).
+      - name: React to command
+        if: steps.auth.outputs.ok == 'true' && steps.parse.outputs.run != 'none'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.parse.outputs.run }}" = "suites" ]; then
+            emoji="rocket"
+          else
+            emoji="eyes"
+          fi
+          gh api -X POST "repos/${REPO}/issues/comments/${COMMENT_ID}/reactions" \
+            -f content="$emoji" --silent || true
+
+      # `/test help` is the one case where a comment is warranted (the user
+      # explicitly asked). Everything else stays quiet (reaction only).
+      - name: Post help
+        if: steps.parse.outputs.run == 'help'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          {
+            echo "**On-demand CI** - comment to run test suites on this PR's latest commit:"
+            echo ""
+            echo "- \`/test all\` - run every suite"
+            echo "- \`/test <suite> [<suite> ...]\` - run specific suites"
+            echo "- \`/test help\` - show this message"
+            echo ""
+            echo "**Suites:** \`core\` \`client\` \`scale\` \`mcp\` \`byllm\` \`docs\` \`desktop\` \`macos\` \`k8s\` \`check\` \`contrib\` \`installer\`"
+            echo ""
+            echo "Results appear as \`CI / <suite>\` status checks on the commit. Only repo collaborators (read+) can trigger runs. Merging to main runs everything."
+          } > /tmp/help.md
+          gh api -X POST "repos/${REPO}/issues/${PR}/comments" -F body=@/tmp/help.md --silent
+
+      # Resolve the PR's current head SHA so Check Runs land on the latest
+      # commit. A future push gets a fresh head with no check runs -> the PR
+      # shows clean again (old /test runs do not carry over).
+      - name: Resolve PR head SHA
+        id: head
+        if: steps.parse.outputs.run == 'suites'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          pr=$(gh api "repos/${REPO}/pulls/${PR}")
+          sha=$(printf '%s' "$pr" | jq -r '.head.sha')
+          base_ref=$(printf '%s' "$pr" | jq -r '.base.ref')
+          pr_title=$(printf '%s' "$pr" | jq -r '.title')
+          pr_author=$(printf '%s' "$pr" | jq -r '.user.login')
+          labels=$(printf '%s' "$pr" | jq -c '[.labels[].name]')
+          {
+            echo "sha=$sha"
+            echo "base_ref=$base_ref"
+            echo "pr_title=$pr_title"
+            echo "pr_author=$pr_author"
+            echo "labels=$labels"
+          } >> "$GITHUB_OUTPUT"
+          echo "PR #${PR} head: $sha (base: $base_ref)"
+
+  run:
+    needs: triage
+    if: needs.triage.outputs.run == 'suites'
+    uses: ./.github/workflows/ci-suites.yml
+    with:
+      suites: ${{ needs.triage.outputs.suites }}
+      sha: ${{ needs.triage.outputs.sha }}
+      base_ref: ${{ needs.triage.outputs.base_ref }}
+      pr_number: ${{ needs.triage.outputs.pr_number }}
+      pr_title: ${{ needs.triage.outputs.pr_title }}
+      pr_author: ${{ needs.triage.outputs.pr_author }}
+      labels: ${{ needs.triage.outputs.labels }}
+    permissions:
+      checks: write
+      contents: read

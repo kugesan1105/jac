@@ -1,42 +1,59 @@
 name: Contribution Checks
 
+# Triggered on-demand from a /test PR comment (via ci-suites.yml) and on push to
+# main (via ci-main.yml). The PR-diff checks need PR context the comment trigger
+# does not carry implicitly, so it is passed in (base_ref, pr_number, labels...).
 on:
-  pull_request:
-    branches:
-      - main
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - labeled
-  push:
-    branches:
-      - main
-    paths:
-      - 'docs/**/*.md'
-      - 'docs/scripts/validate_docs_code.jac'
-      - '.github/workflows/contribution-checks.yml'
+  workflow_call:
+    inputs:
+      sha:
+        description: 'PR head SHA to check out'
+        required: false
+        type: string
+      base_ref:
+        description: 'PR base branch (e.g. main); empty on push to main'
+        required: false
+        type: string
+        default: ''
+      pr_number:
+        required: false
+        type: string
+        default: ''
+      pr_title:
+        required: false
+        type: string
+        default: ''
+      pr_author:
+        required: false
+        type: string
+        default: ''
+      labels:
+        description: 'JSON array of PR label names'
+        required: false
+        type: string
+        default: '[]'
+      runner:
+        description: 'Runner label (override to ubuntu-latest for fork testing)'
+        required: false
+        type: string
+        default: blacksmith-4vcpu-ubuntu-2404
   workflow_dispatch:
-
-# Cancel superseded PR runs; never cancel a run for a commit on main.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   contribution-checks:
     name: Contribution Checks
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.sha }}
           fetch-depth: 0
           submodules: true
 
       - name: Block AI co-author attribution
-        if: github.event_name == 'pull_request'
+        if: inputs.base_ref != ''
         run: |
-          if git log origin/${{ github.base_ref }}..HEAD --format='%b' \
+          if git log origin/${{ inputs.base_ref }}..HEAD --format='%b' \
             | grep -iP 'co-authored-by:.*\b(claude|anthropic|openai|copilot|composer|cursor|gpt|gemini|ai|bot)\b'; then
             echo "::error::AI co-author attribution found in commit messages. Please remove Co-Authored-By lines referencing AI tools."
             exit 1
@@ -44,10 +61,10 @@ jobs:
 
       - name: Block Python files
         if: |
-          github.event_name == 'pull_request' &&
-          !contains(github.event.pull_request.labels.*.name, 'skip-no-python-check')
+          inputs.base_ref != '' &&
+          !contains(fromJSON(inputs.labels), 'skip-no-python-check')
         run: |
-          if git diff --name-only --diff-filter=A origin/${{ github.base_ref }}...HEAD \
+          if git diff --name-only --diff-filter=A origin/${{ inputs.base_ref }}...HEAD \
             | grep -P '\.py$'; then
             echo "::error::New Python (.py) files detected in this PR. This codebase does not allow adding Python files."
             echo "To skip this check, add the 'skip-no-python-check' label to your PR."
@@ -90,11 +107,11 @@ jobs:
 
       - name: Check Release Notes Updated
         if: |
-          github.event_name == 'pull_request' &&
-          !contains(github.event.pull_request.labels.*.name, 'skip-release-notes-check')
+          inputs.pr_number != '' &&
+          !contains(fromJSON(inputs.labels), 'skip-release-notes-check')
         env:
           CI: "true"
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ inputs.pr_title }}
+          PR_AUTHOR: ${{ inputs.pr_author }}
+          PR_NUMBER: ${{ inputs.pr_number }}
         run: bash scripts/check-release-notes.sh

@@ -1,0 +1,236 @@
+name: CI Suites
+
+# Reusable suite runner. Called two ways:
+#   - ci-command.yml  (on-demand, from a /test PR comment) with a subset of suites
+#   - ci-main.yml     (on push to main) with all suites, so merged code stays
+#                     fully covered
+#
+# Each suite maps to the real CI that used to run automatically on PRs:
+#
+#   core       binary build + compiler + runtime + solid jsdom   (test-binary.yml + solid)
+#   client     client runtime tests                              (test-jaseci: test-client)
+#   scale      jac-scale matrix + pypi/jacpack build smokes       (test-jaseci: test-scale, test-pypi-build)
+#   mcp        jac-mcp tests                                      (test-jaseci: test-mcp)
+#   byllm      jac-byllm tests                                    (test-jaseci: test-packages-and-docs)
+#   docs       docs build + validation + e2e code blocks          (test-jaseci: test-packages-and-docs)
+#   desktop    dependency-free desktop tests                      (test-jaseci: test-desktop-native)
+#   macos      native Mach-O linker regression (premium runner)   (test-jaseci: test-native-macos)
+#   k8s        scale k8s matrix + microk8s real-app e2e            (test-jaseci: test-scale-k8s + k8s-microservice-real-e2e.yml)
+#   check      jac format + jac check + jir registry              (jac-check.yml)
+#   contrib    contribution checks (AI co-author, no-python, ...) (contribution-checks.yml)
+#   installer  install.sh shellcheck + download/run/uninstall      (test-installer.yml)
+#
+# The native PR status dots come from a Check Run per suite, named `CI / <suite>`.
+# `<suite>-start` creates it (in_progress) on the head SHA; the suite reusable
+# runs; `<suite>-end` concludes it (success/failure) from the reusable's result.
+# Because the names are static they can be marked "required" in branch protection.
+
+on:
+  workflow_call:
+    inputs:
+      suites:
+        description: 'JSON array of suite names to run, e.g. ["core","client"]'
+        required: true
+        type: string
+      sha:
+        description: 'Commit SHA to check out and to attach Check Runs to'
+        required: true
+        type: string
+      base_ref:
+        description: 'PR base branch (for contrib diff checks); empty on main'
+        required: false
+        type: string
+        default: ''
+      pr_number:
+        required: false
+        type: string
+        default: ''
+      pr_title:
+        required: false
+        type: string
+        default: ''
+      pr_author:
+        required: false
+        type: string
+        default: ''
+      labels:
+        description: 'JSON array of PR label names'
+        required: false
+        type: string
+        default: '[]'
+      runner:
+        description: 'Runner label for the suites (override to ubuntu-latest for fork testing)'
+        required: false
+        type: string
+        default: blacksmith-4vcpu-ubuntu-2404
+  # Manual smoke testing on a branch (issue_comment cannot be triggered locally).
+  workflow_dispatch:
+    inputs:
+      suites:
+        description: 'JSON array of suite names, e.g. ["core"]'
+        required: true
+        type: string
+      sha:
+        description: 'Commit SHA (defaults to the dispatched ref if blank)'
+        required: false
+        type: string
+
+permissions:
+  checks: write
+  contents: read
+
+jobs:
+  # ---- Check Run lifecycle ---------------------------------------------------
+  # One pair of start/end jobs per suite. `start` creates `CI / <suite>` on the
+  # head SHA and exports its id; the suite job runs; `end` (always) concludes it.
+  # Suite jobs themselves are gated on whether the suite is in `inputs.suites`.
+
+  core-start:
+    uses: ./.github/workflows/ci-checkrun.yml
+    with: { suite: core, sha: '${{ inputs.sha }}', enabled: '${{ contains(fromJSON(inputs.suites), ''core'') }}' }
+  client-start:
+    uses: ./.github/workflows/ci-checkrun.yml
+    with: { suite: client, sha: '${{ inputs.sha }}', enabled: '${{ contains(fromJSON(inputs.suites), ''client'') }}' }
+  scale-start:
+    uses: ./.github/workflows/ci-checkrun.yml
+    with: { suite: scale, sha: '${{ inputs.sha }}', enabled: '${{ contains(fromJSON(inputs.suites), ''scale'') }}' }
+  mcp-start:
+    uses: ./.github/workflows/ci-checkrun.yml
+    with: { suite: mcp, sha: '${{ inputs.sha }}', enabled: '${{ contains(fromJSON(inputs.suites), ''mcp'') }}' }
+  byllm-start:
+    uses: ./.github/workflows/ci-checkrun.yml
+    with: { suite: byllm, sha: '${{ inputs.sha }}', enabled: '${{ contains(fromJSON(inputs.suites), ''byllm'') }}' }
+  docs-start:
+    uses: ./.github/workflows/ci-checkrun.yml
+    with: { suite: docs, sha: '${{ inputs.sha }}', enabled: '${{ contains(fromJSON(inputs.suites), ''docs'') }}' }
+  desktop-start:
+    uses: ./.github/workflows/ci-checkrun.yml
+    with: { suite: desktop, sha: '${{ inputs.sha }}', enabled: '${{ contains(fromJSON(inputs.suites), ''desktop'') }}' }
+  macos-start:
+    uses: ./.github/workflows/ci-checkrun.yml
+    with: { suite: macos, sha: '${{ inputs.sha }}', enabled: '${{ contains(fromJSON(inputs.suites), ''macos'') }}' }
+  k8s-start:
+    uses: ./.github/workflows/ci-checkrun.yml
+    with: { suite: k8s, sha: '${{ inputs.sha }}', enabled: '${{ contains(fromJSON(inputs.suites), ''k8s'') }}' }
+  check-start:
+    uses: ./.github/workflows/ci-checkrun.yml
+    with: { suite: check, sha: '${{ inputs.sha }}', enabled: '${{ contains(fromJSON(inputs.suites), ''check'') }}' }
+  contrib-start:
+    uses: ./.github/workflows/ci-checkrun.yml
+    with: { suite: contrib, sha: '${{ inputs.sha }}', enabled: '${{ contains(fromJSON(inputs.suites), ''contrib'') }}' }
+  installer-start:
+    uses: ./.github/workflows/ci-checkrun.yml
+    with: { suite: installer, sha: '${{ inputs.sha }}', enabled: '${{ contains(fromJSON(inputs.suites), ''installer'') }}' }
+
+  # ---- Suites ---------------------------------------------------------------
+
+  core:
+    needs: core-start
+    if: contains(fromJSON(inputs.suites), 'core')
+    uses: ./.github/workflows/test-binary.yml
+    with: { sha: '${{ inputs.sha }}', runner: '${{ inputs.runner }}' }
+    permissions: { contents: read }
+
+  client:
+    needs: client-start
+    if: contains(fromJSON(inputs.suites), 'client')
+    uses: ./.github/workflows/test-jaseci.yml
+    with: { sha: '${{ inputs.sha }}', suite: client, runner: '${{ inputs.runner }}' }
+    permissions: { contents: read }
+
+  scale:
+    needs: scale-start
+    if: contains(fromJSON(inputs.suites), 'scale')
+    uses: ./.github/workflows/test-jaseci.yml
+    with: { sha: '${{ inputs.sha }}', suite: scale, runner: '${{ inputs.runner }}' }
+    permissions: { contents: read }
+
+  mcp:
+    needs: mcp-start
+    if: contains(fromJSON(inputs.suites), 'mcp')
+    uses: ./.github/workflows/test-jaseci.yml
+    with: { sha: '${{ inputs.sha }}', suite: mcp, runner: '${{ inputs.runner }}' }
+    permissions: { contents: read }
+
+  byllm:
+    needs: byllm-start
+    if: contains(fromJSON(inputs.suites), 'byllm')
+    uses: ./.github/workflows/test-jaseci.yml
+    with: { sha: '${{ inputs.sha }}', suite: byllm, runner: '${{ inputs.runner }}' }
+    permissions: { contents: read }
+
+  docs:
+    needs: docs-start
+    if: contains(fromJSON(inputs.suites), 'docs')
+    uses: ./.github/workflows/test-jaseci.yml
+    with: { sha: '${{ inputs.sha }}', suite: docs, runner: '${{ inputs.runner }}' }
+    permissions: { contents: read }
+
+  desktop:
+    needs: desktop-start
+    if: contains(fromJSON(inputs.suites), 'desktop')
+    uses: ./.github/workflows/test-jaseci.yml
+    with: { sha: '${{ inputs.sha }}', suite: desktop, runner: '${{ inputs.runner }}' }
+    permissions: { contents: read }
+
+  macos:
+    needs: macos-start
+    if: contains(fromJSON(inputs.suites), 'macos')
+    uses: ./.github/workflows/test-jaseci.yml
+    with: { sha: '${{ inputs.sha }}', suite: macos }
+    permissions: { contents: read }
+
+  k8s:
+    needs: k8s-start
+    if: contains(fromJSON(inputs.suites), 'k8s')
+    uses: ./.github/workflows/k8s-microservice-real-e2e.yml
+    with:
+      sha: ${{ inputs.sha }}
+      labels: ${{ inputs.labels }}
+      runner: ${{ inputs.runner }}
+    permissions: { contents: read }
+
+  check:
+    needs: check-start
+    if: contains(fromJSON(inputs.suites), 'check')
+    uses: ./.github/workflows/jac-check.yml
+    with: { sha: '${{ inputs.sha }}', runner: '${{ inputs.runner }}' }
+    permissions: { contents: read }
+
+  contrib:
+    needs: contrib-start
+    if: contains(fromJSON(inputs.suites), 'contrib')
+    uses: ./.github/workflows/contribution-checks.yml
+    with:
+      sha: ${{ inputs.sha }}
+      base_ref: ${{ inputs.base_ref }}
+      pr_number: ${{ inputs.pr_number }}
+      pr_title: ${{ inputs.pr_title }}
+      pr_author: ${{ inputs.pr_author }}
+      labels: ${{ inputs.labels }}
+      runner: ${{ inputs.runner }}
+    permissions: { contents: read }
+
+  installer:
+    needs: installer-start
+    if: contains(fromJSON(inputs.suites), 'installer')
+    uses: ./.github/workflows/test-installer.yml
+    with: { sha: '${{ inputs.sha }}' }
+    permissions: { contents: read }
+
+  # ---- Conclude the Check Runs ----------------------------------------------
+  # Each `end` job runs even if its suite was skipped or failed, and reports the
+  # suite job's result back onto the `CI / <suite>` Check Run.
+
+  core-end:    { needs: [core-start, core],       if: always() && needs.core-start.outputs.id != '',    uses: ./.github/workflows/ci-checkrun-finish.yml, with: { check_run_id: '${{ needs.core-start.outputs.id }}',       result: '${{ needs.core.result }}' } }
+  client-end:  { needs: [client-start, client],   if: always() && needs.client-start.outputs.id != '',  uses: ./.github/workflows/ci-checkrun-finish.yml, with: { check_run_id: '${{ needs.client-start.outputs.id }}',     result: '${{ needs.client.result }}' } }
+  scale-end:   { needs: [scale-start, scale],     if: always() && needs.scale-start.outputs.id != '',    uses: ./.github/workflows/ci-checkrun-finish.yml, with: { check_run_id: '${{ needs.scale-start.outputs.id }}',      result: '${{ needs.scale.result }}' } }
+  mcp-end:     { needs: [mcp-start, mcp],         if: always() && needs.mcp-start.outputs.id != '',      uses: ./.github/workflows/ci-checkrun-finish.yml, with: { check_run_id: '${{ needs.mcp-start.outputs.id }}',        result: '${{ needs.mcp.result }}' } }
+  byllm-end:   { needs: [byllm-start, byllm],     if: always() && needs.byllm-start.outputs.id != '',    uses: ./.github/workflows/ci-checkrun-finish.yml, with: { check_run_id: '${{ needs.byllm-start.outputs.id }}',      result: '${{ needs.byllm.result }}' } }
+  docs-end:    { needs: [docs-start, docs],       if: always() && needs.docs-start.outputs.id != '',     uses: ./.github/workflows/ci-checkrun-finish.yml, with: { check_run_id: '${{ needs.docs-start.outputs.id }}',       result: '${{ needs.docs.result }}' } }
+  desktop-end: { needs: [desktop-start, desktop], if: always() && needs.desktop-start.outputs.id != '',  uses: ./.github/workflows/ci-checkrun-finish.yml, with: { check_run_id: '${{ needs.desktop-start.outputs.id }}',    result: '${{ needs.desktop.result }}' } }
+  macos-end:   { needs: [macos-start, macos],     if: always() && needs.macos-start.outputs.id != '',    uses: ./.github/workflows/ci-checkrun-finish.yml, with: { check_run_id: '${{ needs.macos-start.outputs.id }}',      result: '${{ needs.macos.result }}' } }
+  k8s-end:     { needs: [k8s-start, k8s],         if: always() && needs.k8s-start.outputs.id != '',      uses: ./.github/workflows/ci-checkrun-finish.yml, with: { check_run_id: '${{ needs.k8s-start.outputs.id }}',        result: '${{ needs.k8s.result }}' } }
+  check-end:   { needs: [check-start, check],     if: always() && needs.check-start.outputs.id != '',    uses: ./.github/workflows/ci-checkrun-finish.yml, with: { check_run_id: '${{ needs.check-start.outputs.id }}',      result: '${{ needs.check.result }}' } }
+  contrib-end: { needs: [contrib-start, contrib], if: always() && needs.contrib-start.outputs.id != '',  uses: ./.github/workflows/ci-checkrun-finish.yml, with: { check_run_id: '${{ needs.contrib-start.outputs.id }}',    result: '${{ needs.contrib.result }}' } }
+  installer-end: { needs: [installer-start, installer], if: always() && needs.installer-start.outputs.id != '', uses: ./.github/workflows/ci-checkrun-finish.yml, with: { check_run_id: '${{ needs.installer-start.outputs.id }}', result: '${{ needs.installer.result }}' } }

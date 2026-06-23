@@ -1,0 +1,36 @@
+name: CI (main)
+
+# Merging to main runs the full suite, so merged code stays fully covered no
+# matter which suites were run on the PR via /test. PRs themselves no longer
+# trigger CI automatically (see ci-command.yml).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never cancel a run for a commit on main.
+concurrency:
+  group: ci-main-${{ github.sha }}
+  cancel-in-progress: false
+
+permissions:
+  checks: write
+  contents: read
+
+jobs:
+  all:
+    uses: ./.github/workflows/ci-suites.yml
+    with:
+      # TEMP (fork testing): cheap subset to verify the Check Run plumbing.
+      # Restore the full set before merging upstream:
+      # '["core","client","scale","mcp","byllm","docs","desktop","macos","k8s","check","contrib","installer"]'
+      suites: '["check","contrib","installer"]'
+      sha: ${{ github.sha }}
+      # TEMP (fork testing): run on GitHub-hosted runners instead of the
+      # blacksmith-* self-hosted labels, which only exist on the upstream repo.
+      # Revert to the blacksmith default before merging upstream.
+      runner: ubuntu-latest
+    permissions:
+      checks: write
+      contents: read

@@ -4,36 +4,102 @@ name: K8s Microservice Real E2E
 # K8s pipeline against microk8s, verifies pods + gateway routing,
 # rolling-restart + hammer-for-non-2xx.
 
+# The whole `k8s` suite: the kind-based scale matrix plus the heavy microk8s
+# real-app e2e. Triggered on-demand from a /test PR comment (via ci-suites.yml)
+# and on push to main (via ci-main.yml).
 on:
+  workflow_call:
+    inputs:
+      sha:
+        description: 'Commit SHA to check out (PR head, or the main commit)'
+        required: false
+        type: string
+      labels:
+        description: 'JSON array of PR label names (for the skip-k8s escape hatch)'
+        required: false
+        type: string
+        default: '[]'
+      runner:
+        description: 'Runner label (override to ubuntu-latest for fork testing)'
+        required: false
+        type: string
+        default: blacksmith-4vcpu-ubuntu-2404
   workflow_dispatch:
-  pull_request:
-    # Heavy microk8s e2e (~25 min). Only the jac runtime + the scale deploy
-    # pipeline can affect it, so skip PRs that touch neither (docs, byllm, mcp,
-    # etc.). This job is NOT a required status check, so a path-skip is safe -
-    # it won't leave a PR waiting on a check that never reports.
-    paths:
-      - 'jac/**'
-      - 'jac-scale/**'
-      - '.github/workflows/k8s-microservice-real-e2e.yml'
-
-# Cancel superseded PR runs; never cancel a run for a commit on main.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Kind-based scale k8s matrix (moved here from test-jaseci so the whole `k8s`
+  # suite lives in one file).
+  test-scale-k8s:
+    if: ${{ !contains(fromJSON(inputs.labels), 'skip-k8s') }}
+    runs-on: ${{ inputs.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [deploy-core, failure-path]
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.sha }}
+          submodules: true
+
+      - name: Set up jac (build the binary)
+        uses: ./.github/actions/setup-jac
+
+      - name: Install Jaseci scale package (jaclang host-provided by the binary)
+        run: jac install -e jac-scale --extras deploy
+
+      - name: Write kind config
+        run: |
+          cat <<EOF > /tmp/kind-config.yaml
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          nodes:
+          - role: control-plane
+            extraPortMappings:
+            - containerPort: 30080
+              hostPort: 30080
+              protocol: TCP
+          EOF
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: jaseci-test
+          wait: 120s
+          config: /tmp/kind-config.yaml
+
+      - name: Run K8 tests (deploy-core)
+        if: matrix.group == 'deploy-core'
+        working-directory: jac-scale
+        env:
+          JAC_TEST_JOBS: "0"
+        run: |
+          jac test jac_scale/tests/test_image_build.jac -x
+          jac test jac_scale/tests/test_pod_env.jac -x
+          jac test jac_scale/tests/test_k8s_utils.jac -x
+          jac test jac_scale/tests/test_deploy_k8s.jac -x -f "not (early and exit)"
+
+      - name: Run K8 tests (failure-path)
+        if: matrix.group == 'failure-path'
+        working-directory: jac-scale
+        env:
+          JAC_TEST_JOBS: "0"
+        run: |
+          jac test jac_scale/tests/test_deploy_k8s.jac -x --test_name "early exit"
+
   real-e2e:
     name: microk8s real-app smoke
-    # Escape hatch: add the 'skip-k8s' label to a PR to skip this job too
-    # (matches the test-scale-k8s gate in test-jaseci.yml).
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-k8s') }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # Escape hatch: add the 'skip-k8s' label to a PR to skip this job too.
+    if: ${{ !contains(fromJSON(inputs.labels), 'skip-k8s') }}
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 25
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.sha }}
           submodules: true
 
       - name: Set up jac (build the binary)

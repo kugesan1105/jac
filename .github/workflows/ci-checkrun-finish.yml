@@ -1,0 +1,43 @@
+name: CI Check Run (finish)
+
+# Concludes a Check Run created by ci-checkrun.yml, mapping the suite job's
+# result onto the native status dot. A skipped suite job is reported as neutral
+# so it never blocks merge; success/failure map straight through.
+
+on:
+  workflow_call:
+    inputs:
+      check_run_id:
+        required: true
+        type: string
+      result:
+        description: 'needs.<suite>.result: success | failure | cancelled | skipped'
+        required: true
+        type: string
+
+permissions:
+  checks: write
+
+jobs:
+  finish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Conclude Check Run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ID: ${{ inputs.check_run_id }}
+          RESULT: ${{ inputs.result }}
+        run: |
+          set -euo pipefail
+          case "$RESULT" in
+            success)   conclusion="success" ;;
+            failure)   conclusion="failure" ;;
+            cancelled) conclusion="cancelled" ;;
+            *)         conclusion="neutral" ;;   # skipped / unknown
+          esac
+          gh api -X PATCH "repos/${REPO}/check-runs/${ID}" \
+            -f status="completed" \
+            -f conclusion="$conclusion" \
+            --silent
+          echo "Check Run ${ID} -> ${conclusion}"

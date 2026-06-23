@@ -1,0 +1,53 @@
+name: CI Check Run (create)
+
+# Creates a native PR Check Run named `CI / <suite>` on the given SHA so the
+# result shows as a status dot on the commit (clickable, can be required for
+# merge). Used by ci-suites.yml before each suite runs. If `enabled` is false
+# (the caller did not select this suite) it no-ops and exports an empty id, so
+# the matching finish job skips.
+
+on:
+  workflow_call:
+    inputs:
+      suite:
+        required: true
+        type: string
+      sha:
+        required: true
+        type: string
+      enabled:
+        required: true
+        type: boolean
+    outputs:
+      id:
+        description: 'Check Run id, or empty when the suite was not selected'
+        value: ${{ jobs.create.outputs.id }}
+
+permissions:
+  checks: write
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.mk.outputs.id }}
+    steps:
+      - name: Create Check Run
+        id: mk
+        if: inputs.enabled
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SUITE: ${{ inputs.suite }}
+          SHA: ${{ inputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          id=$(gh api -X POST "repos/${REPO}/check-runs" \
+                 -f name="CI / ${SUITE}" \
+                 -f head_sha="${SHA}" \
+                 -f status="in_progress" \
+                 -f details_url="${RUN_URL}" \
+                 --jq '.id')
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "Created Check Run CI / ${SUITE} (id=$id) on ${SHA}"

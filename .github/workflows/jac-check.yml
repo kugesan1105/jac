@@ -1,25 +1,29 @@
 name: Jac Type Check
 
+# Triggered on-demand from a /test PR comment (via ci-suites.yml) and on push to
+# main (via ci-main.yml).
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened, labeled]
+  workflow_call:
+    inputs:
+      sha:
+        description: 'Commit SHA to check out (PR head, or the main commit)'
+        required: false
+        type: string
+      runner:
+        description: 'Runner label (override to ubuntu-latest for fork testing)'
+        required: false
+        type: string
+        default: blacksmith-4vcpu-ubuntu-2404
   workflow_dispatch:
-
-# Cancel superseded PR runs; never cancel a run for a commit on main.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   jac-check:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ inputs.runner }}
 
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.sha }}
           submodules: true
 
       - name: Set up jac (build the binary)
@@ -46,7 +50,9 @@ jobs:
           jac check . --ignore tests checker_*.jac *_err.jac $(grep -v '^#' .jacignore | grep -v '^[[:space:]]*$' | tr '\n' ' ') --nowarn
 
       - name: Error-code breakdown (label "type-error-report")
-        if: contains(github.event.pull_request.labels.*.name, 'type-error-report')
+        # The PR label that used to drive this is not available on a
+        # comment-triggered run; keep it for manual/dispatch use only.
+        if: github.event_name == 'workflow_dispatch'
         run: |
           set +e
           echo "Scanning the whole codebase (no ignores) for an error-code breakdown..."

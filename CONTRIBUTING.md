@@ -232,3 +232,5 @@ After the release PR is merged, the **Publish Release** workflow triggers automa
 | A tier failed to publish | Re-run the failed job from GitHub Actions; already-published packages are skipped (`skip-existing`) |
 | Need to re-publish after the release PR is merged | Manually trigger **Publish Release** (`workflow_dispatch`) and check the packages to publish |
 | Version conflict on PyPI | The `Create Release PR` workflow validates this upfront - if you hit this, someone manually published |
+
+<!-- ci on-demand /test smoke -->

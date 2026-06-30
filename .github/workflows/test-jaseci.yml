@@ -552,6 +552,20 @@ jobs:
         path: jac-gpt/services/faiss_index
         key: jac-gpt-faiss-v1
 
+    - name: Probe OpenAI reachability
+      # jac-gpt rebuilds its FAISS index at startup on a cache miss, which needs
+      # a live OpenAI call. This probe disambiguates the two failure modes the
+      # server-start step otherwise hides: a bad/empty key (HTTP 401) vs. the
+      # runner being unable to reach api.openai.com at all (UNREACHABLE).
+      continue-on-error: true
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      run: |
+        curl -sS --max-time 15 -o /dev/null -w "openai HTTP %{http_code}\n" \
+          https://api.openai.com/v1/models \
+          -H "Authorization: Bearer $OPENAI_API_KEY" \
+          || echo "OPENAI UNREACHABLE FROM RUNNER"
+
     - name: Start jac-gpt server in background
       working-directory: jac-gpt
       env:

@@ -45,7 +45,13 @@ const runtime = @import("runtime.zig");
 const py_ver = "3.14";
 const PBS_TAG = "20260610";
 const PBS_PY = "3.14.6";
-const PBS_FLAVOR = "pgo+lto-full";
+// CPython flavor per platform. Linux ships musl (lto-full): the libpython has no
+// glibc dependency, so the binary runs on any distro regardless of glibc version.
+// We use the dynamic (non +static) musl build because the launcher dlopens the
+// bundled libpython.so, and a fully static binary cannot reliably dlopen. musl
+// has no pgo build, so Linux trades PGO for portability. macOS keeps pgo+lto-full.
+const PBS_FLAVOR_DEFAULT = "pgo+lto-full";
+const PBS_FLAVOR_LINUX = "lto-full";
 const PBS_BASE = "https://github.com/astral-sh/python-build-standalone/releases/download";
 // The window pbs compresses its archives with (verified: `zstd -lv` reports
 // 128 MiB). `fetch-pbs.sh` passed `zstd -d --long=31` only as a permissive cap;
@@ -219,7 +225,8 @@ fn fetchPbs(io: Io, gpa: Allocator, a: Allocator, osarch: []const u8, dest: []co
     }
 
     const plat = pbsPlatform(osarch) orelse die("fetch-pbs: unsupported platform '{s}'", .{osarch});
-    const asset = try std.fmt.allocPrint(a, "cpython-{s}+{s}-{s}-{s}.tar.zst", .{ PBS_PY, PBS_TAG, plat, PBS_FLAVOR });
+    const flavor = pbsFlavor(osarch);
+    const asset = try std.fmt.allocPrint(a, "cpython-{s}+{s}-{s}-{s}.tar.zst", .{ PBS_PY, PBS_TAG, plat, flavor });
     const url = try std.fmt.allocPrint(a, "{s}/{s}/{s}", .{ PBS_BASE, PBS_TAG, asset });
 
     log("fetch-pbs: downloading {s}", .{asset});
@@ -600,10 +607,17 @@ fn pbsPlatform(osarch: []const u8) ?[]const u8 {
     const m = std.StaticStringMap([]const u8).initComptime(.{
         .{ "macos-aarch64", "aarch64-apple-darwin" },
         .{ "macos-x86_64", "x86_64-apple-darwin" },
-        .{ "linux-x86_64", "x86_64-unknown-linux-gnu" },
-        .{ "linux-aarch64", "aarch64-unknown-linux-gnu" },
+        // Linux uses musl (static) so the bundled libpython has no glibc dependency.
+        .{ "linux-x86_64", "x86_64-unknown-linux-musl" },
+        .{ "linux-aarch64", "aarch64-unknown-linux-musl" },
     });
     return m.get(osarch);
+}
+
+// Linux gets the fully static musl flavor; other platforms get the default.
+fn pbsFlavor(osarch: []const u8) []const u8 {
+    if (std.mem.startsWith(u8, osarch, "linux-")) return PBS_FLAVOR_LINUX;
+    return PBS_FLAVOR_DEFAULT;
 }
 
 /// SHA256SUMS lines are `<hex>  <filename>`; return the hex for `asset`.

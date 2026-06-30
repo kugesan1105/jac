@@ -32,15 +32,16 @@ jobs:
         # self-contained; build.zig fetches the per-target python-build-standalone
         # and (for the native backend) the per-target LLVM release.
         include:
-          # zig_target pins each Linux binary's glibc floor (2.34) regardless of
-          # the runner's glibc, so the asset runs on glibc 2.34+ (e.g. Ubuntu
-          # 22.04). macOS omits it and builds host-native.
+          # zig_target builds each Linux binary against musl, so it has no glibc
+          # dependency and runs on any distro regardless of glibc version. The
+          # bundled libpython is the matching musl PBS build (see payload.zig).
+          # macOS omits it and builds host-native.
           - os: ubuntu-latest
             platform: linux-x86_64
-            zig_target: x86_64-linux-gnu.2.34
+            zig_target: x86_64-linux-musl
           - os: ubuntu-24.04-arm
             platform: linux-aarch64
-            zig_target: aarch64-linux-gnu.2.34
+            zig_target: aarch64-linux-musl
           # No macos-x86_64 (Intel) leg: the native (na) backend statically links
           # a pinned LLVM release, and LLVM ships no macOS-x64 prebuilt for 20.1.8
           # (only Linux-X64/ARM64 + macOS-ARM64). Apple Silicon is covered by

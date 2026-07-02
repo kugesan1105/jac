@@ -366,6 +366,30 @@ fn addTreeInputs(b: *std.Build, run: *std.Build.Step.Run, sub_path: []const u8) 
 /// future `fetch-llvm` step downloads it at a pinned version (mirrors fetch-pbs).
 /// The Jac binding loads the result via ctypes (JAC_LLVM_SHIM / payload path).
 fn addLlvmShim(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) ?Shim {
+    const shim_file = switch (target.result.os.tag) {
+        .windows => "jacllvm.dll",
+        .macos => "libjacllvm.dylib",
+        else => "libjacllvm.so",
+    };
+
+    // -Dshim-bin: bundle a PREBUILT shim (path relative to jac/ or absolute),
+    // skipping the LLVM fetch and the static link entirely -- the shim is the
+    // single most expensive compile artifact (it links ~0.5 GB of LLVM archives)
+    // and depends only on native/**, this file, and the pinned slice, NOT on
+    // jaclang/**. CI (setup-jac) uses this to reuse a shim across compiler-only
+    // changes, keyed on exactly those inputs; the -Dpayload option is the same
+    // idea one level up. Invalidation is the CALLER's responsibility -- a plain
+    // `zig build` (no option) always links from source.
+    if (b.option([]const u8, "shim-bin", "Prebuilt LLVMPY_* shim to bundle (skips the LLVM fetch + link)")) |p| {
+        const bin: std.Build.LazyPath = .{ .cwd_relative = p };
+        const place = b.addUpdateSourceFiles();
+        place.addCopyFileToSource(bin, b.fmt("jaclang/compiler/passes/native/llvm/{s}", .{shim_file}));
+        const jacllvm_step = b.step("jacllvm", "Build the LLVMPY_* shim (jac/native), static-link LLVM, place it in-tree");
+        jacllvm_step.dependOn(&b.addInstallLibFile(bin, shim_file).step);
+        jacllvm_step.dependOn(&place.step);
+        return .{ .bin = bin, .place = &place.step };
+    }
+
     // -Dllvm-dir wins; otherwise use the fetch-llvm cache (.llvm-build). If
     // neither has LLVM, return null and the build fails at mkpayload with a
     // "run `zig build fetch-llvm`" message (so fetch-llvm itself still configures
@@ -409,11 +433,6 @@ fn addLlvmShim(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bu
     // payload -- finds it via ffi.jac's __file__-relative lookup. Mirrors how
     // fetch-typeshed materializes gitignored stubs into the tree. mkpayload's
     // jaclang copy skips this file (it ships the shim via --shim instead).
-    const shim_file = switch (target.result.os.tag) {
-        .windows => "jacllvm.dll",
-        .macos => "libjacllvm.dylib",
-        else => "libjacllvm.so",
-    };
     const place = b.addUpdateSourceFiles();
     place.addCopyFileToSource(bin, b.fmt("jaclang/compiler/passes/native/llvm/{s}", .{shim_file}));
 

@@ -42,6 +42,36 @@ bundled one. A bundled module links through the existing cross-module machinery
   intercept, so it is exact for a fixed timestamp; `year`/`month`/`day`/`hour`/
   `minute`/`second`, `weekday()`, and `isoformat()` match CPython. SCOPE: UTC /
   fixed-offset only (no tz database, DST, leap seconds, or microseconds).
+- **`gzip.na.jac`** (#6978 Phase 2) -- a Mechanism-B gzip framing over the
+  bundled `zlib` floor (no new FFI): `compress(data, compresslevel=9, mtime=0)`
+  and `decompress(data)`. gzip is zlib's DEFLATE engine plus an RFC 1952 header,
+  CRC-32, and ISIZE trailer, so the surface reuses the `zlib` floor's one-shot
+  `compress2` / `uncompress2`. `compress` takes the raw DEFLATE body (the zlib
+  stream with its 2-byte header + 4-byte adler32 stripped -- the DEFLATE bytes
+  are identical under either frame) and wraps it; the result is byte-identical
+  to CPython's `gzip.compress` at the same level/`mtime` (XFL 2 for level 9,
+  4 for level < 2, 0 otherwise -- zlib's gzip-header rule, which CPython
+  reuses -- and OS byte 255; CPython 3.14 also defaults `mtime` to 0, so the
+  defaults agree byte-for-byte). `decompress` walks the members of the stream
+  exactly as CPython does: per member it parses the header (honoring the
+  FEXTRA / FNAME / FCOMMENT skips; the 2 FHCRC bytes are skipped unverified,
+  which is also CPython's behavior), re-frames the remaining input as a zlib
+  stream so the member's own trailer bytes stand in for the adler32, inflates
+  through `uncompress2` -- whose consumed-source count locates the member
+  boundary; the near-certain final adler mismatch (`Z_DATA_ERROR`) and the
+  2^-32 coincidence where the trailer bytes equal the output's adler32
+  (`Z_OK`) are both accepted -- then enforces gzip's own CRC-32 and ISIZE
+  (compared mod 2^32, per RFC 1952, so members over 4 GiB verify the same way
+  CPython does) before concatenating the member outputs. The output buffer
+  starts at the final-ISIZE hint and grows geometrically on `Z_BUF_ERROR` up
+  to DEFLATE's ~1032x expansion ceiling. A member with no end-of-stream
+  marker (including a bare header glued onto a trailer) raises, as does
+  trailing garbage after the last member -- matching CPython. Error-type
+  mapping: the native surface raises `ValueError` with static messages where
+  CPython raises `gzip.BadGzipFile` (an `OSError` subclass: bad magic /
+  unknown method / CRC / length), `EOFError` (truncation), or `zlib.error`
+  (corrupt DEFLATE data). The `GzipFile` class and streaming file API are out
+  of scope.
 - **`base64.na.jac`** (#6978 Phase 3) -- self-contained RFC 4648
   base16/base32/base64 (`b16`/`b32`/`b64` encode+decode, `altchars`,
   `standard_`/`urlsafe_` variants) plus RFC 1924 base85 (`b85encode`/`b85decode`,

@@ -258,9 +258,7 @@ test "discover_sv_service_files maps a subdir service to its real relative path"
     tmp = Path(tempfile.mkdtemp());
     (tmp / "jac.toml").write_text("[project]\nname = \"app\"\n");
     (tmp / "main.jac").write_text("with entry { print(1); }\n");
-    (tmp / "analytics.jac").write_text(
-        "to sv:\ndef:pub stats -> int { return 1; }\n"
-    );
+    (tmp / "analytics.jac").write_text("to sv:\ndef:pub stats -> int { return 1; }\n");
     sub = tmp / "littlex";
     sub.mkdir();
     (sub / "social_graph.jac").write_text(
@@ -273,9 +271,7 @@ test "discover_sv_service_files maps a subdir service to its real relative path"
         );
         assert files.get("social_graph") == os.path.join(
             "littlex", "social_graph.jac"
-        ) , (
-            f"subdir service must keep its relative path, got: {files}"
-        );
+        ) , (f"subdir service must keep its relative path, got: {files}");
     } finally {
         shutil.rmtree(str(tmp), ignore_errors=True);
     }
@@ -312,9 +308,7 @@ test "resolve_service_files falls back to <name>.jac for import-only routes" {
     (tmp / "jac.toml").write_text("[project]\nname = \"app\"\n");
     (tmp / "main.jac").write_text("sv import from remote_app { f }\n");
     try {
-        files = resolve_service_files(
-            str(tmp / "main.jac"), {"remote_app": "/remote"}
-        );
+        files = resolve_service_files(str(tmp / "main.jac"), {"remote_app": "/remote"});
         assert files == {"remote_app": "remote_app.jac"} , (
             f"import-only service must fall back to <name>.jac, got: {files}"
         );

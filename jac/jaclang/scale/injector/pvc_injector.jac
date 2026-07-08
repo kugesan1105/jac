@@ -2,7 +2,7 @@ import os;
 import logging;
 import from jaclang.scale.injector.injector { Injector }
 import from jaclang.scale.injector.bundle {
-    pack_source,
+    pack_jab,
     content_address,
     bundle_object_key,
     ensure_jac_toml_cmd,
@@ -112,8 +112,9 @@ obj PvcInjector(Injector) {
     }
 
     def prepare(app_name: str, namespace: str, project_dir: str) {
-        # BinaryInjector sets _pod_binary_bytes so the app's modules ship precompiled (#7179); plain PVC deploys pack source only.
-        raw = pack_source(
+        # BinaryInjector sets _pod_binary_bytes so pack_jab can seal the app into
+        # a .jab; the seal is mandatory, so the pod binary must be present (#7288).
+        raw = pack_jab(
             project_dir,
             self.provisioned_database,
             getattr(self, "_pod_binary_bytes", b"")
@@ -232,7 +233,7 @@ obj PvcInjector(Injector) {
                     logger.debug(f"pvc-injector: presence probe: {probe_err}");
                 }
                 with tempfile.NamedTemporaryFile(
-                    suffix=".tar.gz", delete=False
+                    suffix=".bundle", delete=False
                 ) as tmp {
                     tmp.write(raw);
                     tmp_path = Path(tmp.name);

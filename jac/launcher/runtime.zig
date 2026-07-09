@@ -20,9 +20,9 @@
 //! binary gets its own private `rt/`: co-located checkouts with identical
 //! payloads get distinct trees (see `pathHash`), and gcStale for one binary can
 //! never evict another binary's in-use tree. A one-time `gcLegacy` sweep (gated
-//! by a `.legacy-swept` sentinel) reclaims trees written by the previous
-//! shared-`rt/` layout. A `.ok` marker guards against partial extracts;
-//! subsequent runs short-circuit on it.
+//! by a `.legacy-swept` sentinel, in-use-safe via an mtime grace window)
+//! reclaims cold trees written by the previous shared-`rt/` layout. A `.ok`
+//! marker guards against partial extracts; subsequent runs short-circuit on it.
 //!
 //! The payload is gzip (deflate), not zstd, so BOTH ends of the pipe are pure
 //! std: launcher/payload.zig compresses with `std.compress.flate.Compress` at
@@ -356,19 +356,17 @@ pub fn materialize(
     const rt = std.fmt.bufPrint(rt_out, "{s}/{s}", .{ bucket, &trailer.hash16 }) catch
         return Error.MaterializeFailed;
 
-    // Reclaim previous-layout trees exactly once per cache home, on warm and
-    // cold paths alike: a binary already on the new layout still takes the warm
-    // return below, so gating this only on the cold path would never sweep a
-    // cache that was migrated before this ran. The `.legacy-swept` sentinel
-    // makes it a single directory scan ever, so the warm path stays cheap.
-    if (!pathExists(io, root, ".legacy-swept")) {
-        // Stamp the sentinel only on a clean sweep; a transient delete failure
-        // leaves it unset so a later run retries instead of leaking forever.
-        if (gcLegacy(io, root)) markSwept(io, root);
-    }
-
     // Warm path: a complete extract is marked by `<rt>/.ok`.
-    if (pathExists(io, rt, ".ok")) return rt;
+    if (pathExists(io, rt, ".ok")) {
+        // Reclaim previous-layout trees once per cache home. Run it here too (not
+        // only on cold extract): a cache already migrated to the new layout takes
+        // this warm return, so a cold-only gate would never sweep its surviving
+        // old `<cache>/rt/` trees. The `.legacy-swept` sentinel keeps it to a
+        // single scan ever, so the warm path stays cheap. `now_ns` comes from the
+        // current tree's `.ok` mtime -- a clock-free "now" for the grace check.
+        sweepLegacyOnce(io, root, okMtimeNs(io, bucket, &trailer.hash16));
+        return rt;
+    }
     if (!builtin.is_test)
         std.debug.print(
             "jac: first run, performing one-time setup...\n",
@@ -395,9 +393,22 @@ pub fn materialize(
 
     try extractPayload(io, gpa, zbuf, rt, pid);
     gcStale(io, bucket, &trailer.hash16);
+    // The tree (and its `.ok`) was just written, so its mtime is a clock-free
+    // "now" for the legacy grace check. See the warm-path call for the rationale.
+    sweepLegacyOnce(io, root, okMtimeNs(io, bucket, &trailer.hash16));
     if (!builtin.is_test)
         std.debug.print("jac: one-time setup complete.\n", .{});
     return rt;
+}
+
+/// Run the one-time legacy sweep, gated by the `.legacy-swept` sentinel so it is
+/// a single directory scan per cache home. The sentinel is stamped only when the
+/// sweep reports complete (nothing reclaimable left), so a failed/partial/spared
+/// sweep retries on a later run. `now_ns` is the current tree's mtime, the
+/// clock-free reference for gcLegacy's in-use grace window.
+fn sweepLegacyOnce(io: Io, root: []const u8, now_ns: ?i96) void {
+    if (pathExists(io, root, ".legacy-swept")) return;
+    if (gcLegacy(io, root, now_ns)) markSwept(io, root);
 }
 
 /// zstd-decompress + untar `zbuf` into `<rt>` via a per-pid temp dir and an
@@ -468,6 +479,24 @@ fn gcStale(io: Io, bucket: []const u8, keep_hash16: *const [16]u8) void {
     }
 }
 
+/// mtime of `<dir>/<name>/.ok` in nanoseconds, or null if unreadable. Used as an
+/// activity signal for a cached tree (the `.ok` marker is written when the tree
+/// is materialized and re-touched on re-extract).
+fn okMtimeNs(io: Io, dir: []const u8, name: []const u8) ?i96 {
+    var buf: [MAX_PATH]u8 = undefined;
+    const p = std.fmt.bufPrint(&buf, "{s}/{s}/.ok", .{ dir, name }) catch return null;
+    const f = Io.Dir.cwd().openFile(io, p, .{}) catch return null;
+    defer f.close(io);
+    const st = f.stat(io) catch return null;
+    return st.mtime.nanoseconds;
+}
+
+/// Legacy trees within this window (ns) of the just-written current tree are
+/// treated as possibly in use and spared. 24h: comfortably longer than any
+/// deploy, so a rolling upgrade's old launcher is never evicted mid-run, while
+/// genuinely cold trees are still reclaimed on a later launch.
+const LEGACY_GRACE_NS: i96 = 24 * 60 * 60 * @as(i96, 1_000_000_000);
+
 /// One-time reclamation of trees left by the previous cache layout, which put
 /// every version under a shared `<cache>/rt/` as `<hash16>-<pathhash>` (33 chars
 /// with a dash) or, older still, a bare `<hash16>` (16 chars). The current
@@ -476,11 +505,20 @@ fn gcStale(io: Io, bucket: []const u8, keep_hash16: *const [16]u8) void {
 /// an upgrade. Only entries matching an old-format name are removed; any other
 /// entry is left untouched, and the new per-binary buckets live one level up so
 /// they are never seen here. A live `.tmp.<pid>` extract is skipped.
-/// Returns true iff the sweep completed with no legacy tree left behind, so the
-/// caller may stamp the run-once sentinel. A failed `deleteTree` (transient FS
-/// error) returns false so the sweep is retried on a later run instead of being
-/// permanently suppressed by the sentinel.
-fn gcLegacy(io: Io, root: []const u8) bool {
+///
+/// Crucially, this is in-use-safe: during a rolling upgrade an OLD launcher may
+/// still be running from a legacy tree when a new launcher first sweeps. Evicting
+/// that tree would reproduce the very failure this layout change prevents, in the
+/// old namespace. So a legacy tree whose `.ok` mtime is within LEGACY_GRACE_NS of
+/// `now_ns` (the just-written current tree's mtime, used as a clock-free "now")
+/// is spared as possibly-live; only genuinely cold trees are reclaimed. A tree
+/// with no readable mtime is also spared, conservatively.
+///
+/// Returns true iff the sweep completed with nothing reclaimable left behind, so
+/// the caller may stamp the run-once sentinel. A failed delete, a spared-because-
+/// warm tree, an unreadable mtime, or an iterator/open error all report false so
+/// the sweep is retried on a later run rather than permanently suppressed.
+fn gcLegacy(io: Io, root: []const u8, now_ns: ?i96) bool {
     var rtbuf: [MAX_PATH]u8 = undefined;
     const rtdir = std.fmt.bufPrint(&rtbuf, "{s}/rt", .{root}) catch return false;
     // A missing legacy dir means nothing to reclaim -> sweep is trivially
@@ -506,6 +544,21 @@ fn gcLegacy(io: Io, root: []const u8) bool {
         // `<hash16>` (16 chars). Anything else is not ours to remove.
         const legacy = (entry.name.len == 33 and entry.name[16] == '-') or entry.name.len == 16;
         if (!legacy) continue;
+        // In-use-safe: spare a tree that is (or might be) recently active, and
+        // report incomplete so a later, colder run reclaims it.
+        if (now_ns) |now| {
+            const mt = okMtimeNs(io, rtdir, entry.name) orelse {
+                complete = false; // unreadable -> can't prove cold -> spare + retry
+                continue;
+            };
+            if (now - mt < LEGACY_GRACE_NS) {
+                complete = false; // within grace -> possibly live -> spare + retry
+                continue;
+            }
+        } else {
+            complete = false; // no clock reference -> spare everything + retry
+            continue;
+        }
         dir.deleteTree(io, entry.name) catch {
             complete = false; // leave the sentinel unset so this retries later
         };
@@ -762,72 +815,70 @@ test "materialize gc reclaims same-binary stale versions but spares other binari
     try testing.expect(pathExists(io, other_abs, ".ok")); // (b) other binary's tree spared
 }
 
-// materialize must reclaim trees left by the PREVIOUS cache layout, which lived
-// under a shared `<cache>/rt/` as `<hash16>-<pathhash>` (33 chars, one dash) or
-// a bare `<hash16>` (16 chars). Those are never revisited by the new per-binary
-// `gcStale`, so without a legacy sweep they leak disk forever after an upgrade.
-// A directory matching neither old shape must be spared. The sweep is gated by a
-// `.legacy-swept` sentinel so it runs exactly once, and it runs even when the
-// materialize takes the warm path (a cache already migrated to the new layout
-// still has old `<cache>/rt/` trees to reclaim). A legacy tree that reappears
-// after the sentinel is stamped is intentionally NOT re-swept.
-test "materialize gc reclaims previous-layout cache trees" {
+// gcLegacy reclaims trees left by the PREVIOUS cache layout, which lived under a
+// shared `<cache>/rt/` as `<hash16>-<pathhash>` (33 chars, one dash) or a bare
+// `<hash16>` (16 chars). Those are never revisited by the new per-binary
+// `gcStale`, so without this sweep they leak disk forever after an upgrade. Three
+// guarantees are asserted: (1) a genuinely cold old-format tree is reclaimed;
+// (2) a tree within the in-use grace window is SPARED (an old launcher may still
+// be running from it during a rolling upgrade); (3) a name matching neither old
+// shape is spared. Driving gcLegacy directly lets the test control `now_ns`, the
+// clock-free reference the grace check compares against.
+test "gcLegacy reclaims cold legacy trees and spares warm or foreign ones" {
     const io = testing.io;
-    const payload = try @import("tests/fixture.zig").payloadAlloc(testing.allocator);
-    defer testing.allocator.free(payload);
-
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
     var pbuf: [MAX_PATH]u8 = undefined;
     const home = pbuf[0..try tmp.dir.realPath(io, &pbuf)];
 
-    var fake = try buildFakeBinary(payload);
-    defer fake.bin.deinit();
-    try tmp.dir.writeFile(io, .{ .sub_path = "jacbin", .data = fake.bin.items });
-    var ebuf: [MAX_PATH]u8 = undefined;
-    const exe = ebuf[0..try tmp.dir.realPathFile(io, "jacbin", &ebuf)];
-
-    // Seed three entries under the legacy `<cache>/rt/`: a combined-key tree, a
-    // bare-hash16 tree (both old formats -> reclaimed), and a foreign name that
-    // is neither shape (-> spared).
-    const names = [_][]const u8{
-        "0123456789abcdef-fedcba9876543210", // <hash16>-<pathhash> (33, dash at 16)
-        "0123456789abcdef", // bare <hash16> (16)
-        "keep-me-not-a-cache-tree", // neither shape
-    };
-    for (names) |n| {
-        var rel: [MAX_PATH]u8 = undefined;
-        const p = std.fmt.bufPrint(&rel, "jac/rt/{s}/.ok", .{n}) catch unreachable;
+    // Three seeded entries under the legacy `<cache>/rt/`.
+    const cold = "0123456789abcdef-fedcba9876543210"; // old combined key (reclaim if cold)
+    const warm = "0123456789abcdef"; // bare <hash16>, but recently active (spare)
+    const foreign = "keep-me-not-a-cache-tree"; // neither shape (always spare)
+    for ([_][]const u8{ cold, warm, foreign }) |n| {
         var d: [MAX_PATH]u8 = undefined;
         const dd = std.fmt.bufPrint(&d, "jac/rt/{s}", .{n}) catch unreachable;
         try tmp.dir.createDirPath(io, dd);
+        var rel: [MAX_PATH]u8 = undefined;
+        const p = std.fmt.bufPrint(&rel, "{s}/.ok", .{dd}) catch unreachable;
         try tmp.dir.writeFile(io, .{ .sub_path = p, .data = "" });
     }
 
     var rtbuf: [MAX_PATH]u8 = undefined;
-    _ = try materialize(io, testing.allocator, exe, home, null, null, 1000, 7, &rtbuf);
+    const rtdir = std.fmt.bufPrint(&rtbuf, "{s}/jac/rt", .{home}) catch unreachable;
+    // Anchor "now" to the warm tree's own mtime so it is inside the grace window,
+    // while the cold tree is placed a full grace period + margin in the past by
+    // offsetting `now` far into the future relative to the shared seed time.
+    const warm_mt = okMtimeNs(io, rtdir, warm).?;
+    const now_ns = warm_mt + LEGACY_GRACE_NS + 60 * @as(i96, 1_000_000_000);
+
+    var root: [MAX_PATH]u8 = undefined;
+    const root_p = std.fmt.bufPrint(&root, "{s}/jac", .{home}) catch unreachable;
+    // Sweep with `now` a full grace period beyond the seed time: every old-format
+    // tree is cold. This asserts reclamation (cold) and the shape filter
+    // (foreign). The warm tree is also cold under this `now`, so it is removed
+    // here too and re-tested for the grace path below.
+    _ = gcLegacy(io, root_p, now_ns);
 
     var abs: [MAX_PATH]u8 = undefined;
-    for (names, 0..) |n, i| {
-        const p = std.fmt.bufPrint(&abs, "{s}/jac/rt/{s}", .{ home, n }) catch unreachable;
-        const gone = !pathExists(io, p, ".ok");
-        if (i < 2) {
-            try testing.expect(gone); // legacy formats reclaimed
-        } else {
-            try testing.expect(!gone); // foreign name spared
-        }
-    }
+    const cold_p = std.fmt.bufPrint(&abs, "{s}/{s}", .{ rtdir, cold }) catch unreachable;
+    try testing.expect(!pathExists(io, cold_p, ".ok")); // cold old-format -> reclaimed
+    const foreign_p = std.fmt.bufPrint(&abs, "{s}/{s}", .{ rtdir, foreign }) catch unreachable;
+    try testing.expect(pathExists(io, foreign_p, ".ok")); // wrong shape -> spared
 
-    // The sentinel is now stamped, so a legacy tree reappearing (e.g. an old
-    // binary re-extracting) is NOT re-swept: a warm second run leaves it alone.
-    const readd = std.fmt.bufPrint(&abs, "jac/rt/{s}/.ok", .{names[1]}) catch unreachable;
-    var rd: [MAX_PATH]u8 = undefined;
-    const readd_dir = std.fmt.bufPrint(&rd, "jac/rt/{s}", .{names[1]}) catch unreachable;
-    try tmp.dir.createDirPath(io, readd_dir);
-    try tmp.dir.writeFile(io, .{ .sub_path = readd, .data = "" });
-    _ = try materialize(io, testing.allocator, exe, home, null, null, 1000, 7, &rtbuf); // warm
-    const readd_abs = std.fmt.bufPrint(&abs, "{s}/jac/rt/{s}", .{ home, names[1] }) catch unreachable;
-    try testing.expect(pathExists(io, readd_abs, ".ok")); // sentinel gate held; not re-swept
+    // Re-seed the warm tree and sweep with `now` anchored to its own mtime (zero
+    // elapsed), so it falls inside the grace window and must be spared.
+    var wd: [MAX_PATH]u8 = undefined;
+    const warm_dir = std.fmt.bufPrint(&wd, "jac/rt/{s}", .{warm}) catch unreachable;
+    try tmp.dir.createDirPath(io, warm_dir);
+    var wrel: [MAX_PATH]u8 = undefined;
+    const wp = std.fmt.bufPrint(&wrel, "{s}/.ok", .{warm_dir}) catch unreachable;
+    try tmp.dir.writeFile(io, .{ .sub_path = wp, .data = "" });
+    const warm_now = okMtimeNs(io, rtdir, warm).?; // == the tree's own mtime
+    const complete = gcLegacy(io, root_p, warm_now);
+    const warm_p = std.fmt.bufPrint(&abs, "{s}/{s}", .{ rtdir, warm }) catch unreachable;
+    try testing.expect(pathExists(io, warm_p, ".ok")); // within grace -> spared
+    try testing.expect(!complete); // a spared warm tree -> incomplete -> retry later
 }
 
 // Join `<tmp>/<name>` into `buf`, returning an absolute path usable with

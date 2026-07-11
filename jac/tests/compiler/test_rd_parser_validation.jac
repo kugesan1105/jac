@@ -80,7 +80,8 @@ glob GAP_FILES = [
          "glob_chained_assign.jac",
          "edge_ref_subscript.jac",
          "lambda_typed_params.jac",
-         "lambda_keyword_params.jac"
+         "lambda_keyword_params.jac",
+         "lambda_generic_typed_params.jac"
      ],
      MUST_REJECT: dict[str, str] = {
          "can_without_event_clause": "obj Foo { can bar { } }",

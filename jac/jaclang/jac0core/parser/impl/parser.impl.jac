@@ -2861,40 +2861,11 @@ impl Parser.parse_lambda_param -> ParamVar | None {
     }
     type_tag: SubTag | None = None;
 
-    if self.check(TokenKind.COLON) {
-        next_tok = self.peek();
-        is_type_annotation = False;
-        if next_tok.kind in [
-            TokenKind.NAME,
-            TokenKind.TYP_STRING,
-            TokenKind.TYP_INT,
-            TokenKind.TYP_FLOAT,
-            TokenKind.TYP_LIST,
-            TokenKind.TYP_TUPLE,
-            TokenKind.TYP_SET,
-            TokenKind.TYP_DICT,
-            TokenKind.TYP_BOOL,
-            TokenKind.TYP_BYTES,
-            TokenKind.TYP_ANY,
-            TokenKind.TYP_TYPE
-        ] {
-            after_type = self.peek(2);
-            if after_type.kind in [
-                TokenKind.COMMA,
-                TokenKind.EQ,
-                TokenKind.COLON,
-                TokenKind.RETURN_HINT,
-                TokenKind.LBRACE
-            ] {
-                is_type_annotation = True;
-            }
-        }
-        if is_type_annotation {
-            self.advance();
-            lam_colon = self.make_uni_token(self.previous());
-            te = self.parse_pipe();
-            type_tag = SubTag(tag=te, kid=[lam_colon, te]);
-        }
+    if self.check(TokenKind.COLON) and self.is_lambda_annotation_ahead() {
+        self.advance();
+        lam_colon = self.make_uni_token(self.previous());
+        te = self.parse_pipe();
+        type_tag = SubTag(tag=te, kid=[lam_colon, te]);
     }
     default_val: Expr | None = None;
     if self.match_tok(TokenKind.EQ) {
@@ -2914,6 +2885,67 @@ impl Parser.parse_lambda_param -> ParamVar | None {
     return ParamVar(
         name=name, unpack=unpack, type_tag=type_tag, value=default_val, kid=kid
     );
+}
+
+impl Parser.is_lambda_annotation_ahead -> bool {
+    starter_kinds = [
+        TokenKind.NAME,
+        TokenKind.KWESC_NAME,
+        TokenKind.NULL,
+        TokenKind.TYP_STRING,
+        TokenKind.TYP_INT,
+        TokenKind.TYP_FLOAT,
+        TokenKind.TYP_LIST,
+        TokenKind.TYP_TUPLE,
+        TokenKind.TYP_SET,
+        TokenKind.TYP_DICT,
+        TokenKind.TYP_BOOL,
+        TokenKind.TYP_BYTES,
+        TokenKind.TYP_ANY,
+        TokenKind.TYP_TYPE,
+        TokenKind.TYP_I8,
+        TokenKind.TYP_U8,
+        TokenKind.TYP_I16,
+        TokenKind.TYP_U16,
+        TokenKind.TYP_I32,
+        TokenKind.TYP_U32,
+        TokenKind.TYP_I64,
+        TokenKind.TYP_U64,
+        TokenKind.TYP_F32,
+        TokenKind.TYP_F64
+    ];
+    if self.peek().kind not in starter_kinds {
+        return False;
+    }
+    offset = 2;
+    depth = 0;
+    while True {
+        kind = self.peek(offset).kind;
+        if kind == TokenKind.EOF {
+            return False;
+        }
+        if depth > 0 {
+            if kind == TokenKind.LSQUARE {
+                depth += 1;
+            } elif kind == TokenKind.RSQUARE {
+                depth -= 1;
+            }
+        } elif kind in [
+            TokenKind.COMMA,
+            TokenKind.EQ,
+            TokenKind.COLON,
+            TokenKind.RETURN_HINT,
+            TokenKind.LBRACE
+        ] {
+            return True;
+        } elif kind == TokenKind.LSQUARE {
+            depth += 1;
+        } elif kind not in starter_kinds
+        and kind not in [TokenKind.DOT, TokenKind.BW_OR] {
+            return False;
+        }
+        offset += 1;
+    }
 }
 
 impl Parser.parse_jsx_element -> Expr {

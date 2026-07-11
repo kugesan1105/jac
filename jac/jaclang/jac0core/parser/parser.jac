@@ -484,6 +484,7 @@ obj Parser {
     def parse_lambda_expr -> Expr;
     def parse_lambda_params(sig_kid: list) -> list;
     def parse_lambda_param -> ParamVar;
+    def is_lambda_annotation_ahead -> bool;
     def parse_jsx_element -> Expr;
     def _parse_jsx_dynamic_tag(open_kid: list) -> Expr;
     def _consume_jsx_dynamic_close(close_kid: list);

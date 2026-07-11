@@ -537,6 +537,10 @@ obj NaIRGenPass(ModuleCodegenPass) {
     ) -> (ir.Value | None);
 
     def _codegen_str_split(str_val: ir.Value, sep_val: ir.Value) -> (ir.Value | None);
+    def _emit_norm_slice_bounds(
+        slice_node: object, src_len: ir.Value
+    ) -> (tuple | None);
+
     def _codegen_list_slice(
         target_val: ir.Value, slice_node: object, elem_type_name: str
     ) -> (ir.Value | None);

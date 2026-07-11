@@ -516,6 +516,63 @@ impl NaIRGenPass._codegen_string_index(
     return new_str;
 }
 
+impl NaIRGenPass._emit_norm_slice_bounds(
+    slice_node: object, src_len: ir.Value
+) -> (tuple | None) {
+    i64 = ir.IntType(64);
+    zero = ir.Constant(i64, 0);
+    one = ir.Constant(i64, 1);
+    b = self.builder;
+
+    step_val: ir.Value = one;
+    if slice_node?.step is not None {
+        sv = self._codegen_expr(slice_node.step);
+        if sv is None {
+            return None;
+        }
+        step_val = self._coerce_type(sv, i64);
+        _step_zero = b.icmp_signed("==", step_val, zero, name="nsl.step.zero");
+        self._emit_runtime_raise(_step_zero, "ValueError", "slice step cannot be zero");
+    }
+    step_pos = b.icmp_signed(">", step_val, zero, name="nsl.step.pos");
+    len_m1 = b.sub(src_len, one, name="nsl.lenm1");
+    neg_one = ir.Constant(i64, -1);
+
+    lo = b.select(step_pos, zero, neg_one, name="nsl.lo");
+    hi = b.select(step_pos, src_len, len_m1, name="nsl.hi");
+
+    start_val = b.select(step_pos, zero, len_m1, name="nsl.start.dflt");
+    if slice_node?.start is not None {
+        sv2 = self._codegen_expr(slice_node.start);
+        if sv2 is None {
+            return None;
+        }
+        v = self._coerce_type(sv2, i64);
+        _neg = b.icmp_signed("<", v, zero, name="nsl.s.neg");
+        v = b.select(_neg, b.add(v, src_len, name="nsl.s.wrap"), v, name="nsl.s.w");
+        _lo = b.icmp_signed("<", v, lo, name="nsl.s.lo");
+        v = b.select(_lo, lo, v, name="nsl.s.cl");
+        _hi = b.icmp_signed(">", v, hi, name="nsl.s.hi");
+        start_val = b.select(_hi, hi, v, name="nsl.s.ch");
+    }
+
+    stop_val = b.select(step_pos, src_len, neg_one, name="nsl.stop.dflt");
+    if slice_node?.stop is not None {
+        sv3 = self._codegen_expr(slice_node.stop);
+        if sv3 is None {
+            return None;
+        }
+        v2 = self._coerce_type(sv3, i64);
+        _neg2 = b.icmp_signed("<", v2, zero, name="nsl.e.neg");
+        v2 = b.select(_neg2, b.add(v2, src_len, name="nsl.e.wrap"), v2, name="nsl.e.w");
+        _lo2 = b.icmp_signed("<", v2, lo, name="nsl.e.lo");
+        v2 = b.select(_lo2, lo, v2, name="nsl.e.cl");
+        _hi2 = b.icmp_signed(">", v2, hi, name="nsl.e.hi");
+        stop_val = b.select(_hi2, hi, v2, name="nsl.e.ch");
+    }
+    return (start_val, stop_val, step_val, step_pos);
+}
+
 impl NaIRGenPass._codegen_list_slice(
     target_val: ir.Value, slice_node: object, elem_type_name: str
 ) -> (ir.Value | None) {
@@ -527,30 +584,11 @@ impl NaIRGenPass._codegen_list_slice(
     func = self.builder.basic_block.function;
 
     src_len = self.builder.call(helpers["len"], [target_val], name="sl.srclen");
-
-    start_val: ir.Value = ir.Constant(i64, 0);
-    if slice_node?.start is not None {
-        sv = self._codegen_expr(slice_node.start);
-        if sv is not None {
-            start_val = self._coerce_type(sv, i64);
-        }
+    bounds = self._emit_norm_slice_bounds(slice_node, src_len);
+    if bounds is None {
+        return None;
     }
-
-    stop_val: ir.Value = src_len;
-    if slice_node?.stop is not None {
-        sv = self._codegen_expr(slice_node.stop);
-        if sv is not None {
-            stop_val = self._coerce_type(sv, i64);
-        }
-    }
-
-    step_val: ir.Value = ir.Constant(i64, 1);
-    if slice_node?.step is not None {
-        sv = self._codegen_expr(slice_node.step);
-        if sv is not None {
-            step_val = self._coerce_type(sv, i64);
-        }
-    }
+    (start_val, stop_val, step_val, step_pos) = bounds;
 
     new_list = self.builder.call(helpers["new"], [], name="sl.new");
 
@@ -563,7 +601,9 @@ impl NaIRGenPass._codegen_list_slice(
 
     self.builder.position_at_end(loop_check);
     cur_i = self.builder.load(i_alloca, name="sl.cur");
-    in_range = self.builder.icmp_signed("<", cur_i, stop_val, name="sl.inrange");
+    fwd = self.builder.icmp_signed("<", cur_i, stop_val, name="sl.fwd");
+    bwd = self.builder.icmp_signed(">", cur_i, stop_val, name="sl.bwd");
+    in_range = self.builder.select(step_pos, fwd, bwd, name="sl.inrange");
     self.builder.cbranch(in_range, loop_body, loop_done);
 
     self.builder.position_at_end(loop_body);
@@ -585,38 +625,71 @@ impl NaIRGenPass._codegen_string_slice(
     i8 = ir.IntType(8);
     i8p = i8.as_pointer();
     i64 = ir.IntType(64);
+    zero = ir.Constant(i64, 0);
+    one = ir.Constant(i64, 1);
+    func = self.builder.function;
 
     strlen_fn = self._get_or_declare_extern("strlen", i64, [i8p]);
-    memcpy_fn = self._get_or_declare_extern("memcpy", i8p, [i8p, i8p, i64]);
     src_len = self.builder.call(strlen_fn, [target_val], name="ss.len");
-
-    start_val: ir.Value = ir.Constant(i64, 0);
-    if slice_node?.start is not None {
-        sv = self._codegen_expr(slice_node.start);
-        if sv is not None {
-            start_val = self._coerce_type(sv, i64);
-        }
+    bounds = self._emit_norm_slice_bounds(slice_node, src_len);
+    if bounds is None {
+        return None;
     }
+    (start_val, stop_val, step_val, step_pos) = bounds;
 
-    stop_val: ir.Value = src_len;
-    if slice_node?.stop is not None {
-        sv = self._codegen_expr(slice_node.stop);
-        if sv is not None {
-            stop_val = self._coerce_type(sv, i64);
-        }
-    }
+    diff = self.builder.select(
+        step_pos,
+        self.builder.sub(stop_val, start_val, name="ss.d.fwd"),
+        self.builder.sub(start_val, stop_val, name="ss.d.bwd"),
+        name="ss.diff"
+    );
+    astep = self.builder.select(
+        step_pos,
+        step_val,
+        self.builder.sub(zero, step_val, name="ss.step.neg"),
+        name="ss.astep"
+    );
+    n_num = self.builder.add(
+        diff, self.builder.sub(astep, one, name="ss.am1"), name="ss.nnum"
+    );
+    n_raw = self.builder.sdiv(n_num, astep, name="ss.nraw");
+    diff_pos = self.builder.icmp_signed(">", diff, zero, name="ss.dpos");
+    n_val = self.builder.select(diff_pos, n_raw, zero, name="ss.n");
 
-    slice_len = self.builder.sub(stop_val, start_val, name="ss.slen");
-    alloc_size = self.builder.add(slice_len, ir.Constant(i64, 1), name="ss.alloc");
+    alloc_size = self.builder.add(n_val, one, name="ss.alloc");
     self._set_rc_ctx("str_substr", "");
     new_str = self.builder.call(self.rc_alloc_fn, [alloc_size], name="ss.new");
     self._clear_rc_ctx();
     self._emit_set_type_tag(self.builder, new_str, "str");
 
-    src_ptr = self.builder.gep(target_val, [start_val], name="ss.src");
-    self.builder.call(memcpy_fn, [new_str, src_ptr, slice_len]);
+    i_alloca = self.builder.alloca(i64, name="ss.i");
+    k_alloca = self.builder.alloca(i64, name="ss.k");
+    self.builder.store(start_val, i_alloca);
+    self.builder.store(zero, k_alloca);
+    loop_check = func.append_basic_block(name="ss.check");
+    loop_body = func.append_basic_block(name="ss.body");
+    loop_done = func.append_basic_block(name="ss.done");
+    self.builder.branch(loop_check);
 
-    null_ptr = self.builder.gep(new_str, [slice_len], name="ss.null");
+    self.builder.position_at_end(loop_check);
+    cur_i = self.builder.load(i_alloca, name="ss.cur");
+    fwd = self.builder.icmp_signed("<", cur_i, stop_val, name="ss.fwd");
+    bwd = self.builder.icmp_signed(">", cur_i, stop_val, name="ss.bwd");
+    in_range = self.builder.select(step_pos, fwd, bwd, name="ss.inrange");
+    self.builder.cbranch(in_range, loop_body, loop_done);
+
+    self.builder.position_at_end(loop_body);
+    ch_ptr = self.builder.gep(target_val, [cur_i], name="ss.src.ch");
+    ch = self.builder.load(ch_ptr, name="ss.ch");
+    cur_k = self.builder.load(k_alloca, name="ss.curk");
+    out_ptr = self.builder.gep(new_str, [cur_k], name="ss.out.ch");
+    self.builder.store(ch, out_ptr);
+    self.builder.store(self.builder.add(cur_k, one, name="ss.nextk"), k_alloca);
+    self.builder.store(self.builder.add(cur_i, step_val, name="ss.nexti"), i_alloca);
+    self.builder.branch(loop_check);
+
+    self.builder.position_at_end(loop_done);
+    null_ptr = self.builder.gep(new_str, [n_val], name="ss.null");
     self.builder.store(ir.Constant(i8, 0), null_ptr);
     return new_str;
 }

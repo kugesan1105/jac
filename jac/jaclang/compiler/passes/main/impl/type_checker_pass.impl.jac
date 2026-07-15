@@ -78,7 +78,14 @@ impl TypeCheckPass.exit_return_stmt(self: TypeCheckPass, nd: uni.ReturnStmt) -> 
                 and scope.signature.return_type is not None
             );
             if not has_annotation {
-                self.emit(E1003, node_override=nd);
+                # An annotation is only required when the return type cannot be
+                # inferred from the returned expression. Inferable returns
+                # (including foreign Any) are well-typed without one.
+                import from jaclang.compiler.type_system { types as _ret_types }
+                _returned = self.evaluator.get_type_of_expression(nd.expr);
+                if isinstance(_returned, _ret_types.UnknownType) {
+                    self.emit(E1003, node_override=nd);
+                }
                 return;
             }
         }

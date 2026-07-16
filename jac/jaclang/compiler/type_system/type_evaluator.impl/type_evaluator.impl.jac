@@ -780,7 +780,11 @@ impl TypeEvaluator._get_type_of_expression_core(
                     if expr.is_null_ok {
                         return self._null_ok_attr_type(expr);
                     }
-                    if not self.is_any_type(lookup_type) {
+                    _unknown_base_lk = (
+                        isinstance(lookup_type, types.ClassType)
+                        and self._class_has_unknown_base(lookup_type)
+                    );
+                    if not self.is_any_type(lookup_type) and not _unknown_base_lk {
                         _has_tvars = (
                             isinstance(lookup_type, types.ClassType)
                             and lookup_type.private.type_args is not None
@@ -798,7 +802,7 @@ impl TypeEvaluator._get_type_of_expression_core(
                             );
                         }
                     }
-                    if self.is_any_type(lookup_type)
+                    if (self.is_any_type(lookup_type) or _unknown_base_lk)
                     and self.prefetch.any_class is not None {
                         return self.prefetch.any_class;
                     }
@@ -977,7 +981,11 @@ impl TypeEvaluator._get_type_of_expression_core(
                     if expr.is_null_ok {
                         return self._null_ok_attr_type(expr);
                     }
-                    if not self.is_any_type(base_type) {
+                    _unknown_base_bt = (
+                        isinstance(base_type, types.ClassType)
+                        and self._class_has_unknown_base(base_type)
+                    );
+                    if not self.is_any_type(base_type) and not _unknown_base_bt {
                         _has_tvars = (
                             isinstance(base_type, types.ClassType)
                             and base_type.private.type_args is not None
@@ -995,7 +1003,7 @@ impl TypeEvaluator._get_type_of_expression_core(
                             );
                         }
                     }
-                    if self.is_any_type(base_type)
+                    if (self.is_any_type(base_type) or _unknown_base_bt)
                     and self.prefetch.any_class is not None {
                         return self.prefetch.any_class;
                     }

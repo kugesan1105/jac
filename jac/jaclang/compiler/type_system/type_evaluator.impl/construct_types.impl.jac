@@ -44,6 +44,12 @@ impl TypeEvaluator._get_type_of_super(node_: uni.SpecialVarRef) -> TypeBase {
                 node_.type = parent_class_type.clone_as_instance();
                 return node_.type;
             }
+            if self._class_has_unknown_base(current_class_type) {
+                # The base is an unresolved import (already diagnosed): the real
+                # parent is unknown, so `super` is a diagnosed Unknown and member
+                # access on it stays silent instead of cascading false positives.
+                return types.UnknownType(is_diagnosed=True);
+            }
         }
     }
     return types.UnknownType();

@@ -976,6 +976,34 @@ impl TypeEvaluator.emit_diag(
     }
 }
 
+impl TypeEvaluator._class_has_unknown_base(cls: types.ClassType) -> bool {
+    # A class whose base (transitively) failed to resolve -- an unresolved
+    # import -- has an incomplete MRO, so we cannot know which members it
+    # inherits. Attribute access must stay lenient (treated as Any) rather than
+    # reporting false "no attribute" cascades off the already-diagnosed import.
+    seen: set = set();
+    stack: list = [cls];
+    while stack {
+        cur = stack.pop();
+        if not isinstance(cur, types.ClassType) {
+            continue;
+        }
+        if id(cur.shared) in seen {
+            continue;
+        }
+        seen.add(id(cur.shared));
+        for base in cur.shared.base_classes {
+            if isinstance(base, types.UnknownType) {
+                return True;
+            }
+            if isinstance(base, types.ClassType) {
+                stack.append(base);
+            }
+        }
+    }
+    return False;
+}
+
 impl TypeEvaluator._invalidate_expr_type_cache(node_: uni.UniNode) -> None {
     if isinstance(node_, uni.Expr) {
         node_.type = None;

@@ -203,6 +203,7 @@ obj TypeEvaluator {
     def _prefetch_types;
     def get_none_type -> TypeBase;
     def emit_diag(diag: DiagnosticInfo, nd: uni.UniNode, **kwargs: object) -> None;
+    def _class_has_unknown_base(cls: types.ClassType) -> bool;
     def _invalidate_expr_type_cache(node_: uni.UniNode) -> None;
     def get_index_of_symbol_resolution(symbol: uni.Symbol) -> int | None;
     def push_symbol_resolution(symbol: uni.Symbol) -> bool;

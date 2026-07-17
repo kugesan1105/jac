@@ -3,7 +3,6 @@ import jaclang.jac0core.unitree as uni;
 import from jaclang.jac0core.constant { Tokens as Tok }
 import from jaclang.jac0core.unitree { Symbol }
 import from . { types }
-import type from jaclang.jac0core.program { JacProgram }
 
 class PropertyWriteKind(Enum) {
     with entry {
@@ -30,7 +29,7 @@ def compute_mro_linearization(
 
 def primitive_type_name_of(ty: (types.TypeBase | None)) -> (str | None);
 
-def expr_primitive_name(prog: JacProgram, expr_node: uni.UniNode) -> str;
+def expr_primitive_name(prog: any, expr_node: uni.UniNode) -> str;
 
 obj ParamAssignmentTracker {
     has params: list[types.Parameter],

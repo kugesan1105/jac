@@ -15,8 +15,8 @@ impl primitive_type_name_of(ty: (types.TypeBase | None)) -> (str | None) {
     return None;
 }
 
-impl expr_primitive_name(prog: JacProgram, expr_node: uni.UniNode) -> str {
-    _ty: (types.TypeBase | None) = expr_node?.type;
+impl expr_primitive_name(prog: any, expr_node: uni.UniNode) -> str {
+    _ty = expr_node?.type;
     if _ty is None {
         try {
             _te = prog.get_type_evaluator();

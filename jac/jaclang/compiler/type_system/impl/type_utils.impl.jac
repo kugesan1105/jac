@@ -16,7 +16,7 @@ impl primitive_type_name_of(ty: (types.TypeBase | None)) -> (str | None) {
 }
 
 impl expr_primitive_name(prog: JacProgram, expr_node: uni.UniNode) -> str {
-    _ty = expr_node?.type;
+    _ty: (types.TypeBase | None) = expr_node?.type;
     if _ty is None {
         try {
             _te = prog.get_type_evaluator();
@@ -676,8 +676,8 @@ impl build_type_var_solution(class_type: types.ClassType) -> dict[str, types.Typ
     if class_type.shared.type_params
     and class_type.private.type_args
     and len(class_type.private.type_args) > 0 {
-        for (idx, tp) in enumerate(class_type.shared.type_params or []) {
-            if tp.name and idx < len(class_type.private.type_args or []) {
+        for (idx, tp) in enumerate(class_type.shared.type_params) {
+            if tp.name and idx < len(class_type.private.type_args) {
                 solution[tp.name] = class_type.private.type_args[idx];
             }
         }
@@ -736,8 +736,8 @@ impl build_solution_from_specialized_class(
     solution: dict[str, types.TypeBase] = {};
 
     if class_type.shared.type_params and class_type.private.type_args {
-        for (idx, tp) in enumerate(class_type.shared.type_params or []) {
-            if tp.name and idx < len(class_type.private.type_args or []) {
+        for (idx, tp) in enumerate(class_type.shared.type_params) {
+            if tp.name and idx < len(class_type.private.type_args) {
                 if tp.name not in solution {
                     solution[tp.name] = class_type.private.type_args[idx];
                 }

@@ -15,7 +15,7 @@ Jac compiles one language to three runtimes - Python bytecode (server `sv`), Jav
 |---|---|---|---|
 | CLI tool | Script/automation run from the terminal; graph persists in `.jac/data` between runs | `jac run tool.jac` | `jac-node-edge-patterns`, `jac-walker-patterns` |
 | Native binary | Standalone zero-dependency executable via LLVM (restricted native subset, no Python imports) | `jac nacompile app.jac -o app` | `jac-native` |
-| API service | Headless REST server; `walker:pub` / `def:pub` become `POST /walker/<name>` / `/function/<name>` endpoints; Swagger at `/docs` | `jac start api.jac --no_client` | `jac-sv-endpoints`, `jac-sv-persistence`, `jac-sv-auth`, `jac-sv-multi-user` |
+| API service | Headless REST server; `walker:pub` / `def:pub` become `POST /walker/<name>` / `/function/<name>` endpoints; Swagger at `/docs` | `jac start api.jac --no-client` | `jac-sv-endpoints`, `jac-sv-persistence`, `jac-sv-auth`, `jac-sv-multi-user` |
 | Microservices | Same code split into services via `sv import` (calls become HTTP RPCs; consumer auto-starts providers) | `jac start consumer.jac --port N`; `JAC_SV_<MOD>_URL` to split hosts | `jac-sv-microservices`, `jac-sv-endpoints`, `jac-sv-deploy` |
 | Python package (PyPI) | pip-installable library or CLI tool; `def:pub` is the public API | `jac build --as wheel` then `twine upload dist/*` | `jac-packaging`, `jac-impl-files` |
 | npm package | Client component/function library for any JS/TS project (`.d.ts` included) | `jac build --as npm` then `npm publish` | `jac-packaging`, `jac-cl-components` |

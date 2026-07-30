@@ -6,7 +6,7 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened, labeled]
   push:
-    branches: [main]
+    branches: [main, draft, draft-base]
 
 # Cancel superseded PR runs; never cancel a run for a commit on main.
 concurrency:
@@ -66,7 +66,7 @@ jobs:
   # by path expect it at jac/zig-out/bin/jac, where setup-jac builds it, so
   # the download steps below restore it there.
   build-jac:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
@@ -152,7 +152,7 @@ jobs:
   test-compiler:
     needs: [changes, build-jac]
     if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.core == 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - name: Restore typeshed stdlib stubs into the checkout
@@ -224,8 +224,8 @@ jobs:
   # Everything except the compiler tests.
   test-runtime:
     needs: [changes, build-jac]
-    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.core == 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: false  # draft: disabled for compiler-timing experiment
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - name: Download the jac binary
@@ -272,7 +272,8 @@ jobs:
   # Required check: no needs on build-jac (a skipped required check would
   # satisfy branch protection); it restores the same binary cache itself.
   jac-check:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: false  # draft: disabled for compiler-timing experiment
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
@@ -457,8 +458,8 @@ jobs:
     name: Contribution Checks
     needs: changes
     # On push to main, only worth running when docs changed.
-    if: ${{ github.event_name != 'push' || needs.changes.outputs.docs == 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: false  # draft: disabled for compiler-timing experiment
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
@@ -519,8 +520,8 @@ jobs:
 
   test-solid-and-desktop:
     needs: [changes, build-jac]
-    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.core == 'true' || needs.changes.outputs.desktop == 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: false  # draft: disabled for compiler-timing experiment
+    runs-on: ubuntu-latest
     steps:
     - name: Check out code
       uses: actions/checkout@v5
@@ -558,7 +559,8 @@ jobs:
 
   test-client:
     needs: build-jac
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: false  # draft: disabled for compiler-timing experiment
+    runs-on: ubuntu-latest
     steps:
     - name: Check out code
       uses: actions/checkout@v5
@@ -610,8 +612,8 @@ jobs:
 
   test-packages-and-docs:
     needs: [changes, build-jac]
-    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.core == 'true' || needs.changes.outputs.byllm == 'true' || needs.changes.outputs.docs == 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: false  # draft: disabled for compiler-timing experiment
+    runs-on: ubuntu-latest
     steps:
     - name: Check out code
       uses: actions/checkout@v5
@@ -649,7 +651,7 @@ jobs:
 
   test-native-macos:
     needs: changes
-    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.core == 'true' }}
+    if: false  # draft: disabled for compiler-timing experiment
     runs-on: macos-latest
     steps:
     - name: Check out code
@@ -688,7 +690,7 @@ jobs:
   # skip: without qemu + cross libc the #6366 runtime tests never execute.
   test-native-aarch64:
     needs: changes
-    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.core == 'true' }}
+    if: false  # draft: disabled for compiler-timing experiment
     runs-on: ubuntu-latest
     steps:
     - name: Check out code
@@ -727,7 +729,7 @@ jobs:
   # never needs.
   test-launcher:
     needs: changes
-    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.core == 'true' }}
+    if: false  # draft: disabled for compiler-timing experiment
     strategy:
       fail-fast: false
       matrix:
@@ -746,7 +748,8 @@ jobs:
 
   test-cef-build:
     needs: build-jac
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: false  # draft: disabled for compiler-timing experiment
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v5
       with:
@@ -789,8 +792,8 @@ jobs:
 
   test-scale:
     needs: [changes, build-jac]
-    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.core == 'true' || needs.changes.outputs.scale == 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: false  # draft: disabled for compiler-timing experiment
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -872,12 +875,8 @@ jobs:
   # the suite runs locally), so the cluster + deps setup is paid once.
   test-scale-k8s:
     needs: [changes, build-jac]
-    if: >-
-      (github.event_name != 'pull_request' ||
-       needs.changes.outputs.core == 'true' ||
-       needs.changes.outputs.scale == 'true') &&
-      !contains(github.event.pull_request.labels.*.name, 'skip-k8s')
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: false  # draft: disabled for compiler-timing experiment
+    runs-on: ubuntu-latest
     steps:
       - name: Check out code
         uses: actions/checkout@v5
@@ -950,8 +949,8 @@ jobs:
 
   test-pypi-build:
     needs: [changes, build-jac]
-    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.core == 'true' || needs.changes.outputs.scale == 'true' || needs.changes.outputs.byllm == 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: false  # draft: disabled for compiler-timing experiment
+    runs-on: ubuntu-latest
     steps:
     - name: Check out code
       uses: actions/checkout@v5
@@ -1182,11 +1181,8 @@ jobs:
   k8s-real-e2e:
     name: microservice e2e (k8s, ${{ matrix.base }})
     needs: [changes, build-jac]
-    if: >-
-      github.event_name != 'push' &&
-      (github.event_name != 'pull_request' || needs.changes.outputs.core == 'true') &&
-      !contains(github.event.pull_request.labels.*.name, 'skip-k8s')
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: false  # draft: disabled for compiler-timing experiment
+    runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -1351,7 +1347,7 @@ jobs:
 
   installer-test:
     needs: changes
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && needs.changes.outputs.installer == 'true') }}
+    if: false  # draft: disabled for compiler-timing experiment
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -1434,7 +1430,7 @@ jobs:
   # path-filtered out on a PR) and `success` are both accepted.
   everything-passed:
     name: Everything Passed
-    if: always()
+    if: false  # draft: disabled for compiler-timing experiment
     needs:
       - changes
       - build-jac

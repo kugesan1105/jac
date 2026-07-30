@@ -6,7 +6,7 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened, labeled]
   push:
-    branches: [main, draft]
+    branches: [main, draft, draft-base]
 
 # Cancel superseded PR runs; never cancel a run for a commit on main.
 concurrency:
@@ -66,7 +66,7 @@ jobs:
   # by path expect it at jac/zig-out/bin/jac, where setup-jac builds it, so
   # the download steps below restore it there.
   build-jac:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
@@ -152,7 +152,7 @@ jobs:
   test-compiler:
     needs: [changes, build-jac]
     if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.core == 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - name: Restore typeshed stdlib stubs into the checkout
@@ -225,7 +225,7 @@ jobs:
   test-runtime:
     needs: [changes, build-jac]
     if: false  # draft: disabled for compiler-timing experiment
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - name: Download the jac binary
@@ -273,7 +273,7 @@ jobs:
   # satisfy branch protection); it restores the same binary cache itself.
   jac-check:
     if: false  # draft: disabled for compiler-timing experiment
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
@@ -459,7 +459,7 @@ jobs:
     needs: changes
     # On push to main, only worth running when docs changed.
     if: false  # draft: disabled for compiler-timing experiment
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
@@ -521,7 +521,7 @@ jobs:
   test-solid-and-desktop:
     needs: [changes, build-jac]
     if: false  # draft: disabled for compiler-timing experiment
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
     - name: Check out code
       uses: actions/checkout@v5
@@ -560,7 +560,7 @@ jobs:
   test-client:
     needs: build-jac
     if: false  # draft: disabled for compiler-timing experiment
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
     - name: Check out code
       uses: actions/checkout@v5
@@ -613,7 +613,7 @@ jobs:
   test-packages-and-docs:
     needs: [changes, build-jac]
     if: false  # draft: disabled for compiler-timing experiment
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
     - name: Check out code
       uses: actions/checkout@v5
@@ -749,7 +749,7 @@ jobs:
   test-cef-build:
     needs: build-jac
     if: false  # draft: disabled for compiler-timing experiment
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v5
       with:
@@ -793,7 +793,7 @@ jobs:
   test-scale:
     needs: [changes, build-jac]
     if: false  # draft: disabled for compiler-timing experiment
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -876,7 +876,7 @@ jobs:
   test-scale-k8s:
     needs: [changes, build-jac]
     if: false  # draft: disabled for compiler-timing experiment
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       - name: Check out code
         uses: actions/checkout@v5
@@ -950,7 +950,7 @@ jobs:
   test-pypi-build:
     needs: [changes, build-jac]
     if: false  # draft: disabled for compiler-timing experiment
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
     - name: Check out code
       uses: actions/checkout@v5
@@ -1182,7 +1182,7 @@ jobs:
     name: microservice e2e (k8s, ${{ matrix.base }})
     needs: [changes, build-jac]
     if: false  # draft: disabled for compiler-timing experiment
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
       fail-fast: false

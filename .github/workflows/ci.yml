@@ -187,6 +187,8 @@ jobs:
         run: zig build -Dno-ninja vendor-musl --summary all
       - name: Compiler suite via the binary
         working-directory: jac
+        env:
+          JAC_OPT_LEVEL: "0"
         run: |
           set -uxo pipefail
           WORK="$(mktemp -d)"

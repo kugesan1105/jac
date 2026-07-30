@@ -188,7 +188,7 @@ jobs:
       - name: Compiler suite via the binary
         working-directory: jac
         env:
-          JAC_OPT_LEVEL: "0"
+          PYTEST_ADDOPTS: "--durations=60 --durations-min=1.0"
         run: |
           set -uxo pipefail
           WORK="$(mktemp -d)"
@@ -210,6 +210,7 @@ jobs:
         # exercises THIS checkout's compiler and harness.
         env:
           JAC_NO_DEV_SOURCE: ""
+          PYTEST_ADDOPTS: "--durations=30 --durations-min=1.0"
         run: |
           set -uxo pipefail
           WORK="$(mktemp -d)"

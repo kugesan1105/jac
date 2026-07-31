@@ -188,7 +188,7 @@ jobs:
       - name: Compiler suite via the binary
         working-directory: jac
         env:
-          PYTEST_ADDOPTS: "--durations=60 --durations-min=1.0"
+          PYTEST_ADDOPTS: "--durations=0 --durations-min=1.0"
         run: |
           set -uxo pipefail
           WORK="$(mktemp -d)"

@@ -353,7 +353,10 @@ def build_link_plan(
     target_token = push_native_target(opts.native_target or "");
     try {
         plan = _build_link_plan(prog, roots, opts, mode, native_unit);
-        session.finish([unit.path for unit in plan.units]);
+        session.finish(
+            [unit.path for unit in plan.units],
+            emit_objects=plan.mode == NATIVE_LINK_MODE_OBJECTS
+        );
         return plan;
     } finally {
         registry.session = None;

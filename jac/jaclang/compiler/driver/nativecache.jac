@@ -688,9 +688,12 @@ obj NativeUnitRegistry {
         }
         import from jaclang.compiler.driver.jir { write_module_cache }
         opts = options if options is not None else self._options();
-        started = time.perf_counter();
-        objects = emit_unit_objects(bitcodes, opts);
-        self._timed("NATIVE_EMIT", started);
+        started = self._span_begin();
+        try {
+            objects = emit_unit_objects(bitcodes, opts);
+        } finally {
+            self._span_end("NATIVE_EMIT", started);
+        }
         for (ent, object_bytes) in zip(pending, objects) {
             ent.object_bytes = object_bytes;
             self._event("native_object_emit");
@@ -910,33 +913,21 @@ obj NativeBuildSession {
         }
     }
 
-    def finish(paths: list[str]) {
+    def finish(paths: list[str], emit_objects: bool = False) {
         import from jaclang.compiler.driver.compile_options {
             push_native_target,
             pop_native_target
         }
         token = push_native_target(self.options.native_target or "");
         try {
-            self._finish(paths);
+            self._finish(paths, emit_objects);
         } finally {
             pop_native_target(token);
         }
     }
 
-    def _finish(paths: list[str]) {
-        """Optimize and persist only after every consumed interface agrees.
-        Cyclic interface settlement reuses the analyzed trees and never emits
-        optimized products for an intermediate state.""";
-        import from jaclang.compiler.backends.native.na_compile_pass {
-            NativeCompilePass
-        }
-        self.prog.options = self.options.clone_for_native_import();
-        for path in paths {
-            if path in self.source_keys
-                and self.source_keys[path] != NativeUnitRegistry._source_key(path) {
-                raise RuntimeError(f"native source changed during analysis: {path}");
-            }
-        }
+    def _pending_products(paths: list[str]) -> list[tuple[str, Module]] {
+        pending: list[tuple[str, Module]] = [];
         for path in paths {
             mod = self.lowered.get(path);
             if mod is None {
@@ -954,15 +945,98 @@ obj NativeBuildSession {
                     continue;
                 }
             }
-            errors_before = len(self.prog.errors_had);
-            started = self.registry._span_begin();
-            try {
-                self.prog.run_schedule(mod, [NativeCompilePass]);
-            } finally {
-                self.registry._span_end("NATIVE_OPTIMIZE", started);
+            pending.append((path, mod));
+        }
+        return pending;
+    }
+
+    def _parallel_codegen_ok -> bool {
+        opts = self.prog.options;
+        return (opts.aot_mode or opts.skip_native_engine)
+            and not opts.native_debug
+            and not opts.dump_ir_path;
+    }
+
+    def _codegen_parallel(pending: list[tuple[str, Module]], emit_objects: bool) {
+        import from jaclang.compiler.backends.native.na_compile_pass {
+            codegen_units_parallel,
+            require_native_ir,
+            unit_ir_bitcode
+        }
+        opts = self.prog.options;
+        opt_level = int(opts.opt_level or 0);
+        jobs: list[tuple[str, bytes]] = [];
+        for (path, mod) in pending {
+            if mod.gen.llvm_ir is None {
+                continue;
             }
-            if len(self.prog.errors_had) > errors_before
-                or mod.gen.native_bitcode is None {
+            if opts.native_required_for(path) {
+                require_native_ir(str(mod.gen.llvm_ir));
+            }
+            cached = self.registry.entries.get(path);
+            if cached is not None and cached.bitcode is not None {
+                mod.gen.native_bitcode = cached.bitcode;
+                mod.gen.native_object = cached.object_bytes;
+                continue;
+            }
+            jobs.append((path, unit_ir_bitcode(mod)));
+        }
+        products = codegen_units_parallel(jobs, opts, opt_level, emit_objects);
+        for (path, mod) in pending {
+            found = products.get(path);
+            if found is None {
+                continue;
+            }
+            (bitcode, object_bytes) = found;
+            mod.gen.native_bitcode = bitcode;
+            mod.gen.native_object = object_bytes;
+            self.registry.note_codegen(path, object_bytes is not None);
+        }
+    }
+
+    def _finish(paths: list[str], emit_objects: bool = False) {
+        """Optimize and persist only after every consumed interface agrees.
+        Cyclic interface settlement reuses the analyzed trees and never emits
+        optimized products for an intermediate state.""";
+        import from jaclang.compiler.backends.native.na_compile_pass {
+            NativeCompilePass,
+            emit_unit_object
+        }
+        self.prog.options = self.options.clone_for_native_import();
+        for path in paths {
+            if path in self.source_keys
+                and self.source_keys[path] != NativeUnitRegistry._source_key(path) {
+                raise RuntimeError(f"native source changed during analysis: {path}");
+            }
+        }
+        pending = self._pending_products(paths);
+        errors_before = len(self.prog.errors_had);
+        started = self.registry._span_begin();
+        try {
+            if self._parallel_codegen_ok() {
+                self._codegen_parallel(pending, emit_objects);
+            } else {
+                for (path, mod) in pending {
+                    self.prog.run_schedule(mod, [NativeCompilePass]);
+                    bitcode = mod.gen.native_bitcode;
+                    if emit_objects
+                        and bitcode is not None
+                        and mod.gen.native_object is None {
+                        mod.gen.native_object = emit_unit_object(
+                            bitcode, self.prog.options
+                        );
+                        self.registry._event("native_object_emit");
+                    }
+                }
+            }
+        } finally {
+            self.registry._span_end("NATIVE_OPTIMIZE", started);
+        }
+        if len(self.prog.errors_had) > errors_before {
+            raise RuntimeError("native product emission failed");
+        }
+        for (path, mod) in pending {
+            if mod.gen.native_bitcode is None {
                 raise RuntimeError(f"native product emission failed for {path}");
             }
             self.registry.record_module(mod, self.prog.options);

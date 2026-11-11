@@ -15,7 +15,8 @@ def _media_entries(value: any, semstr: str) -> list[any];
 impl MTRuntime.factory(mtir: MTIR) -> MTRuntime {
     caller = mtir.caller;
     args = mtir.args;
-    call_params = mtir.call_params;
+    call_params = dict(mtir.call_params);
+    mtir.call_params = call_params;
     ir_info = mtir.ir_info;
 
     if "method" in call_params {

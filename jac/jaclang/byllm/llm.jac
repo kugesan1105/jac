@@ -177,7 +177,7 @@ obj MockLLM(BaseLLM) {
 obj LocalLLM(BaseLLM) {
     has alias: str = "",
         spec: dict[str, any] = {},
-        _llama: Llama | None = None;
+        _engine: dict[str, Llama] = {};
 
     def postinit -> None;
     def _ensure_llama -> Llama;
@@ -208,7 +208,7 @@ obj Model(BaseLLM) {
         _mock_delegate: MockLLM | None = None,
         _local_delegate: BaseLLM | None = None,
         _so1_delegate: BaseLLM | None = None,
-        _async_proxy_client: any = None;
+        _clients: dict[str, any] = {};
 
     def postinit -> None;
     override def invoke(mt_run: MTRuntime) -> any;

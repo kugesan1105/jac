@@ -67,6 +67,30 @@ test "incl_info examples and temperature reach the model" {
 }
 
 
+test "concurrent calls on one model keep their own parameters" {
+    import from concurrent.futures { ThreadPoolExecutor }
+    rounds = 40;
+    llm = MockLLM(outputs=[say("ok") for _ in range(2 * rounds)]);
+
+    def cold(tag: str) -> str by llm(temperature=0.1);
+    def hot(tag: str) -> str by llm(temperature=0.9);
+
+    with ThreadPoolExecutor(max_workers=8) as pool {
+        futures = [pool.submit(cold, "cold-call") for _ in range(rounds)]
+            + [pool.submit(hot, "hot-call") for _ in range(rounds)];
+        for f in futures {
+            f.result();
+        }
+    }
+    assert llm.call_params == {} , f"a call must not bind the model, got {llm.call_params}";
+    for sent in llm.seen {
+        want = 0.1 if "cold-call" in str(sent["messages"]) else 0.9;
+        assert sent["temperature"] == want , f"got {sent['temperature']}, want {want}";
+    }
+    assert len(llm.seen) == 2 * rounds;
+}
+
+
 test "a method's own object reaches the prompt as context" {
     llm = MockLLM(outputs=[86.75]);
 

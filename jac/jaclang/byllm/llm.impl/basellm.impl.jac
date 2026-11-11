@@ -116,9 +116,6 @@ def _compaction_events(
 def _usage_history_total_cost(mt_run: MTRuntime) -> float;
 
 
-def _copy_for_compaction(model: BaseLLM) -> BaseLLM;
-
-
 glob _CHARS_PER_TOKEN: int = 4,
      _TAIL_BUDGET_RATIO: float = 0.25,
      _MIN_SLICE_RATIO: float = 0.05,
@@ -330,7 +327,7 @@ impl BaseLLM._compact_messages(
                 call_params={"compaction_enabled": False}
             );
         } else {
-            model_for_compaction = _copy_for_compaction(self);
+            model_for_compaction = self(compaction_enabled=False);
         }
         compacted = _default_compact(
             msg_dicts, keep_recent, model_for_compaction, mt_run, int(cp["ctx_window"])
@@ -380,8 +377,10 @@ impl BaseLLM.ainvoke(mt_run: MTRuntime) -> any {
 
 
 impl BaseLLM.__call__(**kwargs: object) -> BaseLLM {
-    self.call_params = kwargs;
-    return self;
+    import copy;
+    bound = copy.copy(self);
+    bound.call_params = kwargs;
+    return bound;
 }
 
 impl BaseLLM.invoke(mt_run: MTRuntime) -> any {
@@ -2688,14 +2687,6 @@ impl _usage_history_total_cost(mt_run: MTRuntime) -> float {
     return sum(
         float(record.get("cost", 0.0) or 0.0) for record in mt_run._usage_history
     );
-}
-
-
-impl _copy_for_compaction(model: BaseLLM) -> BaseLLM {
-    import copy;
-    m = copy.copy(model);
-    m.call_params = {"compaction_enabled": False};
-    return m;
 }
 
 

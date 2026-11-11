@@ -367,13 +367,12 @@ impl Model.model_call_no_stream_async(params: dict[str, any]) -> dict[str, any] 
             );
         } elif self.proxy {
             require_optional("openai", "llm");
-            if not self._async_proxy_client {
-                self._async_proxy_client = AsyncOpenAI(
+            if "async_proxy" not in self._clients {
+                self._clients["async_proxy"] = AsyncOpenAI(
                     base_url=self.api_base, api_key=self.api_key or None, max_retries=0
                 );
             }
-            async_client = self._async_proxy_client;
-            assert async_client is not None;
+            async_client = self._clients["async_proxy"];
             response = await async_client.chat.completions.create(**params);
         } else {
             require_optional("litellm", "llm");
@@ -421,13 +420,12 @@ impl Model.model_call_with_stream_async(
             );
         } elif self.proxy {
             require_optional("openai", "llm");
-            if not self._async_proxy_client {
-                self._async_proxy_client = AsyncOpenAI(
+            if "async_proxy" not in self._clients {
+                self._clients["async_proxy"] = AsyncOpenAI(
                     base_url=self.api_base, api_key=self.api_key or None, max_retries=0
                 );
             }
-            async_client = self._async_proxy_client;
-            assert async_client is not None;
+            async_client = self._clients["async_proxy"];
             response = await async_client.chat.completions.create(
                 stream=True, **params
             );

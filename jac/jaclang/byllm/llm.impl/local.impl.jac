@@ -18,8 +18,8 @@ impl LocalLLM.postinit -> None {
 }
 
 impl LocalLLM._ensure_llama -> Llama {
-    if self._llama is not None {
-        return self._llama;
+    if "llama" in self._engine {
+        return self._engine["llama"];
     }
     try {
         import from llama_cpp { Llama }
@@ -52,8 +52,8 @@ impl LocalLLM._ensure_llama -> Llama {
     if n_threads_cfg > 0 {
         kwargs["n_threads"] = n_threads_cfg;
     }
-    self._llama = Llama(**kwargs);
-    return self._llama;
+    self._engine["llama"] = Llama(**kwargs);
+    return self._engine["llama"];
 }
 
 impl LocalLLM.model_call_no_stream(params: dict[str, any]) -> dict[str, any] {

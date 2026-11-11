@@ -13739,6 +13739,7 @@ graph import scale {
         },
         tests.deploy.test_cluster_provider { get_cluster_provider },
         tests.deploy.test_deploy_k8s { wait_for_pod_phase },
+        tests.deploy.test_http_activation_microservices { apply_resource },
         tests.deploy.test_k8s_utils { parse_storage_quantity, resize_pvc_if_needed },
         tests.deploy.test_pod_env { create_k8s_secret, resolve_minted_secret },
         tests.deploy.test_pss_labels {
@@ -14673,9 +14674,10 @@ graph import scale.deploy {
     target.kubernetes.manifest_builder ++> autoscale.autoscaler.Autoscaler._build_behavior {
         merge_manifest_overlay
     }
-    target.kubernetes.utils.kubernetes_utils ++> autoscale.hpa_autoscaler {
-        delete_if_exists
-    }
+    target.kubernetes.utils.kubernetes_utils ++> [
+        autoscale.hpa_autoscaler { apply_resource, delete_if_exists },
+        autoscale.keda_autoscaler { apply_resource },
+    ]
 }
 
 graph import scale.deploy.autoscale {
@@ -14772,14 +14774,15 @@ graph import scale.deploy.target.kubernetes {
     ]
     utils.kubernetes_utils ++> [
         database_provisioner { ensure_namespace_exists },
-        ingress { KubectlCluster, delete_if_exists },
-        monitoring { delete_if_exists, delete_k8s_secret },
+        ingress { KubectlCluster, apply_resource, delete_if_exists },
+        monitoring { apply_resource, delete_if_exists, delete_k8s_secret },
         target {
             COMPANION_DEFS,
             KubectlCluster,
             PSS_ENFORCE_LABEL,
             _refresh_rs_hashes,
             _resolve_current_rs_hashes,
+            apply_resource,
             create_k8s_secret,
             delete_if_exists,
             delete_k8s_secret,

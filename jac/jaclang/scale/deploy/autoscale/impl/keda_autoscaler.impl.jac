@@ -220,34 +220,6 @@ impl KEDAAutoscaler._build_trigger_auth_manifest {
     };
 }
 
-impl KEDAAutoscaler._apply_custom_object {
-    try {
-        api.get_namespaced_custom_object(
-            group=group, version=version, namespace=namespace, plural=plural, name=name
-        );
-        api.patch_namespaced_custom_object(
-            group=group,
-            version=version,
-            namespace=namespace,
-            plural=plural,
-            name=name,
-            body=body
-        );
-    } except ApiException as e {
-        if e.status == 404 {
-            api.create_namespaced_custom_object(
-                group=group,
-                version=version,
-                namespace=namespace,
-                plural=plural,
-                body=body
-            );
-        } else {
-            raise;
-        }
-    }
-}
-
 impl KEDAAutoscaler.apply {
     app_name = spec.app_name or spec.scale_target_name;
     manifests = self._build_manifests(spec);
@@ -287,14 +259,14 @@ impl KEDAAutoscaler.apply {
     for (kind, plural) in KEDAAutoscaler._APPLY_ORDER {
         for manifest in manifests {
             if manifest["kind"] == kind {
-                self._apply_custom_object(
-                    api,
-                    "keda.sh",
-                    "v1alpha1",
-                    spec.namespace,
-                    plural,
+                apply_resource(
+                    api.create_namespaced_custom_object,
                     manifest["metadata"]["name"],
-                    manifest
+                    manifest,
+                    namespace=spec.namespace,
+                    read=api.get_namespaced_custom_object,
+                    replace=api.patch_namespaced_custom_object,
+                    scope={"group": "keda.sh", "version": "v1alpha1", "plural": plural}
                 );
             }
         }
@@ -793,35 +765,19 @@ impl KEDAAutoscaler.apply_http_activation {
     route_manifest = self._build_interceptor_route(spec);
     route_name = route_manifest["name"];
     route_body = route_manifest["body"];
-    try {
-        api.get_namespaced_custom_object(
-            group="http.keda.sh",
-            version="v1beta1",
-            namespace=spec.namespace,
-            plural="interceptorroutes",
-            name=route_name
-        );
-        api.patch_namespaced_custom_object(
-            group="http.keda.sh",
-            version="v1beta1",
-            namespace=spec.namespace,
-            plural="interceptorroutes",
-            name=route_name,
-            body=route_body
-        );
-    } except ApiException as e {
-        if e.status == 404 {
-            api.create_namespaced_custom_object(
-                group="http.keda.sh",
-                version="v1beta1",
-                namespace=spec.namespace,
-                plural="interceptorroutes",
-                body=route_body
-            );
-        } else {
-            raise;
+    apply_resource(
+        api.create_namespaced_custom_object,
+        route_name,
+        route_body,
+        namespace=spec.namespace,
+        read=api.get_namespaced_custom_object,
+        replace=api.patch_namespaced_custom_object,
+        scope={
+            'group': "http.keda.sh",
+            'version': "v1beta1",
+            'plural': "interceptorroutes"
         }
-    }
+    );
 
     scaled_obj_manifest = self._build_http_scaled_object(spec);
     scaled_obj_name = scaled_obj_manifest["name"];
@@ -831,35 +787,16 @@ impl KEDAAutoscaler.apply_http_activation {
         ** scaled_obj_body,
         "spec": {"initialCooldownPeriod": None, ** scaled_obj_body["spec"]}
     };
-    try {
-        api.get_namespaced_custom_object(
-            group="keda.sh",
-            version="v1alpha1",
-            namespace=spec.namespace,
-            plural="scaledobjects",
-            name=scaled_obj_name
-        );
-        api.patch_namespaced_custom_object(
-            group="keda.sh",
-            version="v1alpha1",
-            namespace=spec.namespace,
-            plural="scaledobjects",
-            name=scaled_obj_name,
-            body=scaled_obj_patch
-        );
-    } except ApiException as e {
-        if e.status == 404 {
-            api.create_namespaced_custom_object(
-                group="keda.sh",
-                version="v1alpha1",
-                namespace=spec.namespace,
-                plural="scaledobjects",
-                body=scaled_obj_body
-            );
-        } else {
-            raise;
-        }
-    }
+    apply_resource(
+        api.create_namespaced_custom_object,
+        scaled_obj_name,
+        scaled_obj_body,
+        namespace=spec.namespace,
+        read=api.get_namespaced_custom_object,
+        replace=api.patch_namespaced_custom_object,
+        replace_body=scaled_obj_patch,
+        scope={'group': "keda.sh", 'version': "v1alpha1", 'plural': "scaledobjects"}
+    );
 
     return True;
 }

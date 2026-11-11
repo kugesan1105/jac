@@ -1114,13 +1114,13 @@ impl KubernetesTarget.apply_manifests(bundle: dict[str, any]) {
 
     services: dict[str, dict[str, any]] = bundle["services"];
     for (svc_name, svc_manifest) in services.items() {
-        self._apply_or_replace(
-            core_v1,
-            "read_namespaced_service",
-            "patch_namespaced_service",
-            "create_namespaced_service",
-            namespace,
-            svc_manifest
+        apply_resource(
+            core_v1.create_namespaced_service,
+            svc_manifest["metadata"]["name"],
+            svc_manifest,
+            namespace=namespace,
+            read=core_v1.read_namespaced_service,
+            replace=core_v1.patch_namespaced_service
         );
         if self.logger {
             self.logger.info(
@@ -1139,14 +1139,14 @@ impl KubernetesTarget.apply_manifests(bundle: dict[str, any]) {
             self._deployment_patch_body(dep_manifest, dict(scaling.get(svc_name, {})))
                 or dep_manifest
         );
-        self._apply_or_replace(
-            apps_v1,
-            "read_namespaced_deployment",
-            "patch_namespaced_deployment",
-            "create_namespaced_deployment",
-            namespace,
+        apply_resource(
+            apps_v1.create_namespaced_deployment,
+            dep_manifest["metadata"]["name"],
             dep_manifest,
-            patch_body
+            namespace=namespace,
+            read=apps_v1.read_namespaced_deployment,
+            replace=apps_v1.patch_namespaced_deployment,
+            replace_body=(patch_body or None)
         );
         if self.logger {
             self.logger.info(
@@ -1203,13 +1203,13 @@ impl KubernetesTarget.apply_manifests(bundle: dict[str, any]) {
 
     pdbs: dict[str, dict[str, any]] = bundle.get("pdbs", {}) or {};
     for (svc_name, pdb_manifest) in pdbs.items() {
-        self._apply_or_replace(
-            policy_v1,
-            "read_namespaced_pod_disruption_budget",
-            "patch_namespaced_pod_disruption_budget",
-            "create_namespaced_pod_disruption_budget",
-            namespace,
-            pdb_manifest
+        apply_resource(
+            policy_v1.create_namespaced_pod_disruption_budget,
+            pdb_manifest["metadata"]["name"],
+            pdb_manifest,
+            namespace=namespace,
+            read=policy_v1.read_namespaced_pod_disruption_budget,
+            replace=policy_v1.patch_namespaced_pod_disruption_budget
         );
         if self.logger {
             self.logger.info(
@@ -1221,13 +1221,13 @@ impl KubernetesTarget.apply_manifests(bundle: dict[str, any]) {
 
     ingress_manifest: any = bundle.get("ingress");
     if ingress_manifest {
-        self._apply_or_replace(
-            networking_v1,
-            "read_namespaced_ingress",
-            "patch_namespaced_ingress",
-            "create_namespaced_ingress",
-            namespace,
-            ingress_manifest
+        apply_resource(
+            networking_v1.create_namespaced_ingress,
+            ingress_manifest["metadata"]["name"],
+            ingress_manifest,
+            namespace=namespace,
+            read=networking_v1.read_namespaced_ingress,
+            replace=networking_v1.patch_namespaced_ingress
         );
         if self.logger {
             self.logger.info(
@@ -1249,35 +1249,23 @@ impl KubernetesTarget._apply_ops_rbac(namespace: str, ops_rbac: dict[str, any]) 
         role_name: str = role["metadata"]["name"];
         binding_name: str = binding["metadata"]["name"];
 
-        try {
-            rbac_v1.read_namespaced_role(name=role_name, namespace=namespace);
-            rbac_v1.replace_namespaced_role(
-                name=role_name, namespace=namespace, body=role
-            );
-        } except ApiException as e {
-            if e.status == 404 {
-                rbac_v1.create_namespaced_role(namespace=namespace, body=role);
-            } else {
-                raise;
-            }
-        }
+        apply_resource(
+            rbac_v1.create_namespaced_role,
+            role_name,
+            role,
+            namespace=namespace,
+            read=rbac_v1.read_namespaced_role,
+            replace=rbac_v1.replace_namespaced_role
+        );
 
-        try {
-            rbac_v1.read_namespaced_role_binding(
-                name=binding_name, namespace=namespace
-            );
-            rbac_v1.replace_namespaced_role_binding(
-                name=binding_name, namespace=namespace, body=binding
-            );
-        } except ApiException as e {
-            if e.status == 404 {
-                rbac_v1.create_namespaced_role_binding(
-                    namespace=namespace, body=binding
-                );
-            } else {
-                raise;
-            }
-        }
+        apply_resource(
+            rbac_v1.create_namespaced_role_binding,
+            binding_name,
+            binding,
+            namespace=namespace,
+            read=rbac_v1.read_namespaced_role_binding,
+            replace=rbac_v1.replace_namespaced_role_binding
+        );
 
         if self.logger {
             subj = binding["subjects"][0]["name"];
@@ -1691,30 +1679,6 @@ impl KubernetesTarget._deployment_patch_body(
         if k != "replicas"
     };
     return patch_body;
-}
-
-impl KubernetesTarget._apply_or_replace(
-    api: any,
-    read: str,
-    update: str,
-    create: str,
-    namespace: str,
-    manifest: dict[str, any],
-    patch_body: (dict[str, any] | None) = None
-) {
-    name: str = manifest["metadata"]["name"];
-    try {
-        getattr(api, read)(name=name, namespace=namespace);
-        getattr(api, update)(
-            name=name, namespace=namespace, body=patch_body or manifest
-        );
-    } except ApiException as e {
-        if e.status == 404 {
-            getattr(api, create)(namespace=namespace, body=manifest);
-        } else {
-            raise;
-        }
-    }
 }
 
 impl KubernetesTarget._apply_or_replace_pvc(

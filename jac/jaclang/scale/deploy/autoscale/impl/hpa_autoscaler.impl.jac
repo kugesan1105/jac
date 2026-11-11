@@ -93,22 +93,14 @@ impl HPAAutoscaler.apply {
         }
     }
     autoscaling_v2 = AutoscalingV2Api();
-    try {
-        autoscaling_v2.read_namespaced_horizontal_pod_autoscaler(
-            name=name, namespace=namespace
-        );
-        autoscaling_v2.patch_namespaced_horizontal_pod_autoscaler(
-            name=name, namespace=namespace, body=manifest
-        );
-    } except ApiException as e {
-        if e.status == 404 {
-            autoscaling_v2.create_namespaced_horizontal_pod_autoscaler(
-                namespace=namespace, body=manifest
-            );
-        } else {
-            raise;
-        }
-    }
+    apply_resource(
+        autoscaling_v2.create_namespaced_horizontal_pod_autoscaler,
+        name,
+        manifest,
+        namespace=namespace,
+        read=autoscaling_v2.read_namespaced_horizontal_pod_autoscaler,
+        replace=autoscaling_v2.patch_namespaced_horizontal_pod_autoscaler
+    );
     return True;
 }
 

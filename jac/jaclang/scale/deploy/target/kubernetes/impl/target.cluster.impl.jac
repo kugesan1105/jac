@@ -124,19 +124,13 @@ impl KubernetesTarget._deploy_databases(
             }
         }
     );
-    try {
-        core_v1.read_namespaced_secret(
-            name=pg_result['secret']['metadata']['name'], namespace=namespace
-        );
-    } except ApiException as e {
-        if e.status == 404 {
-            core_v1.create_namespaced_secret(
-                namespace=namespace, body=pg_result['secret']
-            );
-        } else {
-            raise;
-        }
-    }
+    apply_resource(
+        core_v1.create_namespaced_secret,
+        pg_result['secret']['metadata']['name'],
+        pg_result['secret'],
+        namespace=namespace,
+        read=core_v1.read_namespaced_secret
+    );
     try {
         apps_v1.read_namespaced_stateful_set(name=pg_name, namespace=namespace);
     } except ApiException as e {

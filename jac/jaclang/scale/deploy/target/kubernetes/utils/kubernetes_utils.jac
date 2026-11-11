@@ -57,6 +57,17 @@ def delete_if_exists(
     delete_func: Callable, name: str, namespace: str, kind: str
 ) -> None;
 
+def apply_resource(
+    create: Callable,
+    name: str,
+    body: dict[str, any],
+    namespace: (str | None) = None,
+    read: (Callable | None) = None,
+    replace: (Callable | None) = None,
+    replace_body: (dict[str, any] | None) = None,
+    scope: (dict[str, any] | None) = None
+) -> None;
+
 def ensure_namespace_exists(namespace: str, owner: str) -> None;
 
 def namespace_is_owned(core_v1: client.CoreV1Api, namespace: str, owner: str) -> bool;

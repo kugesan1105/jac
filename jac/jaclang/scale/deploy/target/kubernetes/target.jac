@@ -156,16 +156,6 @@ obj KubernetesTarget {
         manifest: dict[str, any], plan: dict[str, any]
     ) -> (dict[str, any] | None);
 
-    def _apply_or_replace(
-        api: any,
-        read: str,
-        update: str,
-        create: str,
-        namespace: str,
-        manifest: dict[str, any],
-        patch_body: (dict[str, any] | None) = None
-    );
-
     def _apply_or_replace_pvc(core_v1: any, namespace: str, manifest: dict[str, any]);
     def _destroy_fleet_workloads(
         namespace: str, apps_v1: any, core_v1: any, policy_v1: any, networking_v1: any

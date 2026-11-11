@@ -480,6 +480,38 @@ impl namespace_is_owned(core_v1: client.CoreV1Api, namespace: str, owner: str) -
 }
 
 
+impl apply_resource(
+    create: Callable,
+    name: str,
+    body: dict[str, any],
+    namespace: (str | None) = None,
+    read: (Callable | None) = None,
+    replace: (Callable | None) = None,
+    replace_body: (dict[str, any] | None) = None,
+    scope: (dict[str, any] | None) = None
+) -> None {
+    where: dict[str, any] = dict(scope or {});
+    if namespace is not None {
+        where["namespace"] = namespace;
+    }
+    try {
+        if read is not None {
+            read(name=name, **where);
+        }
+        if replace is not None {
+            replace(
+                name=name, body=body if replace_body is None else replace_body, **where
+            );
+        }
+    } except ApiException as e {
+        if e.status == 404 {
+            create(body=body, **where);
+        } else {
+            raise;
+        }
+    }
+}
+
 impl delete_if_exists(
     delete_func: Callable, name: str, namespace: str, kind: str
 ) -> None {

@@ -30,16 +30,6 @@ obj KEDAAutoscaler(Autoscaler) {
         trigger: Trigger, namespace: str, app_name: str, trigger_index: int, owner: str
     ) -> (dict[str, any] | None);
 
-    def _apply_custom_object(
-        api: any,
-        group: str,
-        version: str,
-        namespace: str,
-        plural: str,
-        name: str,
-        body: dict[str, any]
-    ) -> None;
-
     def _prune_orphan_trigger_auths(
         api: any, namespace: str, owner: str, desired_auth_names: set[str]
     ) -> None;

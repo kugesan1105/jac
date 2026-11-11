@@ -22,17 +22,13 @@ impl IngressDeployer._deploy_nginx_controller(
             'labels': {'app': controller_name, 'managed': 'jac-scale'}
         }
     };
-    try {
-        core_v1.read_namespaced_service_account(
-            name=controller_name, namespace=namespace
-        );
-    } except ApiException as e {
-        if e.status == 404 {
-            core_v1.create_namespaced_service_account(namespace=namespace, body=sa);
-        } else {
-            raise;
-        }
-    }
+    apply_resource(
+        core_v1.create_namespaced_service_account,
+        controller_name,
+        sa,
+        namespace=namespace,
+        read=core_v1.read_namespaced_service_account
+    );
 
     cluster_role = {
         'apiVersion': 'rbac.authorization.k8s.io/v1',
@@ -92,16 +88,13 @@ impl IngressDeployer._deploy_nginx_controller(
             }
         ]
     };
-    try {
-        rbac_v1.read_cluster_role(name=cluster_resource_name);
-        rbac_v1.replace_cluster_role(name=cluster_resource_name, body=cluster_role);
-    } except ApiException as e {
-        if e.status == 404 {
-            rbac_v1.create_cluster_role(body=cluster_role);
-        } else {
-            raise;
-        }
-    }
+    apply_resource(
+        rbac_v1.create_cluster_role,
+        cluster_resource_name,
+        cluster_role,
+        read=rbac_v1.read_cluster_role,
+        replace=rbac_v1.replace_cluster_role
+    );
 
     crb = {
         'apiVersion': 'rbac.authorization.k8s.io/v1',
@@ -119,16 +112,13 @@ impl IngressDeployer._deploy_nginx_controller(
             {'kind': 'ServiceAccount', 'name': controller_name, 'namespace': namespace}
         ]
     };
-    try {
-        rbac_v1.read_cluster_role_binding(name=cluster_resource_name);
-        rbac_v1.replace_cluster_role_binding(name=cluster_resource_name, body=crb);
-    } except ApiException as e {
-        if e.status == 404 {
-            rbac_v1.create_cluster_role_binding(body=crb);
-        } else {
-            raise;
-        }
-    }
+    apply_resource(
+        rbac_v1.create_cluster_role_binding,
+        cluster_resource_name,
+        crb,
+        read=rbac_v1.read_cluster_role_binding,
+        replace=rbac_v1.replace_cluster_role_binding
+    );
 
     cm = {
         'apiVersion': 'v1',
@@ -145,17 +135,13 @@ impl IngressDeployer._deploy_nginx_controller(
             'gzip-types': 'application/javascript text/css application/json image/svg+xml'
         }
     };
-    try {
-        core_v1.patch_namespaced_config_map(
-            name=configmap_name, namespace=namespace, body=cm
-        );
-    } except ApiException as e {
-        if e.status == 404 {
-            core_v1.create_namespaced_config_map(namespace=namespace, body=cm);
-        } else {
-            raise;
-        }
-    }
+    apply_resource(
+        core_v1.create_namespaced_config_map,
+        configmap_name,
+        cm,
+        namespace=namespace,
+        replace=core_v1.patch_namespaced_config_map
+    );
 
     ingress_class = {
         'apiVersion': 'networking.k8s.io/v1',
@@ -166,15 +152,12 @@ impl IngressDeployer._deploy_nginx_controller(
         },
         'spec': {'controller': 'k8s.io/ingress-nginx'}
     };
-    try {
-        networking_v1.read_ingress_class(name=ingress_class_name);
-    } except ApiException as e {
-        if e.status == 404 {
-            networking_v1.create_ingress_class(body=ingress_class);
-        } else {
-            raise;
-        }
-    }
+    apply_resource(
+        networking_v1.create_ingress_class,
+        ingress_class_name,
+        ingress_class,
+        read=networking_v1.read_ingress_class
+    );
 
     controller_deployment = {
         'apiVersion': 'apps/v1',
@@ -267,36 +250,24 @@ impl IngressDeployer._deploy_nginx_controller(
             }
         }
     };
-    try {
-        apps_v1.patch_namespaced_deployment(
-            name=controller_name, namespace=namespace, body=controller_deployment
-        );
-    } except ApiException as e {
-        if e.status == 404 {
-            apps_v1.create_namespaced_deployment(
-                namespace=namespace, body=controller_deployment
-            );
-        } else {
-            raise;
-        }
-    }
+    apply_resource(
+        apps_v1.create_namespaced_deployment,
+        controller_name,
+        controller_deployment,
+        namespace=namespace,
+        replace=apps_v1.patch_namespaced_deployment
+    );
 
     controller_service = provider.ingress_controller_service(
         service_name, namespace, controller_name, self.k8s_config.ingress_node_port
     );
-    try {
-        core_v1.patch_namespaced_service(
-            name=service_name, namespace=namespace, body=controller_service
-        );
-    } except ApiException as e {
-        if e.status == 404 {
-            core_v1.create_namespaced_service(
-                namespace=namespace, body=controller_service
-            );
-        } else {
-            raise;
-        }
-    }
+    apply_resource(
+        core_v1.create_namespaced_service,
+        service_name,
+        controller_service,
+        namespace=namespace,
+        replace=core_v1.patch_namespaced_service
+    );
 
     provider.log_ingress_deployed(
         self.logger, app_name, self.k8s_config.ingress_node_port
@@ -472,19 +443,13 @@ impl IngressDeployer._deploy_ingress_resource(
         },
         'spec': main_spec
     };
-    try {
-        networking_v1.patch_namespaced_ingress(
-            name=ingress_name, namespace=namespace, body=main_ingress
-        );
-    } except ApiException as e {
-        if e.status == 404 {
-            networking_v1.create_namespaced_ingress(
-                namespace=namespace, body=main_ingress
-            );
-        } else {
-            raise;
-        }
-    }
+    apply_resource(
+        networking_v1.create_namespaced_ingress,
+        ingress_name,
+        main_ingress,
+        namespace=namespace,
+        replace=networking_v1.patch_namespaced_ingress
+    );
 
     if self.logger {
         self.logger.info(f"Ingress routing rules deployed for '{app_name}'");

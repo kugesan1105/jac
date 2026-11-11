@@ -1104,7 +1104,7 @@ impl BaseLLM._completion_steps(
     while True {
         self._arm_attempt(mt_run, params, False);
         try {
-            response = yield ("call", params);
+            response = cast(dict[str, any], (yield ("call", params)));
             break;
         } except Exception as e {
             if self._may_retry(mt_run, e, attempt) {

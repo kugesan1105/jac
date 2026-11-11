@@ -5752,10 +5752,8 @@ graph import compiler {
     ]
     type frontend.codeinfo ++> [
         backends.native.link_glue | backends.native.link_plan { InteropBinding },
-        backends.native.na_compile_pass
-            | backends.py.codegen_shim
-            | driver.nativecache { CodeGenTarget },
         backends.native.na_ir_gen_pass { NativeModuleLayout },
+        backends.py.codegen_shim | driver.nativecache { CodeGenTarget },
         driver.boundary_classify { InteropManifest },
         driver.client_graph { ClientArtifact, ClientManifest },
         driver.compiler { CodeGenTarget, NativeModuleLayout },
@@ -6899,7 +6897,7 @@ graph import compiler {
         c_interop.clib_global_of_name { Ability, ImplDef, LambdaExpr, Module, Test },
         c_interop.final_glob_value { Name },
         c_interop.named_function_of { Ability, Name },
-        capability_notes | passes.execution { Module, UniNode },
+        capability_notes { UniNode },
         driver.pipeline_runner.compile_application { Import, ModulePath },
         driver.program.JacProgram.resolve_absorb_imports { find_python_scope_node_of },
         driver.wiring {
@@ -7263,6 +7261,7 @@ graph import compiler {
             UniScopeNode,
             ability_of_symbol
         },
+        passes.execution { Module, UniNode },
         passes.import_wiring_pass {
             Ability,
             AtomTrailer,
@@ -11049,11 +11048,7 @@ graph import compiler.placement {
     placement_pins --> [
         placement._scan_blockers_under { config_module_pin as _cmp, config_pin_for },
         placement.project_kind_name { config_project_kind },
-        placement.summarize_module {
-            config_element_pin,
-            config_module_pin,
-            effective_pin_for
-        },
+        placement.summarize_module { effective_pin_for },
         placement_facts.native_unit { effective_module_pin },
     ]
     placement_solver ++> [

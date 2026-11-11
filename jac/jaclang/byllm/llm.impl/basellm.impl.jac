@@ -47,6 +47,8 @@ def _close_stream(stream: any);
 
 async def _aclose_stream(stream: any);
 
+async def _aiter_in_thread(source: Iterator[object]) -> AsyncGenerator[object, None];
+
 
 def _is_prompt_caching_eligible(model_name: str) -> bool;
 
@@ -360,6 +362,7 @@ impl BaseLLM._compact_messages(
 
 impl BaseLLM.ainvoke(mt_run: MTRuntime) -> any {
     import asyncio;
+    import types;
     self._call_deadline(mt_run);
     if image_resp_kind(mt_run.resp_type) {
         return await asyncio.to_thread(self.dispatch_image, mt_run);
@@ -372,7 +375,11 @@ impl BaseLLM.ainvoke(mt_run: MTRuntime) -> any {
     if mt_run.stream and no_tools and not logging_stream {
         return self.adispatch_streaming(mt_run);
     }
-    return await asyncio.to_thread(self.invoke, mt_run);
+    result = await asyncio.to_thread(self.invoke, mt_run);
+    if isinstance(result, types.GeneratorType) {
+        return _aiter_in_thread(result);
+    }
+    return result;
 }
 
 
@@ -1694,25 +1701,32 @@ impl BaseLLM.model_call_with_stream_async(
     params: dict[str, any]
 ) -> AsyncIterator[object] {
     import asyncio;
+    return _aiter_in_thread(
+        iter(await asyncio.to_thread(self.model_call_with_stream, params))
+    );
+}
 
-    def _next_chunk(gen: Generator[object, None, None]) -> tuple[bool, object] {
+impl _aiter_in_thread(source: Iterator[object]) -> AsyncGenerator[object, None] {
+    import asyncio;
+
+    def _next_item -> tuple[bool, object] {
         try {
-            return (True, next(gen));
+            return (True, next(source));
         } except StopIteration {
             return (False, None);
         }
     }
-    async def _iter -> AsyncGenerator[object, None] {
-        gen = iter(await asyncio.to_thread(self.model_call_with_stream, params));
+    try {
         while True {
-            (has_value, chunk) = await asyncio.to_thread(_next_chunk, gen);
+            (has_value, item) = await asyncio.to_thread(_next_item);
             if not has_value {
                 break;
             }
-            yield chunk;
+            yield item;
         }
+    } finally {
+        _close_stream(source);
     }
-    return _iter();
 }
 
 impl BaseLLM._force_final_answer(mt_run: MTRuntime) -> object {

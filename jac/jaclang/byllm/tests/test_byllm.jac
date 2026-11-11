@@ -1002,8 +1002,10 @@ async def _drain_8932(stream: any, pace: float = 0.0) -> str {
 
 
 """Drive one LLM down the async streaming path, as `by llm()` does."""
-async def _stream_8932(llm: _byllm_llm_mod.BaseLLM, pace: float = 0.0) -> str {
-    return await _drain_8932(await llm.ainvoke(mk_run(stream=True)), pace);
+async def _stream_8932(
+    llm: _byllm_llm_mod.BaseLLM, pace: float = 0.0, tools: list[any] | None = None
+) -> str {
+    return await _drain_8932(await llm.ainvoke(mk_run(stream=True, tools=tools)), pace);
 }
 
 
@@ -1077,6 +1079,14 @@ test "async streaming delivers every provider shape" {
     ];
     for (label, llm, expected) in cases {
         assert asyncio.run(_stream_8932(llm)) == expected , label;
+    }
+    # The ReAct loop streams through the same async iterator.
+    for llm in [
+        MockLLM(outputs=[say("hello world")]),
+        Model(model_name="mockllm", config={"outputs": ["hello world"]})
+    ] {
+        assert asyncio.run(_stream_8932(llm, tools=[_probe_tool_8932]))
+            == "hello world";
     }
 }
 

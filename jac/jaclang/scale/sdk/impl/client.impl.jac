@@ -149,7 +149,7 @@ impl ScaleClient._pick_logger(sink: EventSink, use_event_logger: bool) -> Logger
         return EventLogger(sink=sink);
     }
 
-    return UtilityFactory.create_logger('standard');
+    return StandardLogger();
 }
 
 impl ScaleClient._target_config(

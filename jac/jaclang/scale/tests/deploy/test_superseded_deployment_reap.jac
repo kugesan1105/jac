@@ -781,12 +781,12 @@ test "status reads a container's current state, not its lifetime restart count" 
     core = FakeCoreV1(pods=[]);
     wrong: list[str] = [];
     with unittest.mock.patch(
-        "jaclang.scale.deploy.target.kubernetes.kubernetes_target.k8s_cluster_config"
+        "jaclang.scale.deploy.target.kubernetes.target.k8s_cluster_config"
     ), unittest.mock.patch(
-        "jaclang.scale.deploy.target.kubernetes.kubernetes_target.client.AppsV1Api",
+        "jaclang.scale.deploy.target.kubernetes.target.client.AppsV1Api",
         return_value=FakeAppsV1(items=[deployment])
     ), unittest.mock.patch(
-        "jaclang.scale.deploy.target.kubernetes.kubernetes_target.client.CoreV1Api",
+        "jaclang.scale.deploy.target.kubernetes.target.client.CoreV1Api",
         return_value=core
     ) {
         for (label, pod, expected) in cases {

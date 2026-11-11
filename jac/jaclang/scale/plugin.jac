@@ -1,12 +1,5 @@
 import os;
 
-obj DeployFactories {
-    has utility: type[UtilityFactory],
-        target: type[DeploymentTargetFactory];
-}
-
-def _load_deploy_factories -> DeployFactories;
-
 def _print_local_fleet_banner(fleet: any);
 
 def scale_local_serve(
@@ -61,7 +54,7 @@ comptime SPEC_SCALE_CMD: CommandSpec = CommandSpec(
                  "target",
                  typ=str,
                  `default="kubernetes",
-                 help="Platform target for .jac app status/destroy (kubernetes, aws, gcp, etc.)"
+                 help="Platform target for deploy and .jac app status/destroy (kubernetes, kubernetes-microservice)"
              ),
              Arg.create(
                  "component",
@@ -102,10 +95,6 @@ comptime SPEC_SCALE_CMD: CommandSpec = CommandSpec(
                  "Deploy a named workspace app as the gateway host"
              ),
              ("jac scale deploy app.jac", "Deploy a specific app file"),
-             (
-                 "jac scale deploy app.jac --target aws",
-                 "Deploy the app to a specific platform target"
-             ),
              (
                  "jac scale deploy --dry-run --show-yaml",
                  "Print the manifests that would be applied, touching nothing"

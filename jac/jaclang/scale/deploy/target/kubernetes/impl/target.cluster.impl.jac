@@ -1,8 +1,8 @@
-impl KubernetesTargetBase.postinit {
+impl KubernetesTarget.postinit {
     self.k8s_config = self.config;
 }
 
-impl KubernetesTargetBase._emit(
+impl KubernetesTarget._emit(
     phase: str, status: str, message: str, step: str = "", detail: dict[str, any] = {}
 ) {
     self.events.emit(
@@ -12,14 +12,14 @@ impl KubernetesTargetBase._emit(
     );
 }
 
-impl KubernetesTargetBase._owner_labels -> dict[str, str] {
+impl KubernetesTarget._owner_labels -> dict[str, str] {
     return {
         str(k): str(v)
         for (k, v) in dict[str, any](self.k8s_config.labels or {}).items()
     };
 }
 
-impl KubernetesTargetBase._load_cluster_config {
+impl KubernetesTarget._load_cluster_config {
     kubeconfig_failed: bool = False;
     try {
         k8s_cluster_config.load_kube_config(
@@ -55,7 +55,7 @@ impl KubernetesTargetBase._load_cluster_config {
     }
 }
 
-impl KubernetesTargetBase._get_database_init_containers(
+impl KubernetesTarget._get_database_init_containers(
     app_name: str
 ) -> list[dict[(str, any)]] {
     init_containers = [];
@@ -63,7 +63,7 @@ impl KubernetesTargetBase._get_database_init_containers(
 
     if self.k8s_config.database_enabled() {
         pg_provider = KubernetesPostgresProvider(
-            target=self, config=self.k8s_config.database_deploy_intent(app_name)
+            config=self.k8s_config.database_deploy_intent(app_name)
         );
         init_container = pg_provider.get_init_container(app_name, wait_image);
         if init_container {
@@ -74,7 +74,7 @@ impl KubernetesTargetBase._get_database_init_containers(
     return init_containers;
 }
 
-impl KubernetesTargetBase._deploy_databases(
+impl KubernetesTarget._deploy_databases(
     app_name: str, namespace: str, apps_v1: any, core_v1: any
 ) {
     if not self.k8s_config.database_enabled() {
@@ -83,7 +83,7 @@ impl KubernetesTargetBase._deploy_databases(
     pg_name = f"{app_name}-postgres";
     pg_service_name = f"{pg_name}-service";
     pg_provider = KubernetesPostgresProvider(
-        target=self, config=self.k8s_config.database_deploy_intent(app_name)
+        config=self.k8s_config.database_deploy_intent(app_name)
     );
     pg_result = pg_provider.deploy({});
     if pg_result['mode'] == 'none' {
@@ -171,7 +171,7 @@ impl KubernetesTargetBase._deploy_databases(
     }
 }
 
-impl KubernetesTargetBase._apply_provider_service_account(
+impl KubernetesTarget._apply_provider_service_account(
     sa_spec: dict[str, any], namespace: str, core_v1: any
 ) {
     sa_spec['metadata']['namespace'] = namespace;
@@ -194,7 +194,7 @@ impl KubernetesTargetBase._apply_provider_service_account(
     }
 }
 
-impl KubernetesTargetBase.get_status(app_name: str) -> ResourceStatusInfo {
+impl KubernetesTarget.get_status(app_name: str) -> ResourceStatusInfo {
     try {
         self._load_cluster_config();
         apps_v1 = client.AppsV1Api();
@@ -212,7 +212,7 @@ impl KubernetesTargetBase.get_status(app_name: str) -> ResourceStatusInfo {
     }
 }
 
-impl KubernetesTargetBase.scale(app_name: str, replicas: int) {
+impl KubernetesTarget.scale(app_name: str, replicas: int) {
     if self.logger {
         self.logger.info(f"Scaling application '{app_name}' to {replicas} replicas");
     }
@@ -244,7 +244,7 @@ impl KubernetesTargetBase.scale(app_name: str, replicas: int) {
     }
 }
 
-impl KubernetesTargetBase._get_lb_endpoint(app_name: str) -> (str | None) {
+impl KubernetesTarget._get_lb_endpoint(app_name: str) -> (str | None) {
     try {
         self._load_cluster_config();
         namespace = self.k8s_config.namespace;
@@ -279,7 +279,7 @@ impl KubernetesTargetBase._get_lb_endpoint(app_name: str) -> (str | None) {
     return None;
 }
 
-impl KubernetesTargetBase.port_forward_hint -> str {
+impl KubernetesTarget.port_forward_hint -> str {
     namespace = self.k8s_config.namespace;
     target_port = self.k8s_config.container_port;
     local_port = 8080;
@@ -292,7 +292,7 @@ impl KubernetesTargetBase.port_forward_hint -> str {
     );
 }
 
-impl KubernetesTargetBase.get_service_url(app_name: str) -> (str | None) {
+impl KubernetesTarget.get_service_url(app_name: str) -> (str | None) {
     try {
         self._load_cluster_config();
         namespace = self.k8s_config.namespace;
@@ -333,7 +333,7 @@ impl KubernetesTargetBase.get_service_url(app_name: str) -> (str | None) {
     return None;
 }
 
-impl KubernetesTargetBase.enable_tls(app_name: str) {
+impl KubernetesTarget.enable_tls(app_name: str) {
     if self.logger {
         self.logger.info(f"Enabling TLS for '{app_name}'...");
     }
@@ -424,7 +424,7 @@ impl KubernetesTargetBase.enable_tls(app_name: str) {
     }
 }
 
-impl KubernetesTargetBase.get_full_status(app_name: str) -> dict[str, any] {
+impl KubernetesTarget.get_full_status(app_name: str) -> dict[str, any] {
     try {
         self._load_cluster_config();
         apps_v1 = client.AppsV1Api();

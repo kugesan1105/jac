@@ -9,8 +9,7 @@ glob PG_PORT = 5432,
 
 
 obj KubernetesPostgresProvider {
-    has target: (DeploymentTarget | None) = None,
-        config: dict[str, any] = {},
+    has config: dict[str, any] = {},
         app_name: str postinit,
         connection_string: str = '';
 

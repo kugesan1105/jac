@@ -301,9 +301,7 @@ test "the bundle seed's kubectl reaches the cluster the client loaded" {
     import from jaclang.scale.deploy.target.kubernetes.kubernetes_config {
         KubernetesConfig
     }
-    import from jaclang.scale.deploy.target.kubernetes.kubernetes_target {
-        KubernetesTargetBase
-    }
+    import from jaclang.scale.deploy.target.kubernetes.target { KubernetesTarget }
     def _loads(*args: any, **kwargs: any) {
         return;
     }
@@ -349,7 +347,7 @@ test "the bundle seed's kubectl reaches the cluster the client loaded" {
             kubectl = Path(tmp) / "kubectl";
             kubectl.write_text(_FAKE_KUBECTL);
             kubectl.chmod(0o755);
-            target = KubernetesTargetBase(
+            target = KubernetesTarget(
                 config=KubernetesConfig(kube_context="prod-eks", kubeconfig=kubeconfig)
             );
             cluster = _OneClusterPods();

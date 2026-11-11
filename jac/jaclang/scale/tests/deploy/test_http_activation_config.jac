@@ -177,9 +177,9 @@ test "a rule header missing its required 'name' key raises a jac.toml-relative e
 
 
 # --- Section E: apply/destroy wiring helpers (injectable KEDAAutoscaler) ----
-# These back the monolith (kubernetes_target.jac) and microservices
+# These back the monolith (target.jac) and microservices
 # (manifest_builder.jac / microservice/target.jac) deploy-path call sites.
-# kubernetes_target.jac's deploy() is a single large method that talks to a
+# target.jac's deploy() is a single large method that talks to a
 # real cluster end to end with no isolated seam to unit test (it is only
 # ever exercised against a live cluster, in test_deploy_k8s.jac) - these two
 # functions exist so the HTTP-activation call itself stays testable without

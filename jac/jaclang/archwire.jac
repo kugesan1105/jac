@@ -13187,7 +13187,6 @@ graph import scale {
         deploy.autoscale.autoscaler.Autoscaler.read_workload
             | deploy.target.kubernetes.ingress
             | deploy.target.kubernetes.monitoring
-            | deploy.target.kubernetes.target
             | deploy.target.kubernetes.utils.kubernetes_utils
             | injector.pvc_injector.PvcInjector.seed { ApiException, client },
         deploy.autoscale.hpa_autoscaler | deploy.autoscale.keda_autoscaler {
@@ -13201,7 +13200,7 @@ graph import scale {
         deploy.autoscale.keda_autoscaler.KEDAAutoscaler.watch_scale_targets { watch },
         deploy.target.kubernetes.cluster_provider
             | deploy.target.kubernetes.database_provisioner { client },
-        deploy.target.kubernetes.kubernetes_target {
+        deploy.target.kubernetes.target {
             ApiException,
             ConfigException,
             client,
@@ -13328,8 +13327,7 @@ graph import scale {
         JacAPIServerWorkloads
     }
     config.app_config ++> [
-        deploy.target.deployment_target
-            | deploy.target.kubernetes.manifest_builder
+        deploy.target.kubernetes.manifest_builder
             | deploy.target.kubernetes.target
             | runtime.cli.plan
             | tests.apps.test_app_scale_overrides
@@ -13349,8 +13347,7 @@ graph import scale {
     ]
     config.app_config --> tests.deploy.test_http_activation_microservices
         | tests.deploy.test_memory_trigger_guard { AppConfig }
-    config.base_config ++> deploy.target.deployment_target
-        | deploy.target.kubernetes.kubernetes_config { BaseConfig }
+    config.base_config ++> deploy.target.kubernetes.kubernetes_config { BaseConfig }
     config.config_loader ++> [
         admin.admin_portal
             | admin.llm_telemetry.JacAPIServerLLMTelemetry.register_llm_telemetry_endpoints
@@ -13358,7 +13355,6 @@ graph import scale {
             | admin.ops
             | admin.service_urls
             | deploy.database.kubernetes_postgres
-            | deploy.target.kubernetes.kubernetes_target
             | emailer.factory.configured
             | plugin
             | runtime.cli.diagnostics.PlanValidator._check_config_keys
@@ -13561,16 +13557,21 @@ graph import scale {
         KubernetesPostgresProvider
     }
     deploy.target.factory ++> [
-        plugin { DeploymentTargetFactory, ensure_deploy_tooling },
-        runtime.realizer.kubernetes_realizer
-            | tests.deploy.test_deploy_banner
-            | tests.deploy.test_deploy_k8s
-            | tests.deploy.test_dry_run_purity
-            | tests.deploy.test_factories { DeploymentTargetFactory },
+        config.validation { DEPLOY_TARGETS },
+        plugin { DEPLOY_TARGETS, create_kubernetes_target, ensure_deploy_tooling },
+        runtime.realizer.kubernetes_realizer {
+            check_deploy_target,
+            create_kubernetes_target
+        },
         sdk.client { ensure_deploy_tooling, require_deploy_tooling },
+        tests.deploy.test_deploy_k8s
+            | tests.deploy.test_dry_run_purity
+            | tests.deploy.test_factories { create_kubernetes_target },
     ]
-    deploy.target.factory --> tests.misc.test_config_validation
-        | tests.misc.test_optional_deps { DeploymentTargetFactory }
+    deploy.target.factory --> [
+        tests.misc.test_config_validation { DEPLOY_TARGETS },
+        tests.misc.test_optional_deps { create_kubernetes_target },
+    ]
     deploy.target.kubernetes.cluster_provider ++> tests.deploy.test_cluster_provider {
         AWSProvider,
         LocalProvider
@@ -13626,11 +13627,6 @@ graph import scale {
         },
         tests.microservices.test_pvc_injector { KubernetesConfig },
     ]
-    deploy.target.kubernetes.kubernetes_target ++> runtime.realizer.kubernetes_realizer.KubernetesRealizer.realize
-        | tests.deploy.test_database_intent { KubernetesTargetBase }
-    deploy.target.kubernetes.kubernetes_target --> tests.microservices.test_pvc_injector {
-        KubernetesTargetBase
-    }
     deploy.target.kubernetes.manifest_builder ++> [
         runtime.cli.diagnostics | runtime.cli.plan { ScalingMode },
         tests.apps.test_app_scale_overrides
@@ -13696,11 +13692,11 @@ graph import scale {
     }
     deploy.target.kubernetes.runtime_resolver as resolver_mod --> tests.deploy.test_pod_env;
     deploy.target.kubernetes.target ++> [
-        runtime.realizer.kubernetes_realizer.KubernetesRealizer.realize
-            | sdk.client.ScaleClient._build_target
+        sdk.client.ScaleClient._build_target
             | tests.deploy.test_access_hint
             | tests.deploy.test_alb_zero_downtime
             | tests.deploy.test_crash_scan_fleet_guard
+            | tests.deploy.test_database_intent
             | tests.deploy.test_memory_trigger_guard
             | tests.deploy.test_monitoring_switch
             | tests.deploy.test_pod_env
@@ -13722,6 +13718,9 @@ graph import scale {
             restorable_pod_template
         },
     ]
+    deploy.target.kubernetes.target --> tests.microservices.test_pvc_injector {
+        KubernetesTarget
+    }
     deploy.target.kubernetes.target as target_mod --> tests.deploy.test_superseded_deployment_reap;
     type deploy.target.kubernetes.target ++> sdk.client { KubernetesTarget }
     deploy.target.kubernetes.utils.kubernetes_utils ++> [
@@ -13745,10 +13744,6 @@ graph import scale {
     ]
     deploy.target.kubernetes.utils.kubernetes_utils --> tests.deploy.test_dry_run_purity
         | tests.microservices.test_pvc_injector { KubectlCluster }
-    deploy.target.registry ++> config.validation { DeploymentTargetRegistry }
-    deploy.target.registry --> tests.misc.test_config_validation {
-        BUILTIN_TARGET_TYPES
-    }
     emailer.emailer ++> [
         server.extensions { Emailer },
         tests.server.test_emailer_factory { EmailAttachment, Emailer },
@@ -13984,22 +13979,18 @@ graph import scale {
         JScaleExecutionContext
     }
     models.deploy_context ++> [
-        deploy.target.kubernetes.database_provisioner
-            | deploy.target.kubernetes.target { DeployContext },
-        deploy.target.kubernetes.kubernetes_target { DATABASE_URL_ENV },
-        deploy.target.kubernetes.manifest_builder { DATABASE_URL_ENV, DeployContext },
+        deploy.target.kubernetes.database_provisioner { DeployContext },
+        deploy.target.kubernetes.manifest_builder | deploy.target.kubernetes.target {
+            DATABASE_URL_ENV,
+            DeployContext
+        },
     ]
-    models.deployment_result ++> deploy.target.deployment_target
-        | deploy.target.kubernetes.target
+    models.deployment_result ++> deploy.target.kubernetes.target
         | sdk
         | sdk.client
         | tests.deploy.test_deploy_k8s { DeploymentResult }
     models.progress ++> [
-        deploy.target.kubernetes.kubernetes_target {
-            EventSink,
-            NoopSink,
-            ProgressEvent
-        },
+        deploy.target.kubernetes.target { EventSink, NoopSink, ProgressEvent },
         sdk { CallbackSink, EventSink, ProgressEvent },
         sdk.client { CallbackSink, EventSink, NoopSink, ProgressEvent },
         sdk.events { EventSink, ProgressEvent },
@@ -14019,22 +14010,17 @@ graph import scale {
         deploy.autoscale.hpa_autoscaler
             | deploy.autoscale.keda_autoscaler
             | tests.deploy.test_deploy_k8s { ResourceStatus },
-        deploy.target.deployment_target | sdk.client { ResourceStatusInfo },
-        deploy.target.kubernetes.kubernetes_target {
-            ResourceStatus,
-            ResourceStatusInfo,
-            assess_workload,
-            container_crashlooping
-        },
         deploy.target.kubernetes.manifest_builder
             | tests.deploy.test_ops_deploy
             | tests.microservices.test_fleet_rollout { REPLICA_FLOOR_ANNOTATION },
         deploy.target.kubernetes.target {
             ResourceStatus,
+            ResourceStatusInfo,
             assess_workload,
             container_crashlooping
         },
         sdk { ResourceStatus, ResourceStatusInfo },
+        sdk.client { ResourceStatusInfo },
         tests.deploy.test_http_activation_microservices {
             REPLICA_FLOOR_ANNOTATION,
             ResourceStatus
@@ -14045,27 +14031,20 @@ graph import scale {
             container_crashlooping
         },
     ]
-    observability.factory ++> plugin
-        | runtime.gateway.microservice_gateway.MicroserviceGateway.setup
-        | runtime.realizer.kubernetes_realizer
-        | sdk.client.ScaleClient._pick_logger
+    observability.factory ++> runtime.gateway.microservice_gateway.MicroserviceGateway.setup
         | server.extensions.MetricsExtension.register
-        | tests.deploy.test_deploy_k8s
-        | tests.deploy.test_factories
         | tests.misc.test_metrics { UtilityFactory }
     observability.factory --> tests.misc.test_optional_deps { UtilityFactory }
     observability.logger ++> deploy.autoscale.factory
         | deploy.autoscale.hpa_autoscaler
         | deploy.autoscale.keda_autoscaler
-        | deploy.target.deployment_target
         | deploy.target.factory
         | deploy.target.kubernetes.cluster_provider
         | deploy.target.kubernetes.ingress
-        | deploy.target.kubernetes.kubernetes_target
         | deploy.target.kubernetes.monitoring
+        | deploy.target.kubernetes.target
         | sdk.client
         | sdk.events { Logger }
-    type observability.logger ++> deploy.target.registry { Logger }
     observability.metrics ++> [
         admin.admin_portal | server.extensions { MetricsCollector },
         tests.misc.test_metrics { NoOpMetricsCollector },
@@ -14083,9 +14062,12 @@ graph import scale {
     observability.prometheus_metrics --> tests.misc.test_optional_deps {
         PrometheusMetricsCollector
     }
-    observability.standard_logger ++> tests.deploy.test_http_activation_microservices {
-        StandardLogger
-    }
+    observability.standard_logger ++> plugin
+        | runtime.realizer.kubernetes_realizer
+        | sdk.client.ScaleClient._pick_logger
+        | tests.deploy.test_deploy_k8s
+        | tests.deploy.test_factories
+        | tests.deploy.test_http_activation_microservices { StandardLogger }
     runtime.cli.diagnostics ++> tests.deploy.test_pdb_budget { PlanValidator }
     runtime.cli.plan ++> tests.deploy.test_ops_rbac { Plan }
     runtime.context.auth_ctx ++> [
@@ -14675,10 +14657,9 @@ graph import scale.deploy {
         },
     ]
     autoscale.keda_autoscaler ++> target.kubernetes.target { KEDAAutoscaler }
-    database.kubernetes_postgres ++> target.kubernetes.kubernetes_target {
+    database.kubernetes_postgres ++> target.kubernetes.target {
         KubernetesPostgresProvider
     }
-    target.deployment_target ++> database.kubernetes_postgres { DeploymentTarget }
     target.kubernetes.kubernetes_config ++> database.kubernetes_postgres.KubernetesPostgresProvider._requested_mode {
         resolve_database_mode
     }
@@ -14743,13 +14724,11 @@ graph import scale.deploy.autoscale {
 }
 
 graph import scale.deploy.target {
-    deployment_target ++> factory | kubernetes.kubernetes_target { DeploymentTarget }
-    type deployment_target ++> registry { DeploymentTarget }
-    kubernetes.kubernetes_config --> factory.DeploymentTargetFactory.create {
+    kubernetes.kubernetes_config --> factory.create_kubernetes_target {
         KubernetesConfig
     }
-    kubernetes.target --> factory.DeploymentTargetFactory.create { KubernetesTarget }
-    registry ++> factory { DeploymentTargetRegistry }
+    kubernetes.target --> factory.create_kubernetes_target { KubernetesTarget }
+    type kubernetes.target ++> factory { KubernetesTarget }
 }
 
 graph import scale.deploy.target.kubernetes {
@@ -14758,14 +14737,12 @@ graph import scale.deploy.target.kubernetes {
         utils.kubernetes_utils { AWSProvider, ClusterProvider, LocalProvider },
     ]
     database_provisioner ++> target { DatabaseProvisioner }
-    ingress ++> kubernetes_target { IngressDeployer }
+    ingress ++> target { IngressDeployer }
     kubernetes_config ++> ingress
-        | kubernetes_target
         | manifest_builder
         | monitoring
         | runtime_bootstrap
         | target { KubernetesConfig }
-    kubernetes_target ++> target { KubernetesTargetBase }
     manifest_builder ++> target {
         CONFIG_REVISION_ANNOTATION,
         ManifestBuilder,
@@ -14789,19 +14766,10 @@ graph import scale.deploy.target.kubernetes {
     utils.kubernetes_utils ++> [
         database_provisioner { ensure_namespace_exists },
         ingress { KubectlCluster, delete_if_exists },
-        kubernetes_target {
-            COMPANION_DEFS,
-            KubectlCluster,
-            create_k8s_secret,
-            get_cluster_provider,
-            resize_pvc_if_needed
-        },
-        kubernetes_target.KubernetesTargetBase._load_cluster_config {
-            in_cluster_kubectl,
-            kubectl_cluster
-        },
         monitoring { delete_if_exists, delete_k8s_secret },
         target {
+            COMPANION_DEFS,
+            KubectlCluster,
             PSS_ENFORCE_LABEL,
             _refresh_rs_hashes,
             _resolve_current_rs_hashes,
@@ -14813,9 +14781,14 @@ graph import scale.deploy.target.kubernetes {
             get_cluster_provider,
             namespace_is_owned,
             privileged_pss_labels,
+            resize_pvc_if_needed,
             resolve_minted_secret
         },
         target.KubernetesTarget._apply_or_replace_pvc { wait_until_deleted },
+        target.KubernetesTarget._load_cluster_config {
+            in_cluster_kubectl,
+            kubectl_cluster
+        },
         target.KubernetesTarget._pod_failure_detail { describe_pod_status },
     ]
 }
@@ -14884,7 +14857,6 @@ graph import scale.observability {
     prometheus_metrics --> factory.UtilityFactory.create_metrics {
         PrometheusMetricsCollector
     }
-    standard_logger --> factory.UtilityFactory.create_logger { StandardLogger }
 }
 
 graph import scale.runtime {

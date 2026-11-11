@@ -544,7 +544,7 @@ test "only the target's cluster loader reads a kubeconfig under deploy" {
     offenders: list[str] = [];
     for path in sorted(deploy.rglob("*.jac")) {
         # The loader's declaration and its impl body are one element.
-        if path.name in ("kubernetes_target.jac", "kubernetes_target.impl.jac") {
+        if path.name == "target.cluster.impl.jac" {
             continue;
         }
         text = path.read_text();

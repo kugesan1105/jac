@@ -1,18 +1,3 @@
-impl UtilityFactory.create_logger(
-    logger_type: str = 'standard', config: (dict[str, any] | None) = None
-) -> Logger {
-    if logger_type == 'standard' {
-        import from jaclang.scale.observability.standard_logger { StandardLogger }
-        return StandardLogger(config=config or {});
-    } elif logger_type == 'cloudwatch' {
-        raise NotImplementedError("CloudWatch logger not yet implemented");
-    } elif logger_type == 'elasticsearch' {
-        raise NotImplementedError("Elasticsearch logger not yet implemented");
-    } else {
-        raise ValueError(f"Unsupported logger type: {logger_type}");
-    }
-}
-
 impl UtilityFactory.create_metrics(
     metrics_type: str = 'prometheus',
     config: (dict[str, any] | None) = None,

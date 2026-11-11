@@ -4,7 +4,7 @@ import unittest.mock;
 import from contextlib { contextmanager }
 import from kubernetes.client.exceptions { ApiException }
 import from kubernetes.config.config_exception { ConfigException }
-import from jaclang.scale.deploy.target.kubernetes { kubernetes_target as kt_module }
+import from jaclang.scale.deploy.target.kubernetes { target as kt_module }
 
 def _as_any(v: any) -> any {
     return v;
@@ -13,7 +13,7 @@ def _as_any(v: any) -> any {
 test "deployment target factory creates kubernetes target" {
     config = {"app_name": "test-app", "namespace": "default", "container_port": 8000};
 
-    target = DeploymentTargetFactory.create("kubernetes", config);
+    target = create_kubernetes_target("kubernetes", config);
 
     assert target is not None;
     assert hasattr(target, "deploy");
@@ -32,7 +32,7 @@ test "kubernetes target creation auto-syncs missing deploy tooling globally" {
         "jaclang.scale.deploy.target.factory.ensure_global_capability"
     ) as mock_ensure {
         mock_missing.return_value = ["kubernetes>=34.1.0,<35.0.0"];
-        target = DeploymentTargetFactory.create("kubernetes", config);
+        target = create_kubernetes_target("kubernetes", config);
         assert target is not None;
         mock_ensure.assert_called_once_with("deploy.k8s");
     }
@@ -43,7 +43,7 @@ test "kubernetes target creation auto-syncs missing deploy tooling globally" {
         "jaclang.scale.deploy.target.factory.ensure_global_capability"
     ) as mock_ensure {
         mock_missing.return_value = [];
-        DeploymentTargetFactory.create("kubernetes-microservice", config);
+        create_kubernetes_target("kubernetes-microservice", config);
         mock_ensure.assert_not_called();
     }
 }
@@ -111,7 +111,7 @@ test "a command that installs the kubernetes client uses it in the same run" {
                 run();
             } except _Installed {}
             target_mod = importlib.import_module(
-                "jaclang.scale.deploy.target.kubernetes.kubernetes_target"
+                "jaclang.scale.deploy.target.kubernetes.target"
             );
             assert target_mod.k8s_cluster_config is not None , label;
             assert target_mod.ConfigException is not Exception , label;
@@ -141,7 +141,7 @@ test "deployment target factory raises for unsupported target" {
 
     raised = False;
     try {
-        DeploymentTargetFactory.create("unsupported", config);
+        create_kubernetes_target("unsupported", config);
     } except ValueError as e {
         raised = True;
         assert "Unsupported deployment target" in str(e);
@@ -149,24 +149,26 @@ test "deployment target factory raises for unsupported target" {
     assert raised , "Expected ValueError for unsupported target";
 }
 
-test "deployment target factory raises for not implemented target" {
+test "aws and gcp are rejected as unsupported deployment targets" {
     config = {"app_name": "test-app"};
 
-    raised = False;
-    try {
-        DeploymentTargetFactory.create("aws", config);
-    } except NotImplementedError as e {
-        raised = True;
-        assert "not yet implemented" in str(e);
+    for name in ["aws", "gcp"] {
+        raised = "";
+        try {
+            create_kubernetes_target(name, config);
+        } except ValueError as e {
+            raised = str(e);
+        }
+        assert f"Unsupported deployment target '{name}'" in raised , raised;
+        assert "kubernetes" in raised , raised;
     }
-    assert raised , "Expected NotImplementedError for aws target";
 }
 
 test "kubernetes-microservice stays a working alias for the unified target" {
     config = {"app_name": "test-app", "namespace": "default", "container_port": 8000};
 
-    aliased = DeploymentTargetFactory.create("kubernetes-microservice", config);
-    plain = DeploymentTargetFactory.create("kubernetes", config);
+    aliased = create_kubernetes_target("kubernetes-microservice", config);
+    plain = create_kubernetes_target("kubernetes", config);
 
     assert aliased is not None;
     assert type(aliased) is type(plain);
@@ -174,21 +176,13 @@ test "kubernetes-microservice stays a working alias for the unified target" {
     assert hasattr(aliased, "destroy");
 }
 
-test "utility factory creates standard logger" {
-    logger = UtilityFactory.create_logger("standard");
+test "standard logger exposes the logger interface" {
+    logger = StandardLogger();
 
-    assert logger is not None;
     assert hasattr(logger, "info");
     assert hasattr(logger, "error");
     assert hasattr(logger, "warn");
     assert hasattr(logger, "debug");
-}
-
-test "utility factory defaults to standard logger" {
-    logger = UtilityFactory.create_logger();
-
-    assert logger is not None;
-    assert hasattr(logger, "info");
 }
 
 test "kubernetes config from dict" {
@@ -290,64 +284,13 @@ test "deployment target with logger" {
         mock_target = unittest.mock.MagicMock();
         mock_kubernetes_target.return_value = mock_target;
         config = {"app_name": "test-app", "namespace": "default"};
-        logger = UtilityFactory.create_logger("standard");
-        DeploymentTargetFactory.create("kubernetes", config, logger);
+        logger = StandardLogger();
+        create_kubernetes_target("kubernetes", config, logger);
         mock_kubernetes_target.assert_called_once();
         call_kwargs = mock_kubernetes_target.call_args[1];
         assert "logger" in call_kwargs;
         assert call_kwargs["logger"] == logger;
     }
-}
-
-test "deployment target factory register and create custom target" {
-    mock_target = unittest.mock.MagicMock();
-
-    def custom_factory(config: dict[str, any], logger: any = None) -> any {
-        mock_target.config = config;
-        mock_target.logger = logger;
-        return mock_target;
-    }
-
-    DeploymentTargetFactory.register("custom-test", custom_factory);
-    config = {"app_name": "custom-app", "namespace": "custom-ns"};
-    result = DeploymentTargetFactory.create("custom-test", config);
-    assert result is mock_target;
-    assert result.config == config;
-
-    del DeploymentTargetFactory._registry["custom-test"];
-}
-
-test "deployment target factory custom target with logger" {
-    calls: list[dict[str, any]] = [];
-
-    def custom_factory(config: dict[str, any], logger: any = None) -> any {
-        calls.append({"config": config, "logger": logger});
-        return unittest.mock.MagicMock();
-    }
-
-    DeploymentTargetFactory.register("logged-test", custom_factory);
-    logger = UtilityFactory.create_logger("standard");
-    config = {"app_name": "test"};
-    DeploymentTargetFactory.create("logged-test", config, logger);
-    assert len(calls) == 1;
-    assert calls[0]["config"] == config;
-    assert calls[0]["logger"] == logger;
-
-    del DeploymentTargetFactory._registry["logged-test"];
-}
-
-test "deployment target factory custom target overrides builtin" {
-    mock_target = unittest.mock.MagicMock();
-
-    def override_factory(config: dict[str, any], logger: any = None) -> any {
-        return mock_target;
-    }
-
-    DeploymentTargetFactory.register("kubernetes", override_factory);
-    result = DeploymentTargetFactory.create("kubernetes", {"app_name": "test"});
-    assert result is mock_target;
-
-    del DeploymentTargetFactory._registry["kubernetes"];
 }
 
 test "autoscaler factory creates hpa autoscaler for engine=hpa" {
@@ -369,38 +312,6 @@ test "autoscaler factory raises for unsupported engine" {
         assert "Unsupported autoscaler engine" in str(e);
     }
     assert raised , "Expected ValueError for unsupported engine";
-}
-
-test "autoscaler factory register and create custom engine" {
-    mock_autoscaler = unittest.mock.MagicMock();
-
-    def custom_factory(config: dict[str, any], logger: any = None) -> any {
-        return mock_autoscaler;
-    }
-
-    AutoscalerFactory.register("custom-scaler", custom_factory);
-    try {
-        result = AutoscalerFactory.create("custom-scaler", {});
-        assert result is mock_autoscaler;
-    } finally {
-        del AutoscalerFactory._registry["custom-scaler"];
-    }
-}
-
-test "autoscaler factory custom engine overrides builtin" {
-    mock_autoscaler = unittest.mock.MagicMock();
-
-    def override_factory(config: dict[str, any], logger: any = None) -> any {
-        return mock_autoscaler;
-    }
-
-    AutoscalerFactory.register("hpa", override_factory);
-    try {
-        result = AutoscalerFactory.create("hpa", {});
-        assert result is mock_autoscaler;
-    } finally {
-        del AutoscalerFactory._registry["hpa"];
-    }
 }
 
 test "hpa autoscaler build manifests produces correct dict" {
@@ -589,7 +500,7 @@ test "hpa destroy collection also sweeps competing KEDA resources" {
 
 test "kubernetes_target falls back to in-cluster config when kubeconfig is unavailable" {
     config = {"app_name": "test-app", "namespace": "default", "container_port": 8000};
-    target = DeploymentTargetFactory.create("kubernetes", config);
+    target = create_kubernetes_target("kubernetes", config);
 
     fake_cfg = unittest.mock.MagicMock();
     # Simulate running in a pod: no ~/.kube/config, so load_kube_config raises.

@@ -440,7 +440,7 @@ impl JacScalePluginConfig.get_config_schema -> dict[str, any] {
                     "autoscaler_engine": {
                         "type": "string",
                         "default": "hpa",
-                        "description": "Autoscaler engine to use. Built-in: 'hpa' (default, CPU/memory only) or 'keda' (event-driven, supports scale-to-zero). External plugins can register additional engines via AutoscalerFactory.register()."
+                        "description": "Autoscaler engine to use. Built-in: 'hpa' (default, CPU/memory only) or 'keda' (event-driven, supports scale-to-zero)."
                     },
                     "min_replicas": {
                         "type": "int",

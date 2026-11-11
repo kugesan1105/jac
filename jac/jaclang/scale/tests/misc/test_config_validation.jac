@@ -383,25 +383,6 @@ test "every known deploy target owns a config section" {
     }
 }
 
-test "a registered plugin target owns its section" {
-    import from jaclang.scale.deploy.target.factory { DeploymentTargetFactory }
-    assert "fly" not in known_deploy_targets();
-    before = validate_scale_config({"fly": {"app_name": "demo"}});
-    assert len(before) == 1 , f"expected 1 finding, got {before}";
-
-    def _factory(config: dict[str, any], logger: any = None) -> any {
-        return None;
-    }
-    DeploymentTargetFactory.register("fly", _factory);
-    try {
-        assert "fly" in known_deploy_targets();
-        after = validate_scale_config({"fly": {"app_name": "demo"}});
-        assert after == [] , f"registered target section flagged: {after}";
-    } finally {
-        DeploymentTargetFactory._registry.pop("fly", None);
-    }
-}
-
 test "a misspelled deploy target is reported instead of silencing its section" {
     msgs = validate_scale_config({"deploy": {"target": "kuberntes"}});
     assert len(msgs) == 1 , f"expected 1 finding, got {msgs}";
@@ -410,10 +391,11 @@ test "a misspelled deploy target is reported instead of silencing its section" {
 }
 
 test "known targets are exactly the ones the factory can build" {
-    import from jaclang.scale.deploy.target.registry { BUILTIN_TARGET_TYPES }
-    for name in BUILTIN_TARGET_TYPES {
-        assert name in known_deploy_targets() , name;
-    }
+    import from jaclang.scale.deploy.target.factory { DEPLOY_TARGETS }
+    assert known_deploy_targets() == list(DEPLOY_TARGETS);
+    msgs = validate_scale_config({"deploy": {"target": "aws"}});
+    assert len(msgs) == 1
+        and "'aws' is not a known deployment target" in msgs[0] , msgs;
 }
 
 test "normalizer passes documented boot keys through" {

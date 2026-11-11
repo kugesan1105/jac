@@ -1,15 +1,6 @@
-impl AutoscalerFactory.register(engine: str, factory: AutoscalerFactoryFn) {
-    AutoscalerFactory._registry[engine] = factory;
-}
-
 impl AutoscalerFactory.create(
     engine: (str | None), config: dict[str, any], logger: (Logger | None) = None
 ) -> Autoscaler {
-    if engine is not None and engine in AutoscalerFactory._registry {
-        factory = AutoscalerFactory._registry[engine];
-        return factory(config, logger);
-    }
-
     if engine is None or engine == "hpa" {
         import from jaclang.scale.deploy.autoscale.hpa_autoscaler { HPAAutoscaler }
         return HPAAutoscaler(logger=logger);
@@ -25,6 +16,6 @@ impl AutoscalerFactory.create(
         );
     }
     raise ValueError(
-        f"Unsupported autoscaler engine: '{engine}'. Supported built-in engines: 'hpa', 'keda'."
+        f"Unsupported autoscaler engine: '{engine}'. Supported engines: 'hpa', 'keda'."
     );
 }

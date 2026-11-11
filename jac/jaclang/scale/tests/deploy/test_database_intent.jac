@@ -37,7 +37,7 @@ def _mock_apis -> dict[str, any] {
 
 # Run the database half of a deploy against API doubles and report what it did.
 def _run_deploy(cfg: KubernetesConfig, app_name: str) -> dict[str, any] {
-    target = KubernetesTargetBase(config=cfg);
+    target = KubernetesTarget(config=cfg);
     apis = _mock_apis();
     target._deploy_databases(app_name, cfg.namespace, apis["apps_v1"], apis["core_v1"]);
     apis["env_list"] = list(target.env_list);

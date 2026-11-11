@@ -201,7 +201,7 @@ test "utility factory returns prometheus when available" {
 }
 
 test "deployment factory requires kubernetes for k8s target" {
-    import from jaclang.scale.deploy.target.factory { DeploymentTargetFactory }
+    import from jaclang.scale.deploy.target.factory { create_kubernetes_target }
 
     with unittest.mock.patch(
         "jaclang.scale.deploy.target.factory.require_optional",
@@ -212,7 +212,7 @@ test "deployment factory requires kubernetes for k8s target" {
     ) {
         raised = False;
         try {
-            DeploymentTargetFactory.create("kubernetes", {"app_name": "test"});
+            create_kubernetes_target("kubernetes", {"app_name": "test"});
         } except ImportError as e {
             raised = True;
             assert "deploy.k8s" in str(e);

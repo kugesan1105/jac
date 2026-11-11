@@ -1,7 +1,3 @@
-impl _load_deploy_factories -> DeployFactories {
-    return DeployFactories(utility=UtilityFactory, target=DeploymentTargetFactory);
-}
-
 impl _print_local_fleet_banner(fleet: any) {
     names = fleet.service_names();
     plural = "s" if len(names) != 1 else "";
@@ -224,14 +220,7 @@ impl deploy_destroy(
 
     scale_config = get_scale_config();
 
-    factories = _load_deploy_factories();
-    logger = factories.utility.create_logger('standard');
-
-    if target in ('kubernetes', 'kubernetes-microservice') {
-        target_config = scale_config.get_kubernetes_config();
-    } else {
-        target_config = scale_config.get_section(target);
-    }
+    target_config = scale_config.get_kubernetes_config();
 
     app_name = target_config.get('app_name', 'jaseci');
     namespace = target_config.get('namespace', 'default');
@@ -253,7 +242,9 @@ impl deploy_destroy(
         return 1;
     }
 
-    deployment_target = factories.target.create(target, target_config, logger);
+    deployment_target = create_kubernetes_target(
+        target, target_config, StandardLogger()
+    );
     deployment_target.destroy(app_name, component);
 
     if component {
@@ -275,16 +266,11 @@ impl deploy_status(file_path: str, target: str = "kubernetes") -> int {
 
     scale_config = get_scale_config();
 
-    factories = _load_deploy_factories();
-    logger = factories.utility.create_logger('standard');
+    target_config = scale_config.get_kubernetes_config();
 
-    if target == 'kubernetes' {
-        target_config = scale_config.get_kubernetes_config();
-    } else {
-        target_config = scale_config.get_section(target);
-    }
-
-    deployment_target = factories.target.create(target, target_config, logger);
+    deployment_target = create_kubernetes_target(
+        target, target_config, StandardLogger()
+    );
     app_name = target_config.get('app_name', 'jaseci');
 
     status_data = deployment_target.get_full_status(app_name);
@@ -302,6 +288,16 @@ impl scale_cmd(
     dry_run: bool = False,
     show_yaml: bool = False
 ) -> int {
+    platform_action = action == "deploy"
+        or (action in ("status", "destroy") and service_name.endswith(".jac"));
+    if platform_action and target not in DEPLOY_TARGETS {
+        console.error(
+            f"Unsupported deployment target '{target}'. Supported targets: "
+            f"{', '.join(DEPLOY_TARGETS)}.",
+            emoji=False
+        );
+        return 1;
+    }
     if action == "deploy" {
         (app_file, served_app, problem) = _resolve_deploy_target(service_name);
         if problem {

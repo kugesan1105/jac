@@ -1,7 +1,7 @@
 import math;
 
 impl known_deploy_targets -> list[str] {
-    return DeploymentTargetRegistry.known_targets();
+    return list(DEPLOY_TARGETS);
 }
 
 impl scale_schema_options -> dict[str, any] {

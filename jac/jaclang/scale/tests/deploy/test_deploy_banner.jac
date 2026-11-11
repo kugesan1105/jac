@@ -48,7 +48,7 @@ def _realize_capturing(
     ), unittest.mock.patch(
         "jaclang.scale.runtime.cli.plan.print_plan", side_effect=_plan
     ), unittest.mock.patch.object(
-        DeploymentTargetFactory, "create", return_value=fake_target
+        realizer_mod, "create_kubernetes_target", return_value=fake_target
     ), redirect_stdout(out), redirect_stderr(err) {
         rc = KubernetesRealizer(fleet=fleet, served_app=served_app).realize(
             app, dry_run=True

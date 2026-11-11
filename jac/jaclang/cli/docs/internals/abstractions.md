@@ -129,7 +129,7 @@ is intentionally minimal -- the shared Postgres store accessor
 (`shared_store()` / `scale_db_url()`). The substantive abstractions live
 across the scale tree as interface contracts:
 
-- [`deploy/target/deployment_target.jac`](https://github.com/Jaseci-Labs/jaseci/blob/main/jac/jaclang/scale/deploy/target/deployment_target.jac) -- deployment abstraction
+- [`deploy/target/kubernetes/target.jac`](https://github.com/Jaseci-Labs/jaseci/blob/main/jac/jaclang/scale/deploy/target/kubernetes/target.jac) -- the Kubernetes deployment target
 - [`observability/logger.jac`](https://github.com/Jaseci-Labs/jaseci/blob/main/jac/jaclang/scale/observability/logger.jac) -- logging abstraction
 - [`observability/metrics.jac`](https://github.com/Jaseci-Labs/jaseci/blob/main/jac/jaclang/scale/observability/metrics.jac) -- metrics interface
 - [`models/`](https://github.com/Jaseci-Labs/jaseci/tree/main/jac/jaclang/scale/models) -- `deployment_result.jac`, `resource_status.jac`

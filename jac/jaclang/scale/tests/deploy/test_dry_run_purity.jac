@@ -64,7 +64,7 @@ test "--dry-run never contacts the cluster to issue TLS certificates" {
         ), unittest.mock.patch(
             "jaclang.scale.runtime.cli.plan.print_plan", return_value=({}, [])
         ), unittest.mock.patch.object(
-            DeploymentTargetFactory, "create", return_value=fake_target
+            realizer_mod, "create_kubernetes_target", return_value=fake_target
         ) {
             KubernetesRealizer().realize(
                 app, target="kubernetes-microservice", enable_tls=True, dry_run=True
@@ -86,7 +86,7 @@ test "building a target for a dry run installs nothing and probes nothing" {
     ) as mock_ensure, unittest.mock.patch(
         "jaclang.scale.deploy.target.factory.require_optional"
     ) as mock_require {
-        target = DeploymentTargetFactory.create(
+        target = create_kubernetes_target(
             "kubernetes-microservice", config, dry_run=True
         );
         assert target is not None;
@@ -105,7 +105,7 @@ test "a real deploy still syncs missing deploy tooling" {
     ), unittest.mock.patch(
         "jaclang.scale.deploy.target.factory.ensure_global_capability"
     ) as mock_ensure {
-        DeploymentTargetFactory.create("kubernetes-microservice", config);
+        create_kubernetes_target("kubernetes-microservice", config);
         mock_ensure.assert_called_once_with("deploy.k8s");
     }
 }

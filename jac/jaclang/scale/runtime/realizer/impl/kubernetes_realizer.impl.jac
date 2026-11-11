@@ -86,11 +86,10 @@ impl KubernetesRealizer.realize(
     if not os.path.exists(filename) {
         raise FileNotFoundError(f"File not found: '{filename}'");
     }
+    check_deploy_target(target);
     (code_folder, entry_file) = deployed_tree(filename);
-    if target in ("kubernetes", "kubernetes-microservice") {
-        self.fleet = self._resolve_fleet(code_folder);
-        self._print_fleet_banner(self.fleet);
-    }
+    self.fleet = self._resolve_fleet(code_folder);
+    self._print_fleet_banner(self.fleet);
     delegated = self._deploy_on_pinned_jac(filename, target, enable_tls, dry_run);
     if delegated is not None {
         return delegated;
@@ -105,21 +104,12 @@ impl KubernetesRealizer.realize(
         }
     }
     scale_config = get_scale_config();
-    logger = UtilityFactory.create_logger('standard');
-
-    if target in ('kubernetes', 'kubernetes-microservice') {
-        target_config = scale_config.get_kubernetes_config();
-    } else {
-        target_config = scale_config.get_section(target);
-    }
-    deployment_target = DeploymentTargetFactory.create(
-        target, target_config, logger, dry_run=dry_run
+    target_config = scale_config.get_kubernetes_config();
+    deployment_target = create_kubernetes_target(
+        target, target_config, StandardLogger(), dry_run=dry_run
     );
-
-    if isinstance(deployment_target, KubernetesTarget) {
-        deployment_target.fleet = self.fleet;
-        deployment_target.gateway_config = self.gateway_config;
-    }
+    deployment_target.fleet = self.fleet;
+    deployment_target.gateway_config = self.gateway_config;
 
     if enable_tls and dry_run {
         console.warning(
@@ -138,20 +128,13 @@ impl KubernetesRealizer.realize(
             );
         }
         app_name = target_config.get('app_name', 'jaseci');
-        if not isinstance(deployment_target, KubernetesTargetBase) {
-            raise ValueError(
-                f"--enable-tls is only supported on kubernetes targets, not '{target}'."
-            );
-        }
         deployment_target.enable_tls(app_name);
         return 0;
     }
 
     code_folder = os.path.relpath(code_folder);
     code_folder = pathlib.Path(code_folder).as_posix();
-    if isinstance(deployment_target, KubernetesTargetBase) {
-        deployment_target.secrets = scale_config.get_secrets_config();
-    }
+    deployment_target.secrets = scale_config.get_secrets_config();
 
     app_config = AppConfig(
         code_folder=code_folder, file_name=entry_file, served_app=self.served_app

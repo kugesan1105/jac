@@ -52,11 +52,9 @@ test "early exit" {
     target_config["namespace"] = namespace;
     target_config["ingress_node_port"] = 30081;
 
-    logger = UtilityFactory.create_logger("standard");
+    logger = StandardLogger();
 
-    deployment_target = DeploymentTargetFactory.create(
-        "kubernetes", target_config, logger
-    );
+    deployment_target = create_kubernetes_target("kubernetes", target_config, logger);
 
     app_config = AppConfig(
         code_folder=todo_app_path, file_name="app_err.jac", no_image=True
@@ -84,10 +82,8 @@ test "deployment target methods" {
     target_config["app_name"] = app_name;
     target_config["namespace"] = namespace;
 
-    logger = UtilityFactory.create_logger("standard");
-    deployment_target = DeploymentTargetFactory.create(
-        "kubernetes", target_config, logger
-    );
+    logger = StandardLogger();
+    deployment_target = create_kubernetes_target("kubernetes", target_config, logger);
 
     service_url = deployment_target.get_service_url(app_name);
     assert service_url is None or isinstance(service_url, str);
@@ -134,9 +130,7 @@ test "a redeploy replaces a bundle PVC held terminating by a leftover loader" {
         core_v1.delete_namespaced_persistent_volume_claim("held-bundles", ns);
         cfg = get_scale_config().get_kubernetes_config()
             | {"app_name": "held", "namespace": ns};
-        target: any = DeploymentTargetFactory.create(
-            "kubernetes", cfg, UtilityFactory.create_logger("standard")
-        );
+        target: any = create_kubernetes_target("kubernetes", cfg, StandardLogger());
         target._apply_or_replace_pvc(core_v1, ns, pvc);
         assert uid() != old_uid , "the redeploy kept the Terminating PVC";
     } finally {
@@ -150,10 +144,8 @@ def _make_fleet_target(app_name: str = "svc-a", namespace: str = "fleet-ns") -> 
     target_config = scale_config.get_kubernetes_config();
     target_config["app_name"] = app_name;
     target_config["namespace"] = namespace;
-    logger = UtilityFactory.create_logger("standard");
-    return DeploymentTargetFactory.create(
-        "kubernetes-microservice", target_config, logger
-    );
+    logger = StandardLogger();
+    return create_kubernetes_target("kubernetes-microservice", target_config, logger);
 }
 
 def _fleet_bundle(app_name: str = "svc-a") -> dict[str, any] {
@@ -188,7 +180,7 @@ def _run_fleet_rollout(
         return now[0];
     }
     with unittest.mock.patch(
-        "jaclang.scale.deploy.target.kubernetes.kubernetes_target.k8s_cluster_config"
+        "jaclang.scale.deploy.target.kubernetes.target.k8s_cluster_config"
     ) {
         with unittest.mock.patch(
             "jaclang.scale.deploy.target.kubernetes.target.client.AppsV1Api",
@@ -396,8 +388,8 @@ test "get service url switches between http and https based on tls state" {
     target_config["app_name"] = "myapp";
     target_config["namespace"] = "default";
     target_config["domain"] = "app.example.com";
-    logger = UtilityFactory.create_logger("standard");
-    deployment_target: any = DeploymentTargetFactory.create(
+    logger = StandardLogger();
+    deployment_target: any = create_kubernetes_target(
         "kubernetes", target_config, logger
     );
 
@@ -408,10 +400,10 @@ test "get service url switches between http and https based on tls state" {
         spec=SimpleNamespace(tls=[tls_entry])
     );
     with unittest.mock.patch(
-        "jaclang.scale.deploy.target.kubernetes.kubernetes_target.k8s_cluster_config"
+        "jaclang.scale.deploy.target.kubernetes.target.k8s_cluster_config"
     ) {
         with unittest.mock.patch(
-            "jaclang.scale.deploy.target.kubernetes.kubernetes_target.client.NetworkingV1Api",
+            "jaclang.scale.deploy.target.kubernetes.target.client.NetworkingV1Api",
             return_value=mock_networking_v1
         ) {
             assert deployment_target.get_service_url("myapp")
@@ -423,10 +415,10 @@ test "get service url switches between http and https based on tls state" {
         spec=SimpleNamespace(tls=[])
     );
     with unittest.mock.patch(
-        "jaclang.scale.deploy.target.kubernetes.kubernetes_target.k8s_cluster_config"
+        "jaclang.scale.deploy.target.kubernetes.target.k8s_cluster_config"
     ) {
         with unittest.mock.patch(
-            "jaclang.scale.deploy.target.kubernetes.kubernetes_target.client.NetworkingV1Api",
+            "jaclang.scale.deploy.target.kubernetes.target.client.NetworkingV1Api",
             return_value=mock_networking_v1
         ) {
             assert deployment_target.get_service_url("myapp")
@@ -441,8 +433,8 @@ test "enable tls raises when no domain configured" {
     target_config["app_name"] = "myapp";
     target_config["namespace"] = "default";
     target_config["domain"] = "";
-    logger = UtilityFactory.create_logger("standard");
-    deployment_target: any = DeploymentTargetFactory.create(
+    logger = StandardLogger();
+    deployment_target: any = create_kubernetes_target(
         "kubernetes", target_config, logger
     );
 
@@ -453,20 +445,20 @@ test "enable tls raises when no domain configured" {
 
     raised = False;
     with unittest.mock.patch(
-        "jaclang.scale.deploy.target.kubernetes.kubernetes_target.k8s_cluster_config"
+        "jaclang.scale.deploy.target.kubernetes.target.k8s_cluster_config"
     ) {
         with unittest.mock.patch(
-            "jaclang.scale.deploy.target.kubernetes.kubernetes_target.client.NetworkingV1Api",
+            "jaclang.scale.deploy.target.kubernetes.target.client.NetworkingV1Api",
             return_value=mock_networking_v1
         ) {
             with unittest.mock.patch(
-                "jaclang.scale.deploy.target.kubernetes.kubernetes_target.client.CustomObjectsApi"
+                "jaclang.scale.deploy.target.kubernetes.target.client.CustomObjectsApi"
             ) {
                 with unittest.mock.patch(
-                    "jaclang.scale.deploy.target.kubernetes.kubernetes_target.client.CoreV1Api"
+                    "jaclang.scale.deploy.target.kubernetes.target.client.CoreV1Api"
                 ) {
                     with unittest.mock.patch(
-                        "jaclang.scale.deploy.target.kubernetes.kubernetes_target.client.AppsV1Api"
+                        "jaclang.scale.deploy.target.kubernetes.target.client.AppsV1Api"
                     ) {
                         try {
                             deployment_target.enable_tls("myapp");
@@ -615,10 +607,8 @@ test "shared ingress deploy fails fast when domain is not set" {
     target_config['shared_ingress'] = True;
     target_config['domain'] = '';
 
-    logger = UtilityFactory.create_logger('standard');
-    deployment_target = DeploymentTargetFactory.create(
-        'kubernetes', target_config, logger
-    );
+    logger = StandardLogger();
+    deployment_target = create_kubernetes_target('kubernetes', target_config, logger);
 
     app_config = AppConfig(code_folder='/tmp', file_name='main.jac');
 

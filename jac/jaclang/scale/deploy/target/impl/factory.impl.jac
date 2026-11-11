@@ -33,31 +33,28 @@ impl require_deploy_tooling(dry_run: bool = False) {
     }
 }
 
-impl DeploymentTargetFactory.create(
+impl check_deploy_target(target: str) -> None {
+    if target not in DEPLOY_TARGETS {
+        raise ValueError(
+            f"Unsupported deployment target '{target}'. Supported targets: "
+            f"{', '.join(DEPLOY_TARGETS)}."
+        );
+    }
+}
+
+impl create_kubernetes_target(
     target_type: str,
     config: dict[str, any],
     logger: (Logger | None) = None,
     dry_run: bool = False
-) -> DeploymentTarget {
-    if target_type in DeploymentTargetFactory._registry {
-        factory = DeploymentTargetFactory._registry[target_type];
-        return factory(config, logger);
+) -> KubernetesTarget {
+    check_deploy_target(target_type);
+    ensure_deploy_tooling(dry_run);
+    require_deploy_tooling(dry_run);
+    import from jaclang.scale.deploy.target.kubernetes.kubernetes_config {
+        KubernetesConfig
     }
-
-    if target_type in ('kubernetes', 'kubernetes-microservice') {
-        ensure_deploy_tooling(dry_run);
-        require_deploy_tooling(dry_run);
-        import from jaclang.scale.deploy.target.kubernetes.kubernetes_config {
-            KubernetesConfig
-        }
-        import from jaclang.scale.deploy.target.kubernetes.target { KubernetesTarget }
-        k8s_config = KubernetesConfig.from_dict(KubernetesConfig, config);
-        return KubernetesTarget(config=k8s_config, logger=logger, dry_run=dry_run);
-    } elif target_type == 'aws' {
-        raise NotImplementedError("AWS target not yet implemented");
-    } elif target_type == 'gcp' {
-        raise NotImplementedError("GCP target not yet implemented");
-    } else {
-        raise ValueError(f"Unsupported deployment target type: {target_type}");
-    }
+    import from jaclang.scale.deploy.target.kubernetes.target { KubernetesTarget }
+    k8s_config = KubernetesConfig.from_dict(KubernetesConfig, config);
+    return KubernetesTarget(config=k8s_config, logger=logger, dry_run=dry_run);
 }

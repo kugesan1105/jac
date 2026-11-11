@@ -1860,7 +1860,7 @@ impl _apply_memory_native_placement(cfg: JacConfig, data: dict[str, any]) {
         } else {
             console.warning(
                 f"[placement] default='{_raw}' is not one of 'server'/'sv', 'native'/'na';"
-                " defaulting to 'native'."
+                " defaulting to 'server'."
             );
         }
     }

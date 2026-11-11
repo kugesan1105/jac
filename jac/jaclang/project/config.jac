@@ -71,7 +71,7 @@ obj MemoryConfig {
 }
 
 obj PlacementConfig {
-    has default_codespace: str = "native";
+    has default_codespace: str = "server";
 }
 
 obj BuildConfig {

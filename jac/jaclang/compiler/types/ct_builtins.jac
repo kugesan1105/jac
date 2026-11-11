@@ -317,8 +317,6 @@ def ct_call_builtin(
 
 def _pairs_into(d: CtDict, src: CtValue);
 
-def _parse_int_text(text: str, shown: str, base: int) -> CtInt;
-
 def ct_construct_builtin(
     name: str, args: list[CtValue], kwargs: dict[str, CtValue]
 ) -> CtValue;
@@ -387,48 +385,13 @@ def _float_method(
     recv: CtFloat, name: str, args: list[CtValue], kwargs: dict[str, CtValue]
 ) -> CtValue;
 
-def _pow2(e: int) -> CtInt;
+def _math_arg(v: CtValue) -> object;
 
-def _math_float(v: CtValue) -> float;
-
-def int_frexp(a: CtInt) -> tuple[float, int];
-
-def _log_of(v: CtValue, which: str) -> float;
-
-def _log_raw(x: float, which: str) -> float;
-
-def _range_error(r: float, inputs_finite: bool) -> float;
-
-def _finite(x: float) -> bool;
-
-def _math_int_arg(v: CtValue) -> CtInt;
+def _from_math(out: object) -> CtValue;
 
 def ct_call_math(
     name: str, args: list[CtValue], kwargs: dict[str, CtValue]
 ) -> CtValue;
-
-
-def _math_log(name: str, args: list[CtValue], kwargs: dict[str, CtValue]) -> CtValue;
-
-def _math_integer(
-    name: str, args: list[CtValue], kwargs: dict[str, CtValue]
-) -> CtValue;
-
-def _math_reduce(
-    name: str, args: list[CtValue], kwargs: dict[str, CtValue]
-) -> CtValue;
-
-def _math_classify(
-    name: str, args: list[CtValue], kwargs: dict[str, CtValue]
-) -> CtValue;
-
-def _math_parts(name: str, args: list[CtValue], kwargs: dict[str, CtValue]) -> CtValue;
-
-def _factorial(n: CtInt) -> CtInt;
-
-def _math2(name: str, x: float, y: float) -> float;
-
-def _math1(name: str, x: float) -> float;
 
 def adjust_indices(n: int, start: (int | None), end: (int | None)) -> tuple[int, int];
 

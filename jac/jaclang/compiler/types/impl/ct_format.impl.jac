@@ -211,67 +211,11 @@ impl _layout_number(
 }
 
 impl format_int(v: CtInt, spec: str, owner: str) -> str {
-    fs = parse_format_spec(spec, owner, "d", ">");
-    k = fs.kind;
-    if k in ("e", "E", "f", "F", "g", "G", "%") {
-        return format_float(int_to_float(v), spec);
+    try {
+        return format(v.value if owner == "int" else bool(v.value), spec);
+    } except (ValueError, OverflowError, TypeError) as e {
+        raise ct_py_exc(e);
     }
-    if k not in ("b", "c", "d", "o", "x", "X", "n") {
-        raise ct_exc("ValueError", _unknown_code(k, owner));
-    }
-    if fs.precision != -1 {
-        raise ct_exc("ValueError", "Precision not allowed in integer format specifier");
-    }
-    if fs.no_neg_0 {
-        raise ct_exc(
-            "ValueError",
-            "Negative zero coercion (z) not allowed in integer format specifier"
-        );
-    }
-    if k == "c" {
-        if fs.sign {
-            raise ct_exc(
-                "ValueError", "Sign not allowed with integer format specifier 'c'"
-            );
-        }
-        if fs.alternate {
-            raise ct_exc(
-                "ValueError",
-                "Alternate form (#) not allowed with integer format specifier 'c'"
-            );
-        }
-        if v.mag {
-            raise ct_exc("OverflowError", "Python int too large to convert to C long");
-        }
-        if v.small < 0 or v.small > 1114111 {
-            raise ct_exc("OverflowError", "%c arg not in range(0x110000)");
-        }
-        return _layout_number(fs, False, "", "", chr(v.small), "", 0);
-    }
-    base = 10;
-    prefix = "";
-    if k == "b" {
-        base = 2;
-        prefix = "0b";
-    } elif k == "o" {
-        base = 8;
-        prefix = "0o";
-    } elif k in ("x", "X") {
-        base = 16;
-        prefix = "0x";
-    }
-    digits = int_to_base_str(v, base);
-    if not fs.alternate {
-        prefix = "";
-    }
-    if k == "X" {
-        digits = digits.upper();
-        prefix = prefix.upper();
-    }
-    sep = fs.grouping;
-    return _layout_number(
-        fs, int_is_neg(v), prefix, digits, "", sep, fs.group_size if sep else 0
-    );
 }
 
 impl format_str(s: str, spec: str) -> str {
@@ -334,7 +278,7 @@ impl ct_format(v: CtValue, spec: str) -> str {
         return format_int(v, spec, "int");
     }
     if isinstance(v, CtBool) {
-        return format_int(CtInt(small=1 if v.value else 0), spec, "bool");
+        return format_int(CtInt(value=1 if v.value else 0), spec, "bool");
     }
     if isinstance(v, CtFloat) {
         return format_float(v.value, spec);
@@ -383,7 +327,7 @@ impl _percent_int_digits(
         digits = digits.upper();
         prefix = prefix.upper();
     }
-    return (int_is_neg(v), prefix, digits);
+    return (v.value < 0, prefix, digits);
 }
 
 impl _percent_number_arg(v: CtValue, conv: str) -> CtInt {
@@ -471,7 +415,7 @@ impl ct_percent_format(fmt: str, args: CtValue) -> str {
             if wv is None {
                 raise ct_exc("TypeError", "* wants int");
             }
-            width = wv.small;
+            width = wv.value;
             if width < 0 {
                 flags += "-";
                 width = -width;
@@ -492,7 +436,7 @@ impl ct_percent_format(fmt: str, args: CtValue) -> str {
                 if pv is None {
                     raise ct_exc("TypeError", "* wants int");
                 }
-                prec = max(pv.small, 0);
+                prec = max(pv.value, 0);
                 i += 1;
             } else {
                 (prec, i) = _read_int(fmt, i);
@@ -582,10 +526,10 @@ impl ct_percent_format(fmt: str, args: CtValue) -> str {
         } elif conv == "c" {
             civ = as_ct_int(arg);
             if civ is not None {
-                if civ.mag or civ.small < 0 or civ.small > 1114111 {
+                if civ.value < 0 or civ.value > 1114111 {
                     raise ct_exc("OverflowError", "%c arg not in range(0x110000)");
                 }
-                text2 = chr(civ.small);
+                text2 = chr(civ.value);
             } elif isinstance(arg, CtStr) and len(arg.value) == 1 {
                 text2 = arg.value;
             } elif isinstance(arg, CtStr) {
@@ -771,7 +715,7 @@ impl _field_value(name: str, st: CtFormatState) -> CtValue {
             tail = tail[close + 1:];
             if key.isdigit() {
                 from_int = int(key);
-                value = ct_getitem(value, CtInt(small=from_int));
+                value = ct_getitem(value, CtInt(value=from_int));
             } else {
                 value = ct_getitem(value, mk_str(key));
             }
@@ -831,12 +775,11 @@ impl ct_inplace(sym: str, cur: CtValue, val: CtValue) -> CtValue {
                 f"can't multiply sequence by non-int of type '{ct_type_name(val)}'"
             );
         }
-        if n.mag {
-            raise ct_exc(
-                "OverflowError", "cannot fit 'int' into an index-sized integer"
-            );
+        try {
+            cur.items = cur.items * max(n.value, 0);
+        } except OverflowError as e {
+            raise ct_py_exc(e);
         }
-        cur.items = cur.items * max(n.small, 0);
         return cur;
     }
     if sym in ("|", "&", "-", "^")

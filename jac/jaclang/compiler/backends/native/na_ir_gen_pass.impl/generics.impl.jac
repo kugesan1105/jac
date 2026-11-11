@@ -231,10 +231,10 @@ impl NaIRGenPass._ct_native_const(v: CtValue, nd: uni.Expr) -> (ir.Value | None)
     if isinstance(v, CtBool) {
         out = ir.Constant(ir.IntType(1), 1 if v.value else 0);
     } elif isinstance(v, CtInt) {
-        if v.mag {
+        if abs(v.value) >= (1 << 62) {
             return None;
         }
-        out = ir.Constant(ir.IntType(64), v.small);
+        out = ir.Constant(ir.IntType(64), v.value);
     } elif isinstance(v, CtFloat) {
         out = ir.Constant(ir.DoubleType(), v.value);
     } elif isinstance(v, CtStr) {

@@ -742,9 +742,7 @@ impl CtEvaluator._demand_tree(sym: Symbol) -> Symbol {
         scope = scope.parent_scope;
     }
     try {
-        real = self.evaluator.program.load_dependency_module(
-            path, need_tree=True, need_bodies=True
-        );
+        real = self.evaluator.program.load_dependency_module(path, need_tree=True);
     } except Exception {
         return sym;
     }
@@ -1039,12 +1037,12 @@ impl CtEvaluator._enum_members(nd: Enum) -> list[CtEnumMember] {
                 self.barriers = saved_barriers;
             }
         } elif running is None {
-            val = CtInt(small=1);
+            val = mk_int(1);
         } else {
-            val = int_add(running, CtInt(small=1));
+            val = mk_int(running.value + 1);
         }
         if isinstance(val, CtInt) {
-            if running is None or int_cmp(val, running) > 0 {
+            if running is None or val.value > running.value {
                 running = val;
             }
         }
@@ -1385,11 +1383,7 @@ impl CtEvaluator._intrinsic(
         if fuel_arg is None or isinstance(args[0], CtBool) {
             raise CtError("set_fuel() takes one int argument");
         }
-        if not fuel_arg.mag {
-            self.fuel = max(self.fuel, fuel_arg.small);
-        } elif not fuel_arg.neg {
-            self.fuel = max(self.fuel, 4611686018427387903);
-        }
+        self.fuel = max(self.fuel, min(fuel_arg.value, 4611686018427387903));
         return CT_NONE;
     }
     if name in ("embed_file", "embed_bytes") {

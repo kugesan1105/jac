@@ -15,14 +15,15 @@ impl ct_exc_value(kind: str, arg: CtValue) -> CtRaise {
 }
 
 impl ct_exc_is(kind: str, ancestor: str) -> bool {
-    cur = kind;
-    while cur {
-        if cur == ancestor {
-            return True;
-        }
-        cur = CT_EXC_PARENT.get(cur, "");
+    k = getattr(builtins, kind, None);
+    a = getattr(builtins, ancestor, None);
+    if isinstance(k, type)
+        and isinstance(a, type)
+        and issubclass(k, BaseException)
+        and issubclass(a, BaseException) {
+        return issubclass(k, a);
     }
-    return False;
+    return kind == ancestor;
 }
 
 impl mk_bool(b: bool) -> CtBool {
@@ -30,21 +31,7 @@ impl mk_bool(b: bool) -> CtBool {
 }
 
 impl mk_int(v: int) -> CtInt {
-    if -CT_SMALL_BOUND < v and v < CT_SMALL_BOUND {
-        return CtInt(small=v);
-    }
-    if v < 0 {
-        return CtInt(mag=mag_add_small(mag_from_int(-(v + 1)), 1), neg=True);
-    }
-    return CtInt(mag=mag_from_int(v));
-}
-
-impl mk_int_mag(neg: bool, mag: list[int]) -> CtInt {
-    if mag_bit_length(mag) <= 62 {
-        val = mag_to_int(mag);
-        return CtInt(small=-val if neg else val);
-    }
-    return CtInt(mag=mag, neg=neg);
+    return CtInt(value=v);
 }
 
 impl mk_float(f: float) -> CtFloat {
@@ -79,68 +66,38 @@ impl mk_set(items: list[CtValue], frozen: bool = False) -> CtSet {
     return out;
 }
 
-impl int_is_big(v: CtInt) -> bool {
-    return len(v.mag) > 0;
-}
-
-impl int_sign_mag(v: CtInt) -> tuple[bool, list[int]] {
-    if v.mag {
-        return (v.neg, v.mag);
+impl ct_py_exc(e: Exception) -> CtRaise {
+    args: list[CtValue] = [];
+    for a in e.args {
+        if a is None {
+            args.append(CT_NONE);
+        } elif isinstance(a, bool) {
+            args.append(mk_bool(a));
+        } elif isinstance(a, int) {
+            args.append(mk_int(a));
+        } elif isinstance(a, str) {
+            args.append(mk_str(a));
+        } else {
+            args.append(mk_str(str(a)));
+        }
     }
-    if v.small < 0 {
-        return (True, mag_from_int(-v.small));
-    }
-    return (False, mag_from_int(v.small));
-}
-
-impl int_host(v: CtInt) -> int {
-    if not v.mag {
-        return v.small;
-    }
-    val = mag_to_int(v.mag);
-    return -val if v.neg else val;
+    return CtRaise(exc=CtExc(kind=type(e).__name__, args=args));
 }
 
 impl int_wide_bytes(v: CtInt) -> (bytes | None) {
-    if not v.mag {
+    mag = abs(v.value);
+    if mag.bit_length() <= 63 {
         return None;
     }
-    if mag_bit_length(v.mag) <= 63 {
-        return None;
-    }
-    out = bytearray();
-    acc = 0;
-    held = 0;
-    for limb in v.mag {
-        acc = acc | (limb << held);
-        held += MAG_SHIFT;
-        while held >= 8 {
-            out.append(acc & 255);
-            acc = acc >> 8;
-            held -= 8;
-        }
-    }
-    if held > 0 and acc != 0 {
-        out.append(acc & 255);
-    }
-    while out and out[-1] == 0 {
-        out.pop();
-    }
-    return bytes(out);
+    return mag.to_bytes((mag.bit_length() + 7) // 8, "little");
 }
 
-impl int_decimal(v: CtInt) -> str {
-    if not v.mag {
-        return str(v.small);
+impl int_decimal(v: int) -> str {
+    try {
+        return str(v);
+    } except ValueError as e {
+        raise ct_py_exc(e);
     }
-    digits = mag_decimal_digits(v.mag);
-    if len(digits) > MAX_STR_DIGITS {
-        raise ct_exc(
-            "ValueError",
-            f"Exceeds the limit ({MAX_STR_DIGITS} digits) for integer string conversion; use sys.set_int_max_str_digits() to increase the limit"
-        );
-    }
-    return ("-" if v.neg else "") + digits;
 }
 
 impl as_ct_int(v: CtValue) -> (CtInt | None) {
@@ -148,7 +105,7 @@ impl as_ct_int(v: CtValue) -> (CtInt | None) {
         return v;
     }
     if isinstance(v, CtBool) {
-        return CtInt(small=1 if v.value else 0);
+        return CtInt(value=1 if v.value else 0);
     }
     return None;
 }
@@ -344,7 +301,7 @@ impl ct_truthy(v: CtValue) -> bool {
         return v.value;
     }
     if isinstance(v, CtInt) {
-        return len(v.mag) > 0 or v.small != 0;
+        return v.value != 0;
     }
     if isinstance(v, CtFloat) {
         return v.value != 0.0;
@@ -395,10 +352,7 @@ impl ct_key(v: CtValue) -> str {
         return "i1" if v.value else "i0";
     }
     if isinstance(v, CtInt) {
-        if not v.mag {
-            return "i" + str(v.small);
-        }
-        return "i" + ("-" if v.neg else "") + mag_decimal_digits(v.mag);
+        return "i" + format(v.value, "x");
     }
     if isinstance(v, CtFloat) {
         f = v.value;
@@ -406,7 +360,7 @@ impl ct_key(v: CtValue) -> str {
             return "fnan";
         }
         if _float_is_integral(f) {
-            return "i" + float_integral_decimal(f);
+            return "i" + format(int(f), "x");
         }
         return "f" + repr(f);
     }
@@ -466,26 +420,12 @@ impl ct_key(v: CtValue) -> str {
     raise ct_exc("TypeError", f"unhashable type: '{_unhashable_name(v)}'");
 }
 
-impl float_integral_decimal(f: float) -> str {
-    if abs(f) < 4611686018427387904.0 {
-        return str(int(f));
-    }
-    return int_decimal(float_to_ct_int(f));
-}
-
 impl float_to_ct_int(f: float) -> CtInt {
-    if f != f {
-        raise ct_exc("ValueError", "cannot convert float NaN to integer");
+    try {
+        return CtInt(value=int(f));
+    } except (ValueError, OverflowError) as e {
+        raise ct_py_exc(e);
     }
-    if f - f != 0.0 {
-        raise ct_exc("OverflowError", "cannot convert float infinity to integer");
-    }
-    if abs(f) < 4611686018427387904.0 {
-        return CtInt(small=int(f));
-    }
-    (m, e) = math.frexp(abs(f));
-    mant = int(m * 9007199254740992.0);
-    return mk_int_mag(f < 0.0, mag_shl(mag_from_int(mant), e - 53));
 }
 
 impl ct_same_or_eq(a: CtValue, b: CtValue) -> bool {
@@ -493,24 +433,11 @@ impl ct_same_or_eq(a: CtValue, b: CtValue) -> bool {
 }
 
 impl ct_eq(a: CtValue, b: CtValue) -> bool {
-    ai = as_ct_int(a);
-    bi = as_ct_int(b);
-    if ai is not None and bi is not None {
-        if not ai.mag and not bi.mag {
-            return ai.small == bi.small;
-        }
-        return ai.neg == bi.neg and ai.mag == bi.mag;
+    if isinstance(a, (CtBool, CtInt, CtFloat))
+        and isinstance(b, (CtBool, CtInt, CtFloat)) {
+        return a.value == b.value;
     }
     if isinstance(a, CtFloat) or isinstance(b, CtFloat) {
-        if isinstance(a, CtFloat) and isinstance(b, CtFloat) {
-            return a.value == b.value;
-        }
-        if isinstance(a, CtFloat) and bi is not None {
-            return int_float_cmp(bi, a.value) == 0;
-        }
-        if isinstance(b, CtFloat) and ai is not None {
-            return int_float_cmp(ai, b.value) == 0;
-        }
         return False;
     }
     if isinstance(a, CtNone) or isinstance(b, CtNone) {
@@ -645,60 +572,6 @@ impl view_items_set(v: CtView) -> CtSet {
     return out;
 }
 
-impl int_float_cmp(a: CtInt, f: float) -> int {
-    if f != f {
-        return 2;
-    }
-    if f - f != 0.0 {
-        return -1 if f > 0.0 else 1;
-    }
-    if not a.mag and abs(a.small) <= 9007199254740992 {
-        af = float(a.small);
-        if af < f {
-            return -1;
-        }
-        return 1 if af > f else 0;
-    }
-    fl = float_floor(f);
-    fl_int = float_to_ct_int(fl);
-    c = int_cmp(a, fl_int);
-    if c != 0 {
-        return c;
-    }
-    return 0 if fl == f else -1;
-}
-
-impl float_floor(f: float) -> float {
-    if f != f or f - f != 0.0 or abs(f) >= 4503599627370496.0 {
-        return f;
-    }
-    t = float(int(f));
-    if t > f {
-        t -= 1.0;
-    }
-    return t;
-}
-
-impl float_ceil(f: float) -> float {
-    return -float_floor(-f);
-}
-
-impl int_cmp(a: CtInt, b: CtInt) -> int {
-    if not a.mag and not b.mag {
-        if a.small < b.small {
-            return -1;
-        }
-        return 1 if a.small > b.small else 0;
-    }
-    (an, am) = int_sign_mag(a);
-    (bn, bm) = int_sign_mag(b);
-    if an != bn {
-        return -1 if an else 1;
-    }
-    c = mag_cmp(am, bm);
-    return -c if an else c;
-}
-
 impl bytes_has(data: bytes, byte: int) -> bool {
     for b in data {
         if b == byte {
@@ -762,7 +635,7 @@ impl _repr_in(v: CtValue, seen: list[CtValue]) -> str {
         return "True" if v.value else "False";
     }
     if isinstance(v, CtInt) {
-        return int_decimal(v);
+        return int_decimal(v.value);
     }
     if isinstance(v, CtFloat) {
         return repr(v.value);
@@ -936,7 +809,7 @@ impl ct_iter(v: CtValue) -> list[CtValue] {
     if isinstance(v, CtBytes) {
         out2: list[CtValue] = [];
         for byte in v.value {
-            out2.append(CtInt(small=byte));
+            out2.append(CtInt(value=byte));
         }
         return out2;
     }
@@ -1057,7 +930,7 @@ impl ct_host_scalar(v: CtValue) -> (int | float | str | bytes | bool | None) {
         return v.value;
     }
     if isinstance(v, CtInt) {
-        return int_host(v);
+        return v.value;
     }
     if isinstance(v, CtFloat) {
         return v.value;
@@ -1084,7 +957,7 @@ impl ct_mangle(v: CtValue) -> str {
         return "b1" if v.value else "b0";
     }
     if isinstance(v, CtInt) {
-        text = int_decimal(v);
+        text = int_decimal(v.value);
         return "n" + text[1:] if text.startswith("-") else "i" + text;
     }
     if isinstance(v, CtFloat) {

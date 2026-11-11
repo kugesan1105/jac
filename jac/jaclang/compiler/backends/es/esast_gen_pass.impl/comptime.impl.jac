@@ -15,11 +15,8 @@ impl EsastGenPass._ct_es_value(v: CtValue) -> (es.Expression | None) {
     if isinstance(v, CtNone) {
         return es.Literal(value=None);
     }
-    if isinstance(v, (CtBool, CtFloat, CtStr)) {
+    if isinstance(v, (CtBool, CtInt, CtFloat, CtStr)) {
         return es.Literal(value=v.value);
-    }
-    if isinstance(v, CtInt) {
-        return es.Literal(value=int_host(v));
     }
     if isinstance(v, (CtList, CtTuple, CtSet)) {
         elements: list[(es.Expression | es.SpreadElement | None)] = [];

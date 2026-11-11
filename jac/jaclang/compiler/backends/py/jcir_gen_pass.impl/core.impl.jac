@@ -261,12 +261,12 @@ impl JcirGenPass.int_const_of(
 ) -> CgNode {
     wide = int_wide_bytes(value);
     if wide is None {
-        return self.const_of(int_host(value), jac_node);
+        return self.const_of(value.value, jac_node);
     }
     return self.nod(
         'Constant',
         ['value'],
-        [CgWideInt(negative=value.neg, magnitude=wide)],
+        [CgWideInt(negative=value.value < 0, magnitude=wide)],
         jac_node=jac_node
     );
 }

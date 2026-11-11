@@ -1,4 +1,4 @@
-import math;
+import builtins;
 
 class CtNotComptime(Exception) {}
 
@@ -26,9 +26,7 @@ obj CtBool(CtValue) {
 }
 
 obj CtInt(CtValue) {
-    has small: int = 0,
-        mag: list[int] = [],
-        neg: bool = False;
+    has value: int = 0;
 }
 
 obj CtFloat(CtValue) {
@@ -144,29 +142,10 @@ obj CtRaise(Exception) {
     def __str__ -> str;
 }
 
-glob CT_SMALL_BOUND: int = 4611686018427387904,
-     CT_NONE: CtNone = CtNone(),
+glob CT_NONE: CtNone = CtNone(),
      CT_TRUE: CtBool = CtBool(value=True),
      CT_FALSE: CtBool = CtBool(value=False),
-     CT_DEFERRED: CtDeferred = CtDeferred(),
-     CT_EXC_PARENT: dict[str, str] = {
-         "BaseException": "",
-         "Exception": "BaseException",
-         "ArithmeticError": "Exception",
-         "ZeroDivisionError": "ArithmeticError",
-         "OverflowError": "ArithmeticError",
-         "LookupError": "Exception",
-         "KeyError": "LookupError",
-         "IndexError": "LookupError",
-         "ValueError": "Exception",
-         "TypeError": "Exception",
-         "AttributeError": "Exception",
-         "AssertionError": "Exception",
-         "StopIteration": "Exception",
-         "RuntimeError": "Exception",
-         "NotImplementedError": "RuntimeError",
-         "RecursionError": "RuntimeError"
-     };
+     CT_DEFERRED: CtDeferred = CtDeferred();
 
 def ct_exc(kind: str, msg: str) -> CtRaise;
 
@@ -177,8 +156,6 @@ def ct_exc_is(kind: str, ancestor: str) -> bool;
 def mk_bool(b: bool) -> CtBool;
 
 def mk_int(v: int) -> CtInt;
-
-def mk_int_mag(neg: bool, mag: list[int]) -> CtInt;
 
 def mk_float(f: float) -> CtFloat;
 
@@ -194,15 +171,11 @@ def mk_dict -> CtDict;
 
 def mk_set(items: list[CtValue], frozen: bool = False) -> CtSet;
 
-def int_is_big(v: CtInt) -> bool;
-
-def int_sign_mag(v: CtInt) -> tuple[bool, list[int]];
-
-def int_host(v: CtInt) -> int;
+def ct_py_exc(e: Exception) -> CtRaise;
 
 def int_wide_bytes(v: CtInt) -> (bytes | None);
 
-def int_decimal(v: CtInt) -> str;
+def int_decimal(v: int) -> str;
 
 def as_ct_int(v: CtValue) -> (CtInt | None);
 
@@ -242,8 +215,6 @@ def _len_prefixed(s: str) -> str;
 
 def ct_key(v: CtValue) -> str;
 
-def float_integral_decimal(f: float) -> str;
-
 def float_to_ct_int(f: float) -> CtInt;
 
 def ct_same_or_eq(a: CtValue, b: CtValue) -> bool;
@@ -253,14 +224,6 @@ def ct_eq(a: CtValue, b: CtValue) -> bool;
 def _items_eq(a: list[CtValue], b: list[CtValue]) -> bool;
 
 def view_items_set(v: CtView) -> CtSet;
-
-def int_float_cmp(a: CtInt, f: float) -> int;
-
-def float_floor(f: float) -> float;
-
-def float_ceil(f: float) -> float;
-
-def int_cmp(a: CtInt, b: CtInt) -> int;
 
 def bytes_has(data: bytes, byte: int) -> bool;
 

@@ -256,8 +256,8 @@ impl NaIRGenPass._codegen_const_expr(
         if isinstance(cv, CtBool) {
             return ir.Constant(target_type, 1 if cv.value else 0);
         }
-        if isinstance(cv, CtInt) and not cv.mag {
-            return ir.Constant(target_type, cv.small);
+        if isinstance(cv, CtInt) and abs(cv.value) < (1 << 62) {
+            return ir.Constant(target_type, cv.value);
         }
         if isinstance(cv, CtFloat) {
             return ir.Constant(target_type, cv.value);

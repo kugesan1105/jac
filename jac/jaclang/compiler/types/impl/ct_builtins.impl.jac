@@ -92,10 +92,10 @@ impl _as_index(v: CtValue) -> CtInt {
 
 impl _as_small(v: CtValue) -> int {
     iv = _as_index(v);
-    if iv.mag {
+    if iv.value > CT_INDEX_MAX or iv.value < -CT_INDEX_MAX - 1 {
         raise ct_exc("OverflowError", "Python int too large to convert to C ssize_t");
     }
-    return iv.small;
+    return iv.value;
 }
 
 impl _opt_small(v: CtValue) -> (int | None) {
@@ -230,7 +230,7 @@ impl _minmax(
 impl _sum(args: list[CtValue], kwargs: dict[str, CtValue]) -> CtValue {
     slots = _arity("sum", args, kwargs, ["iterable", "start"], 1);
     items = ct_iter(slots[0]);
-    result: CtValue = slots[1] if slots[1] is not CT_ABSENT else CtInt(small=0);
+    result: CtValue = slots[1] if slots[1] is not CT_ABSENT else mk_int(0);
     if isinstance(result, CtStr) {
         raise ct_exc("TypeError", "sum() can't sum strings [use ''.join(seq) instead]");
     }
@@ -238,73 +238,20 @@ impl _sum(args: list[CtValue], kwargs: dict[str, CtValue]) -> CtValue {
         raise ct_exc("TypeError", "sum() can't sum bytes [use b''.join(seq) instead]");
     }
     i = 0;
-    n = len(items);
-    if isinstance(result, CtInt) {
-        acc: CtInt = result;
-        broke = False;
-        while i < n {
-            item = items[i];
-            iv = as_ct_int(item);
+    start = ct_py_number(result);
+    if start is not None {
+        nums: list[(bool | int | float)] = [];
+        while i < len(items) {
+            n = ct_py_number(items[i]);
+            if n is None {
+                break;
+            }
+            nums.append(n);
             i += 1;
-            if iv is not None {
-                acc = int_add(acc, iv);
-                continue;
-            }
-            result = ct_binop("+", acc, item);
-            broke = True;
-            break;
         }
-        if not broke {
-            result = acc;
-        }
+        result = ct_from_number(sum(nums, start));
     }
-    if isinstance(result, CtFloat) {
-        f = result.value;
-        c = 0.0;
-        done = False;
-        while i < n {
-            item = items[i];
-            i += 1;
-            x: float = 0.0;
-            usable = False;
-            if isinstance(item, CtFloat) {
-                x = item.value;
-                usable = True;
-            } else {
-                iv2 = as_ct_int(item);
-                if iv2 is not None and not iv2.mag {
-                    x = float(iv2.small);
-                    usable = True;
-                } elif iv2 is not None and mag_bit_length(iv2.mag) <= 63 {
-                    x = int_to_float(iv2);
-                    usable = True;
-                }
-            }
-            if usable {
-                t = f + x;
-                if abs(f) >= abs(x) {
-                    c += (f - t) + x;
-                } else {
-                    c += (x - t) + f;
-                }
-                f = t;
-                continue;
-            }
-            if c != 0.0 and c - c == 0.0 {
-                f += c;
-            }
-            result = ct_binop("+", mk_float(f), item);
-            done = True;
-            break;
-        }
-        if not done {
-            if c != 0.0 and c - c == 0.0 {
-                f += c;
-            }
-            return mk_float(f);
-        }
-    }
-    while i < n {
+    while i < len(items) {
         result = ct_binop("+", result, items[i]);
         i += 1;
     }
@@ -325,13 +272,7 @@ impl _range(args: list[CtValue], kwargs: dict[str, CtValue]) -> CtRange {
     }
     vals: list[int] = [];
     for a in args {
-        iv = _as_index(a);
-        if iv.mag {
-            raise CtError(
-                "range() bounds beyond 64 bits are not supported in comptime code"
-            );
-        }
-        vals.append(iv.small);
+        vals.append(_as_index(a).value);
     }
     if len(vals) == 1 {
         return CtRange(start=0, stop=vals[0], step=1);
@@ -345,60 +286,41 @@ impl _range(args: list[CtValue], kwargs: dict[str, CtValue]) -> CtRange {
 
 impl _round(args: list[CtValue], kwargs: dict[str, CtValue]) -> CtValue {
     slots = _arity("round", args, kwargs, ["number", "ndigits"], 1);
-    num = slots[0];
+    num = ct_py_number(slots[0]);
+    if num is None {
+        raise ct_exc(
+            "TypeError",
+            f"type {ct_type_name(slots[0])} doesn't define __round__ method"
+        );
+    }
     nd = slots[1];
-    iv = as_ct_int(num);
-    if iv is not None {
-        if nd is None or isinstance(nd, CtNone) {
-            return iv;
+    try {
+        if nd is CT_ABSENT or isinstance(nd, CtNone) {
+            return ct_from_number(round(num));
         }
-        return int_round(iv, _as_small(nd));
+        return ct_from_number(round(num, _as_small(nd)));
+    } except (ValueError, OverflowError) as e {
+        raise ct_py_exc(e);
     }
-    if isinstance(num, CtFloat) {
-        if nd is None or isinstance(nd, CtNone) {
-            return float_round_to_int(num.value);
-        }
-        try {
-            return mk_float(round(num.value, _as_small(nd)));
-        } except OverflowError as e {
-            raise ct_exc("OverflowError", str(e));
-        }
-    }
-    raise ct_exc(
-        "TypeError", f"type {ct_type_name(num)} doesn't define __round__ method"
-    );
 }
 
 impl _divmod(a: CtValue, b: CtValue) -> CtValue {
-    ai = as_ct_int(a);
-    bi = as_ct_int(b);
-    if ai is not None and bi is not None {
-        (q, r) = int_divmod(ai, bi);
-        return mk_tuple([q, r]);
+    x = ct_py_number(a);
+    y = ct_py_number(b);
+    if x is None or y is None {
+        raise ct_exc(
+            "TypeError",
+            f"unsupported operand type(s) for divmod(): '{ct_type_name(a)}' and '{ct_type_name(
+                b
+            )}'"
+        );
     }
-    if (isinstance(a, CtFloat) or ai is not None)
-        and (isinstance(b, CtFloat) or bi is not None) {
-        x = 0.0;
-        y = 0.0;
-        if isinstance(a, CtFloat) {
-            x = a.value;
-        } elif ai is not None {
-            x = int_to_float(ai);
-        }
-        if isinstance(b, CtFloat) {
-            y = b.value;
-        } elif bi is not None {
-            y = int_to_float(bi);
-        }
-        (fq, fr) = float_divmod(x, y);
-        return mk_tuple([mk_float(fq), mk_float(fr)]);
+    try {
+        (q, r) = divmod(x, y);
+    } except ArithmeticError as e {
+        raise ct_py_exc(e);
     }
-    raise ct_exc(
-        "TypeError",
-        f"unsupported operand type(s) for divmod(): '{ct_type_name(a)}' and '{ct_type_name(
-            b
-        )}'"
-    );
+    return mk_tuple([ct_from_number(q), ct_from_number(r)]);
 }
 
 impl _reversed(v: CtValue) -> CtList {
@@ -427,12 +349,9 @@ impl ct_call_builtin(
     }
     if name == "abs" {
         v = _one_arg("abs", args, kwargs);
-        iv = as_ct_int(v);
-        if iv is not None {
-            return int_abs(iv);
-        }
-        if isinstance(v, CtFloat) {
-            return mk_float(abs(v.value));
+        av = ct_py_number(v);
+        if av is not None {
+            return ct_from_number(abs(av));
         }
         raise ct_exc("TypeError", f"bad operand type for abs(): '{ct_type_name(v)}'");
     }
@@ -484,12 +403,11 @@ impl ct_call_builtin(
     }
     if name == "enumerate" {
         slots2 = _arity("enumerate", args, kwargs, ["iterable", "start"], 1);
-        start = _as_index(slots2[1]) if slots2[1] is not CT_ABSENT else CtInt(small=0);
+        cur = _as_index(slots2[1]).value if slots2[1] is not CT_ABSENT else 0;
         out: list[CtValue] = [];
-        cur = start;
         for item in ct_iter(slots2[0]) {
-            out.append(mk_tuple([cur, item]));
-            cur = int_add(cur, CtInt(small=1));
+            out.append(mk_tuple([mk_int(cur), item]));
+            cur += 1;
         }
         return mk_list(out);
     }
@@ -565,15 +483,18 @@ impl ct_call_builtin(
     }
     if name == "chr" {
         ci = _as_index(_one_arg("chr", args, kwargs));
-        if ci.mag or ci.small < 0 or ci.small > 1114111 {
-            raise ct_exc("ValueError", "chr() arg not in range(0x110000)");
+        try {
+            return mk_str(chr(ci.value));
+        } except (ValueError, OverflowError) as e {
+            raise ct_py_exc(e);
         }
-        return mk_str(chr(ci.small));
     }
     if name in ("hex", "oct", "bin") {
-        hv = _as_index(_one_arg(name, args, kwargs));
-        base = 16 if name == "hex" else (8 if name == "oct" else 2);
-        return mk_str(int_prefixed(hv, base));
+        hv = _as_index(_one_arg(name, args, kwargs)).value;
+        if name == "hex" {
+            return mk_str(hex(hv));
+        }
+        return mk_str(oct(hv) if name == "oct" else bin(hv));
     }
     if name == "map" {
         if len(args) < 2 {
@@ -644,62 +565,35 @@ impl _pairs_into(d: CtDict, src: CtValue) {
     }
 }
 
-impl _parse_int_text(text: str, shown: str, base: int) -> CtInt {
-    got = ct_int_parse(text, base);
-    if got is None {
-        raise ct_exc(
-            "ValueError", f"invalid literal for int() with base {base}: {shown}"
-        );
-    }
-    return got;
-}
-
 impl ct_construct_builtin(
     name: str, args: list[CtValue], kwargs: dict[str, CtValue]
 ) -> CtValue {
     if name == "int" {
         slots = _arity("int", args, kwargs, ["x", "base"], 0);
         x = slots[0];
-        if x is None {
+        if x is CT_ABSENT {
             if slots[1] is not CT_ABSENT {
                 raise ct_exc("TypeError", "int() missing string argument");
             }
-            return CtInt(small=0);
+            return mk_int(0);
         }
-        if slots[1] is not CT_ABSENT {
-            base = _as_small(slots[1]);
-            if base != 0 and (base < 2 or base > 36) {
-                raise ct_exc("ValueError", "int() base must be >= 2 and <= 36, or 0");
-            }
-            if isinstance(x, CtStr) {
-                return _parse_int_text(x.value, ct_repr(x), base);
-            }
-            if isinstance(x, CtBytes) {
-                return _parse_int_text(x.value.decode("latin-1"), ct_repr(x), base);
-            }
+        if not ct_is_scalar(x) {
             raise ct_exc(
-                "TypeError", "int() can't convert non-string with explicit base"
+                "TypeError",
+                f"int() argument must be a string, a bytes-like object or a real number, not '{ct_type_name(
+                    x
+                )}'"
             );
         }
-        iv = as_ct_int(x);
-        if iv is not None {
-            return iv;
+        xv: any = ct_host_scalar(x);
+        try {
+            if slots[1] is CT_ABSENT {
+                return mk_int(int(xv));
+            }
+            return mk_int(int(xv, _as_small(slots[1])));
+        } except (ValueError, TypeError, OverflowError) as e {
+            raise ct_py_exc(e);
         }
-        if isinstance(x, CtFloat) {
-            return float_to_ct_int(x.value);
-        }
-        if isinstance(x, CtStr) {
-            return _parse_int_text(x.value, ct_repr(x), 10);
-        }
-        if isinstance(x, CtBytes) {
-            return _parse_int_text(x.value.decode("latin-1"), ct_repr(x), 10);
-        }
-        raise ct_exc(
-            "TypeError",
-            f"int() argument must be a string, a bytes-like object or a real number, not '{ct_type_name(
-                x
-            )}'"
-        );
     }
     if name == "float" {
         if kwargs or len(args) > 1 {
@@ -711,28 +605,20 @@ impl ct_construct_builtin(
             return mk_float(0.0);
         }
         fx = args[0];
-        if isinstance(fx, CtFloat) {
-            return fx;
+        if not ct_is_scalar(fx) {
+            raise ct_exc(
+                "TypeError",
+                f"float() argument must be a string or a real number, not '{ct_type_name(
+                    fx
+                )}'"
+            );
         }
-        iv2 = as_ct_int(fx);
-        if iv2 is not None {
-            return mk_float(int_to_float(iv2));
+        fv: any = ct_host_scalar(fx);
+        try {
+            return mk_float(float(fv));
+        } except (ValueError, TypeError, OverflowError) as e {
+            raise ct_py_exc(e);
         }
-        if isinstance(fx, CtStr) {
-            try {
-                return mk_float(float(fx.value));
-            } except ValueError {
-                raise ct_exc(
-                    "ValueError", f"could not convert string to float: {ct_repr(fx)}"
-                );
-            }
-        }
-        raise ct_exc(
-            "TypeError",
-            f"float() argument must be a string or a real number, not '{ct_type_name(
-                fx
-            )}'"
-        );
     }
     if name == "str" {
         slots2 = _arity("str", args, kwargs, ["object", "encoding", "errors"], 0);
@@ -789,21 +675,21 @@ impl ct_construct_builtin(
         }
         biv = as_ct_int(bsrc);
         if biv is not None {
-            if int_is_neg(biv) {
+            if biv.value < 0 {
                 raise ct_exc("ValueError", "negative count");
             }
-            if biv.mag or biv.small > 100000000 {
+            if biv.value > 100000000 {
                 raise CtError("comptime bytes() size is too large");
             }
-            return mk_bytes(bytes([0] * biv.small));
+            return mk_bytes(bytes(biv.value));
         }
         vals: list[int] = [];
         for item in ct_iter(bsrc) {
-            bv = _as_index(item);
-            if bv.mag or bv.small < 0 or bv.small > 255 {
+            bv = _as_index(item).value;
+            if bv < 0 or bv > 255 {
                 raise ct_exc("ValueError", "bytes must be in range(0, 256)");
             }
-            vals.append(bv.small);
+            vals.append(bv);
         }
         return mk_bytes(bytes(vals));
     }
@@ -892,10 +778,10 @@ impl ct_value_attr(v: CtValue, name: str) -> CtValue {
             return iv;
         }
         if name == "imag" {
-            return CtInt(small=0);
+            return mk_int(0);
         }
         if name == "denominator" {
-            return CtInt(small=1);
+            return mk_int(1);
         }
     }
     if isinstance(v, CtFloat) {
@@ -1693,552 +1579,83 @@ impl _int_method(
     recv: CtInt, name: str, args: list[CtValue], kwargs: dict[str, CtValue]
 ) -> CtValue {
     _no_args(name, args, kwargs);
-    if name == "bit_length" {
-        return mk_int(int_bit_length(recv));
-    }
-    if name == "bit_count" {
-        (_, m) = int_sign_mag(recv);
-        total = 0;
-        for limb in m {
-            x = limb;
-            while x {
-                total += x & 1;
-                x = x >> 1;
-            }
-        }
-        return mk_int(total);
-    }
-    if name == "is_integer" {
-        return CT_TRUE;
-    }
-    if name == "conjugate" {
-        return recv;
-    }
-    return mk_tuple([recv, CtInt(small=1)]);
+    return _from_math(getattr(recv.value, name)());
 }
 
 impl _float_method(
     recv: CtFloat, name: str, args: list[CtValue], kwargs: dict[str, CtValue]
 ) -> CtValue {
     _no_args(name, args, kwargs);
-    f = recv.value;
-    if name == "is_integer" {
-        return mk_bool(f - f == 0.0 and float_floor(f) == f);
+    try {
+        return _from_math(getattr(recv.value, name)());
+    } except (ValueError, OverflowError) as e {
+        raise ct_py_exc(e);
     }
-    if name == "conjugate" {
-        return recv;
-    }
-    if f != f {
-        raise ct_exc("ValueError", "cannot convert NaN to integer ratio");
-    }
-    if f - f != 0.0 {
-        raise ct_exc("OverflowError", "cannot convert Infinity to integer ratio");
-    }
-    (m, e) = math.frexp(f);
-    for _ in range(300) {
-        if m == float_floor(m) {
-            break;
-        }
-        m *= 2.0;
-        e -= 1;
-    }
-    num = float_to_ct_int(m);
-    den = CtInt(small=1);
-    if e > 0 {
-        num = int_mul(num, _pow2(e));
-    } else {
-        den = _pow2(-e);
-    }
-    return mk_tuple([num, den]);
 }
 
-impl _pow2(e: int) -> CtInt {
-    return mk_int_mag(False, mag_shl([1], e));
-}
-
-impl _math_float(v: CtValue) -> float {
-    if isinstance(v, CtFloat) {
-        return v.value;
+impl _math_arg(v: CtValue) -> object {
+    if ct_is_scalar(v) {
+        return ct_host_scalar(v);
     }
-    iv = as_ct_int(v);
-    if iv is not None {
-        return int_to_float(iv);
+    if isinstance(v, CtRange) {
+        return range(v.start, v.stop, v.step);
+    }
+    if isinstance(v, (CtList, CtTuple, CtSet)) {
+        return [_math_arg(item) for item in v.items];
     }
     raise ct_exc("TypeError", f"must be real number, not {ct_type_name(v)}");
 }
 
-impl int_frexp(a: CtInt) -> tuple[float, int] {
-    (_, m) = int_sign_mag(a);
-    n = mag_bit_length(m);
-    if n <= 55 {
-        return math.frexp(float(mag_to_int(m)));
+impl _from_math(out: object) -> CtValue {
+    if isinstance(out, tuple) {
+        return mk_tuple([ct_from_number(x) for x in out]);
     }
-    shift = n - 55;
-    q = mag_to_int(mag_shr(m, shift));
-    if mag_low_bits_nonzero(m, shift) {
-        q = q | 1;
-    }
-    corrections = [0, -1, -2, 1, 0, -1, 2, 1];
-    q += corrections[q & 7];
-    x = math.ldexp(float(q), -55);
-    if x == 1.0 {
-        return (0.5, n + 1);
-    }
-    return (x, n);
-}
-
-impl _log_of(v: CtValue, which: str) -> float {
-    iv = as_ct_int(v);
-    if iv is not None {
-        if int_is_neg(iv) or int_is_zero(iv) {
-            raise ct_exc("ValueError", "expected a positive input");
-        }
-        if not iv.mag or mag_bit_length(iv.mag) <= 1000 {
-            return _log_raw(int_to_float(iv), which);
-        }
-        (x, e) = int_frexp(iv);
-        return _log_raw(x, which) + _log_raw(2.0, which) * float(e);
-    }
-    f = _math_float(v);
-    if f != f {
-        return f;
-    }
-    if f <= 0.0 {
-        raise ct_exc("ValueError", f"expected a positive input, got {repr(f)}");
-    }
-    return _log_raw(f, which);
-}
-
-impl _log_raw(x: float, which: str) -> float {
-    if which == "log2" {
-        return math.log2(x);
-    }
-    if which == "log10" {
-        return math.log10(x);
-    }
-    return math.log(x);
-}
-
-impl _range_error(r: float, inputs_finite: bool) -> float {
-    if inputs_finite and r - r != 0.0 and r == r {
-        raise ct_exc("OverflowError", "math range error");
-    }
-    return r;
-}
-
-impl _finite(x: float) -> bool {
-    return x - x == 0.0;
-}
-
-impl _math_int_arg(v: CtValue) -> CtInt {
-    return _as_index(v);
+    return ct_from_number(out);
 }
 
 impl ct_call_math(
     name: str, args: list[CtValue], kwargs: dict[str, CtValue]
 ) -> CtValue {
-    if name in ("log", "log2", "log10") {
-        return _math_log(name, args, kwargs);
-    }
-    if name in ("gcd", "lcm", "factorial", "isqrt", "comb", "perm") {
-        return _math_integer(name, args, kwargs);
-    }
-    if name in ("prod", "fsum") {
-        return _math_reduce(name, args, kwargs);
-    }
-    if name in ("floor", "ceil", "trunc", "isnan", "isinf", "isfinite", "isclose") {
-        return _math_classify(name, args, kwargs);
-    }
-    if name in ("hypot", "ldexp", "frexp", "modf") {
-        return _math_parts(name, args, kwargs);
-    }
-    if name in ("atan2", "copysign", "fmod", "remainder", "pow") {
-        if len(args) != 2 or kwargs {
-            raise ct_exc("TypeError", f"{name} expected 2 arguments, got {len(args)}");
-        }
-        x2 = _math_float(args[0]);
-        y2 = _math_float(args[1]);
-        return mk_float(_math2(name, x2, y2));
-    }
-    return mk_float(_math1(name, _math_float(_one_arg(name, args, kwargs))));
-}
-
-impl _math_log(name: str, args: list[CtValue], kwargs: dict[str, CtValue]) -> CtValue {
-    if name in ("log", "log2", "log10") {
-        if kwargs {
-            raise ct_exc("TypeError", f"{name}() takes no keyword arguments");
-        }
-        if name == "log" and len(args) == 2 {
-            num = _log_of(args[0], "log");
-            den = _log_of(args[1], "log");
-            if den == 0.0 {
-                raise ct_exc("ZeroDivisionError", "division by zero");
+    if name == "prod" {
+        slots = _arity("prod", args, {}, ["iterable"], 1);
+        acc: CtValue = mk_int(1);
+        for (k, v) in kwargs.items() {
+            if k != "start" {
+                raise ct_exc(
+                    "TypeError", f"prod() got an unexpected keyword argument '{k}'"
+                );
             }
-            return mk_float(num / den);
+            acc = v;
         }
-        return mk_float(_log_of(_one_arg(name, args, kwargs), name));
-    }
-    raise CtError(f"math.{name} is not available in comptime code");
-}
-
-impl _math_integer(
-    name: str, args: list[CtValue], kwargs: dict[str, CtValue]
-) -> CtValue {
-    if name in ("gcd", "lcm") {
-        if kwargs {
-            raise ct_exc("TypeError", f"{name}() takes no keyword arguments");
-        }
-        acc = CtInt(small=0 if name == "gcd" else 1);
-        for a in args {
-            (_, am) = int_sign_mag(_math_int_arg(a));
-            (_, cm) = int_sign_mag(acc);
-            if name == "gcd" {
-                acc = mk_int_mag(False, mag_gcd(cm, am));
-            } elif not am or not cm {
-                acc = CtInt(small=0);
-            } else {
-                g = mag_gcd(cm, am);
-                (q, _) = mag_divmod(cm, g);
-                acc = mk_int_mag(False, mag_mul(q, am));
-            }
+        for item in ct_iter(slots[0]) {
+            acc = ct_binary("*", acc, item);
         }
         return acc;
     }
-    if name == "factorial" {
-        n = _math_int_arg(_one_arg(name, args, kwargs));
-        if int_is_neg(n) {
-            raise ct_exc("ValueError", "factorial() not defined for negative values");
+    py_args = [_math_arg(a) for a in args];
+    py_kwargs = {k: _math_arg(v) for (k, v) in kwargs.items()};
+    ints = [
+        a
+        for a in py_args
+        if isinstance(a, int)
+    ];
+    if name == "factorial" or (name == "perm" and len(py_args) == 1) {
+        if len(ints) == 1 and ints[0] > CT_FACTORIAL_LIMIT {
+            raise CtError("comptime factorial argument is too large");
         }
-        return _factorial(n);
-    }
-    if name == "isqrt" {
-        n2 = _math_int_arg(_one_arg(name, args, kwargs));
-        if int_is_neg(n2) {
-            raise ct_exc("ValueError", "isqrt() argument must be nonnegative");
-        }
-        (_, nm) = int_sign_mag(n2);
-        return mk_int_mag(False, mag_isqrt(nm));
-    }
-    if name in ("comb", "perm") {
-        if kwargs or not args or len(args) > 2 or (name == "comb" and len(args) != 2) {
-            raise ct_exc("TypeError", f"{name} expected 2 arguments, got {len(args)}");
-        }
-        n3 = _math_int_arg(args[0]);
-        if name == "perm" and len(args) == 1 {
-            if int_is_neg(n3) {
-                raise ct_exc(
-                    "ValueError", "factorial() not defined for negative values"
-                );
-            }
-            return _factorial(n3);
-        }
-        k = _math_int_arg(args[1]);
-        if int_is_neg(n3) {
-            raise ct_exc("ValueError", "n must be a non-negative integer");
-        }
-        if int_is_neg(k) {
-            raise ct_exc("ValueError", "k must be a non-negative integer");
-        }
-        if int_cmp(k, n3) > 0 {
-            return CtInt(small=0);
-        }
-        if k.mag {
-            raise CtError("comptime comb/perm argument is too large");
-        }
-        kk = k.small;
-        if name == "comb" {
-            nk = int_sub(n3, k);
-            if not nk.mag and nk.small < kk {
-                kk = nk.small;
+    } elif name in ("comb", "perm") and len(ints) == 2 {
+        (n, k) = (ints[0], ints[1]);
+        if 0 <= k and k <= n {
+            if (min(k, n - k) if name == "comb" else k) > CT_FACTORIAL_LIMIT {
+                raise CtError("comptime comb/perm argument is too large");
             }
         }
-        if kk > CT_FACTORIAL_LIMIT {
-            raise CtError("comptime comb/perm argument is too large");
-        }
-        result = CtInt(small=1);
-        for i in range(kk) {
-            result = int_mul(result, int_sub(n3, CtInt(small=i)));
-            if name == "comb" {
-                (result, _) = int_divmod(result, CtInt(small=i + 1));
-            }
-        }
-        return result;
-    }
-    raise CtError(f"math.{name} is not available in comptime code");
-}
-
-impl _math_reduce(
-    name: str, args: list[CtValue], kwargs: dict[str, CtValue]
-) -> CtValue {
-    if name == "prod" {
-        slots = _arity("prod", args, {}, ["iterable"], 1);
-        acc2: CtValue = CtInt(small=1);
-        for (k2, v2) in kwargs.items() {
-            if k2 != "start" {
-                raise ct_exc(
-                    "TypeError", f"prod() got an unexpected keyword argument '{k2}'"
-                );
-            }
-            acc2 = v2;
-        }
-        for item in ct_iter(slots[0]) {
-            acc2 = ct_binary("*", acc2, item);
-        }
-        return acc2;
-    }
-    if name == "fsum" {
-        vals: list[float] = [
-            _math_float(x) for x in ct_iter(_one_arg(name, args, kwargs))
-        ];
-        try {
-            return mk_float(math.fsum(vals));
-        } except OverflowError as e {
-            raise ct_exc("OverflowError", str(e));
-        } except ValueError as e {
-            raise ct_exc("ValueError", str(e));
-        }
-    }
-    raise CtError(f"math.{name} is not available in comptime code");
-}
-
-impl _math_classify(
-    name: str, args: list[CtValue], kwargs: dict[str, CtValue]
-) -> CtValue {
-    if name in ("floor", "ceil", "trunc") {
-        v3 = _one_arg(name, args, kwargs);
-        iv = as_ct_int(v3);
-        if iv is not None {
-            return iv;
-        }
-        f = _math_float(v3);
-        if name == "floor" {
-            return float_to_ct_int(float_floor(f));
-        }
-        if name == "ceil" {
-            return float_to_ct_int(float_ceil(f));
-        }
-        return float_to_ct_int(f);
-    }
-    if name in ("isnan", "isinf", "isfinite") {
-        f2 = _math_float(_one_arg(name, args, kwargs));
-        if name == "isnan" {
-            return mk_bool(f2 != f2);
-        }
-        if name == "isinf" {
-            return mk_bool(f2 == f2 and f2 - f2 != 0.0);
-        }
-        return mk_bool(f2 - f2 == 0.0);
-    }
-    if name == "isclose" {
-        slots2 = _arity("isclose", args, kwargs, ["a", "b", "rel_tol", "abs_tol"], 2);
-        a = _math_float(slots2[0]);
-        b = _math_float(slots2[1]);
-        rel = _math_float(slots2[2]) if slots2[2] is not CT_ABSENT else 1e-09;
-        abs_tol = _math_float(slots2[3]) if slots2[3] is not CT_ABSENT else 0.0;
-        if rel < 0.0 or abs_tol < 0.0 {
-            raise ct_exc("ValueError", "tolerances must be non-negative");
-        }
-        return mk_bool(math.isclose(a, b, rel_tol=rel, abs_tol=abs_tol));
-    }
-    raise CtError(f"math.{name} is not available in comptime code");
-}
-
-impl _math_parts(
-    name: str, args: list[CtValue], kwargs: dict[str, CtValue]
-) -> CtValue {
-    if name == "hypot" {
-        if kwargs {
-            raise ct_exc("TypeError", "hypot() takes no keyword arguments");
-        }
-        hv: list[float] = [_math_float(x) for x in args];
-        if not hv {
-            return mk_float(0.0);
-        }
-        if len(hv) == 1 {
-            return mk_float(abs(hv[0]));
-        }
-        if len(hv) == 2 {
-            return mk_float(math.hypot(hv[0], hv[1]));
-        }
-        if len(hv) == 3 {
-            return mk_float(math.hypot(hv[0], hv[1], hv[2]));
-        }
-        raise CtError(
-            "math.hypot() with more than three coordinates is not supported in comptime code"
-        );
-    }
-    if name == "ldexp" {
-        if len(args) != 2 or kwargs {
-            raise ct_exc("TypeError", f"ldexp expected 2 arguments, got {len(args)}");
-        }
-        x = _math_float(args[0]);
-        ei = as_ct_int(args[1]);
-        if ei is None {
-            raise ct_exc("TypeError", "Expected an int as second argument to ldexp.");
-        }
-        if x == 0.0 or not _finite(x) {
-            return mk_float(x);
-        }
-        e = ei.small if not ei.mag else (-100000 if ei.neg else 100000);
-        e = max(-100000, min(100000, e));
-        try {
-            r = math.ldexp(x, max(-2200, min(2200, e)));
-        } except OverflowError {
-            raise ct_exc("OverflowError", "math range error");
-        }
-        return mk_float(_range_error(r, True));
-    }
-    if name == "frexp" {
-        f3 = _math_float(_one_arg(name, args, kwargs));
-        (fm, fe) = math.frexp(f3);
-        return mk_tuple([mk_float(fm), mk_int(fe)]);
-    }
-    if name == "modf" {
-        f4 = _math_float(_one_arg(name, args, kwargs));
-        (frac, whole) = math.modf(f4);
-        return mk_tuple([mk_float(frac), mk_float(whole)]);
-    }
-    raise CtError(f"math.{name} is not available in comptime code");
-}
-
-impl _factorial(n: CtInt) -> CtInt {
-    if n.mag or n.small > CT_FACTORIAL_LIMIT {
-        raise CtError("comptime factorial argument is too large");
-    }
-    result = CtInt(small=1);
-    for i in range(2, n.small + 1) {
-        result = int_mul(result, CtInt(small=i));
-    }
-    return result;
-}
-
-impl _math2(name: str, x: float, y: float) -> float {
-    if name == "atan2" {
-        return math.atan2(x, y);
-    }
-    if name == "copysign" {
-        return math.copysign(x, y);
-    }
-    if name in ("fmod", "remainder") {
-        if x != x or y != y {
-            return float("nan");
-        }
-        if not _finite(x) or y == 0.0 {
-            raise ct_exc("ValueError", "math domain error");
-        }
-        if name == "fmod" {
-            return math.fmod(x, y) if _finite(y) else x;
-        }
-        return math.remainder(x, y) if _finite(y) else x;
-    }
-    if x == 0.0 and y < 0.0 and _finite(y) {
-        raise ct_exc("ValueError", "math domain error");
-    }
-    if x < 0.0 and _finite(x) and _finite(y) and float_floor(y) != y {
-        raise ct_exc("ValueError", "math domain error");
     }
     try {
-        r = math.pow(x, y);
-    } except OverflowError {
-        raise ct_exc("OverflowError", "math range error");
-    } except ValueError {
-        raise ct_exc("ValueError", "math domain error");
+        return _from_math(getattr(math, name)(*py_args, **py_kwargs));
+    } except (ArithmeticError, ValueError, TypeError) as e {
+        raise ct_py_exc(e);
     }
-    return _range_error(r, _finite(x) and _finite(y));
-}
-
-impl _math1(name: str, x: float) -> float {
-    got = repr(x);
-    finite = _finite(x);
-    if name == "sqrt" {
-        if x < 0.0 {
-            raise ct_exc("ValueError", f"expected a nonnegative input, got {got}");
-        }
-        return math.sqrt(x);
-    }
-    if name == "log1p" {
-        if x <= -1.0 {
-            raise ct_exc("ValueError", f"expected argument value > -1, got {got}");
-        }
-        return math.log1p(x);
-    }
-    if name in ("asin", "acos") {
-        if x == x and (x < -1.0 or x > 1.0) {
-            raise ct_exc(
-                "ValueError", f"expected a number in range from -1 up to 1, got {got}"
-            );
-        }
-        return math.asin(x) if name == "asin" else math.acos(x);
-    }
-    if name == "atanh" {
-        if x == x and (x <= -1.0 or x >= 1.0) {
-            raise ct_exc(
-                "ValueError", f"expected a number between -1 and 1, got {got}"
-            );
-        }
-        return math.atanh(x);
-    }
-    if name == "acosh" {
-        if x < 1.0 {
-            raise ct_exc(
-                "ValueError", f"expected argument value not less than 1, got {got}"
-            );
-        }
-        return math.acosh(x);
-    }
-    if name in ("sin", "cos", "tan") {
-        if x == x and not finite {
-            raise ct_exc("ValueError", f"expected a finite input, got {got}");
-        }
-        if name == "sin" {
-            return math.sin(x);
-        }
-        if name == "cos" {
-            return math.cos(x);
-        }
-        return math.tan(x);
-    }
-    try {
-        if name == "exp" {
-            return _range_error(math.exp(x), finite);
-        }
-        if name == "exp2" {
-            return _range_error(math.exp2(x), finite);
-        }
-        if name == "expm1" {
-            return _range_error(math.expm1(x), finite);
-        }
-        if name == "sinh" {
-            return _range_error(math.sinh(x), finite);
-        }
-        if name == "cosh" {
-            return _range_error(math.cosh(x), finite);
-        }
-    } except OverflowError {
-        raise ct_exc("OverflowError", "math range error");
-    }
-    if name == "atan" {
-        return math.atan(x);
-    }
-    if name == "tanh" {
-        return math.tanh(x);
-    }
-    if name == "asinh" {
-        return math.asinh(x);
-    }
-    if name == "fabs" {
-        return abs(x);
-    }
-    if name == "degrees" {
-        return math.degrees(x);
-    }
-    if name == "radians" {
-        return math.radians(x);
-    }
-    if name == "cbrt" {
-        return math.cbrt(x);
-    }
-    raise CtError(f"math.{name} is not available in comptime code");
 }
 
 impl adjust_indices(n: int, start: (int | None), end: (int | None)) -> tuple[int, int] {

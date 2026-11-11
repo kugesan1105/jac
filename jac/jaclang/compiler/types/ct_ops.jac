@@ -1,3 +1,4 @@
+import _string;
 import operator;
 
 glob CT_POW_BITS_LIMIT: int = 4000000,
@@ -48,8 +49,6 @@ def ct_from_number(x: object) -> CtValue;
 
 def ct_num_op(sym: str, x: (bool | int | float), y: (bool | int | float)) -> CtValue;
 
-def int_to_float(a: CtInt) -> float;
-
 def _unsupported(sym: str, l: CtValue, r: CtValue) -> CtRaise;
 
 def _repeat_count(n: CtInt) -> int;
@@ -92,8 +91,53 @@ def ct_setitem(base: CtValue, key: CtValue, val: CtValue);
 
 def ct_int_literal(text: str) -> CtInt;
 
-def int_to_base_str(a: CtInt, base: int) -> str;
-
 def _hashable_py(v: CtValue) -> object;
 
 def ct_hash(v: CtValue) -> CtInt;
+
+class CtPy {
+    def init(self: CtPy, ct: CtValue);
+    def __repr__(self: CtPy) -> str;
+    def __str__(self: CtPy) -> str;
+    def __format__(self: CtPy, spec: str) -> str;
+}
+
+class CtPyIterable(CtPy) {
+    def __len__(self: CtPyIterable) -> int;
+    def __iter__(self: CtPyIterable) -> object;
+}
+
+class CtPySubscript(CtPyIterable) {
+    def __getitem__(self: CtPySubscript, key: object) -> object;
+}
+
+obj CtFormatState {
+    has args: list[CtValue],
+        kwargs: dict[str, CtValue],
+        auto_idx: int = 0,
+        mode: str = "";
+}
+
+glob CT_PY_CLASSES: dict[str, type] = {};
+
+def ct_to_py(v: CtValue) -> object;
+
+def ct_from_py(x: object) -> CtValue;
+
+def ct_py_call(fn: any, args: list[any], kwargs: dict[str, any]) -> any;
+
+def ct_format(v: CtValue, spec: str) -> str;
+
+def ct_convert(v: CtValue, conv: str) -> CtValue;
+
+def ct_str_format(fmt: str, args: list[CtValue], kwargs: dict[str, CtValue]) -> str;
+
+def _str_format(fmt: str, st: CtFormatState, depth: int) -> str;
+
+def _field_value(field_name: str, st: CtFormatState) -> CtValue;
+
+def _format_attr(value: CtValue, attr: str) -> CtValue;
+
+def ct_binary(sym: str, l: CtValue, r: CtValue) -> CtValue;
+
+def ct_inplace(sym: str, cur: CtValue, val: CtValue) -> CtValue;

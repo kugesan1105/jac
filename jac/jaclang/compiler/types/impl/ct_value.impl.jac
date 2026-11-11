@@ -769,32 +769,6 @@ impl ct_str(v: CtValue) -> str {
     return ct_repr(v);
 }
 
-impl ascii_escape(text: str) -> str {
-    out = "";
-    hexd = "0123456789abcdef";
-    for ch in text {
-        o = ord(ch);
-        if o < 128 {
-            out += ch;
-        } elif o < 256 {
-            out += "\\x" + hexd[o >> 4] + hexd[o & 15];
-        } elif o < 65536 {
-            out += "\\u"
-                + hexd[(o >> 12) & 15]
-                + hexd[(o >> 8) & 15]
-                + hexd[(o >> 4) & 15]
-                + hexd[o & 15];
-        } else {
-            digits = "";
-            for shift in [28, 24, 20, 16, 12, 8, 4, 0] {
-                digits += hexd[(o >> shift) & 15];
-            }
-            out += "\\U" + digits;
-        }
-    }
-    return out;
-}
-
 impl ct_iter(v: CtValue) -> list[CtValue] {
     if isinstance(v, (CtList, CtTuple)) {
         return v.items.copy();

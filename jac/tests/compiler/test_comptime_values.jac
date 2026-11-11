@@ -1,9 +1,9 @@
 """The compile-time evaluator's typed value model matches CPython value for value.
 
 Compile-time results are written into generated code, so every operation the
-evaluator re-implements over its own value model (arbitrary-precision ints,
-float division and rounding, formatting, repr, hashing, container ordering
-and equality, exception messages) must agree exactly with the host CPython.
+evaluator performs over its value model (int and float arithmetic, rounding,
+formatting, repr, hashing, container ordering and equality, exception
+messages) must agree exactly with the host CPython.
 These tests drive the typed operations and CPython over the same inputs and
 compare the observable outcome: the repr of the result, or the exception type
 and message.
@@ -41,19 +41,15 @@ import from jaclang.compiler.types.ct_value {
     mk_tuple
 }
 import from jaclang.compiler.types.ct_ops {
+    ct_binary,
     ct_binop,
     ct_compare,
+    ct_format,
     ct_getitem,
     ct_getslice,
     ct_hash,
-    ct_unary,
-    int_to_float
-}
-import from jaclang.compiler.types.ct_format {
-    ct_binary,
-    ct_format,
-    ct_percent_format,
-    ct_str_format
+    ct_str_format,
+    ct_unary
 }
 import from jaclang.compiler.types.ct_builtins { ct_call_math, ct_construct_builtin }
 import from jaclang.compiler.types.ct_eval { CtEvaluator }
@@ -219,7 +215,7 @@ test "int arithmetic matches CPython across the small/big boundary" {
         same(
             f"float({a})",
             lambda { float(a); },
-            lambda { mk_float(int_to_float(mk_int(a))); }
+            lambda { ct_construct_builtin("float", [mk_int(a)], {}); }
         );
         same(f"hash({a})", lambda { hash(a); }, lambda { ct_hash(mk_int(a)); });
         same(f"str({a})", lambda { str(a); }, lambda { mk_str(ct_str(mk_int(a))); });
@@ -469,7 +465,7 @@ test "format specs, percent formatting, and str.format match CPython" {
         same(
             f"{fmt!r} % {args!r}",
             lambda { fmt % args; },
-            lambda { mk_str(ct_percent_format(fmt, py2ct(args))); }
+            lambda { ct_binary("%", mk_str(fmt), py2ct(args)); }
         );
     }
     fmt_cases = [

@@ -11321,32 +11321,34 @@ graph import compiler.types {
         ct_value_attr
     }
     ct_eval ++> type_evaluator { CtEvaluator }
-    ct_format ++> [
-        ct_builtins { ct_binary, ct_format, ct_str_format },
-        ct_eval { ct_binary, ct_convert, ct_format, ct_inplace },
-    ]
     ct_ops ++> [
         ct_builtins {
             CT_INDEX_MAX,
+            ct_binary,
             ct_binop,
+            ct_format,
             ct_from_number,
             ct_hash,
             ct_lt,
             ct_order,
             ct_py_number,
+            ct_str_format,
             set_algebra,
             slice_indices
         },
         ct_eval {
+            ct_binary,
             ct_compare,
+            ct_convert,
+            ct_format,
             ct_getitem,
             ct_getslice,
+            ct_inplace,
             ct_int_literal,
             ct_setitem,
             ct_symbol,
             ct_unary
         },
-        ct_format { ct_binop, ct_getitem, int_to_base_str, int_to_float, set_algebra },
     ]
     ct_value ++> [
         ct_builtins {
@@ -11454,33 +11456,8 @@ graph import compiler.types {
             mk_tuple,
             range_len
         },
-        ct_format {
-            CtBool,
-            CtDict,
-            CtEnumMember,
-            CtError,
-            CtFloat,
-            CtInt,
-            CtList,
-            CtRecord,
-            CtSet,
-            CtStr,
-            CtTuple,
-            CtValue,
-            as_ct_int,
-            ascii_escape,
-            ct_exc,
-            ct_exc_value,
-            ct_iter,
-            ct_py_exc,
-            ct_repr,
-            ct_str,
-            ct_type_name,
-            dict_set,
-            float_to_ct_int,
-            mk_str
-        },
         ct_ops {
+            CT_NONE,
             CtBool,
             CtBytes,
             CtDeferred,
@@ -11493,8 +11470,10 @@ graph import compiler.types {
             CtInt,
             CtList,
             CtNone,
+            CtNotComptime,
             CtRaise,
             CtRange,
+            CtRecord,
             CtSet,
             CtStr,
             CtTuple,
@@ -11511,7 +11490,9 @@ graph import compiler.types {
             ct_iter,
             ct_len,
             ct_py_exc,
+            ct_repr,
             ct_same_or_eq,
+            ct_str,
             ct_truthy,
             ct_type_name,
             dict_copy,

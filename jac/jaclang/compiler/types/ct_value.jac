@@ -241,8 +241,6 @@ def _repr_container(v: CtValue, seen: list[CtValue]) -> str;
 
 def ct_str(v: CtValue) -> str;
 
-def ascii_escape(text: str) -> str;
-
 def ct_iter(v: CtValue) -> list[CtValue];
 
 def ct_is_iterable(v: CtValue) -> bool;

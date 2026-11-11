@@ -51,14 +51,6 @@ impl ct_num_op(sym: str, x: (bool | int | float), y: (bool | int | float)) -> Ct
     return ct_from_number(out);
 }
 
-impl int_to_float(a: CtInt) -> float {
-    try {
-        return float(a.value);
-    } except OverflowError as e {
-        raise ct_py_exc(e);
-    }
-}
-
 impl _unsupported(sym: str, l: CtValue, r: CtValue) -> CtRaise {
     return ct_exc(
         "TypeError",
@@ -603,10 +595,6 @@ impl ct_int_literal(text: str) -> CtInt {
     }
 }
 
-impl int_to_base_str(a: CtInt, base: int) -> str {
-    return format(abs(a.value), {16: "x", 8: "o", 2: "b", 10: "d"}[base]);
-}
-
 impl _hashable_py(v: CtValue) -> object {
     if isinstance(v, (CtNone, CtBool, CtInt)) {
         return ct_host_scalar(v);
@@ -634,4 +622,271 @@ impl _hashable_py(v: CtValue) -> object {
 
 impl ct_hash(v: CtValue) -> CtInt {
     return mk_int(hash(_hashable_py(v)));
+}
+
+impl CtPy.init(self: CtPy, ct: CtValue) {
+    self.ct = ct;
+}
+
+impl CtPy.__repr__(self: CtPy) -> str {
+    return ct_repr(self.ct);
+}
+
+impl CtPy.__str__(self: CtPy) -> str {
+    return ct_str(self.ct);
+}
+
+impl CtPy.__format__(self: CtPy, spec: str) -> str {
+    if spec {
+        raise TypeError(
+            f"unsupported format string passed to {type(self).__name__}.__format__"
+        );
+    }
+    return ct_str(self.ct);
+}
+
+impl CtPyIterable.__len__(self: CtPyIterable) -> int {
+    return ct_len(self.ct);
+}
+
+impl CtPyIterable.__iter__(self: CtPyIterable) -> object {
+    return iter([ct_to_py(item) for item in ct_iter(self.ct)]);
+}
+
+impl CtPySubscript.__getitem__(self: CtPySubscript, key: object) -> object {
+    return ct_to_py(ct_getitem(self.ct, ct_from_py(key)));
+}
+
+impl ct_to_py(v: CtValue) -> object {
+    if isinstance(v, CtDeferred) {
+        raise CtDeferredSignal();
+    }
+    if ct_is_scalar(v) {
+        return ct_host_scalar(v);
+    }
+    if isinstance(v, CtTuple) {
+        return tuple([ct_to_py(item) for item in v.items]);
+    }
+    if isinstance(v, CtRange) {
+        return range(v.start, v.stop, v.step);
+    }
+    name = ct_type_name(v);
+    cls = CT_PY_CLASSES.get(name);
+    if cls is None {
+        base: type = CtPy;
+        if isinstance(v, (CtList, CtDict)) {
+            base = CtPySubscript;
+        } elif isinstance(v, (CtSet, CtView)) {
+            base = CtPyIterable;
+        }
+        cls = type(name, (base, ), {});
+        CT_PY_CLASSES[name] = cls;
+    }
+    return cls(v);
+}
+
+impl ct_from_py(x: object) -> CtValue {
+    if isinstance(x, CtPy) {
+        return x.ct;
+    }
+    if x is None {
+        return CT_NONE;
+    }
+    if isinstance(x, (bool, int, float)) {
+        return ct_from_number(x);
+    }
+    if isinstance(x, str) {
+        return mk_str(x);
+    }
+    if isinstance(x, bytes) {
+        return mk_bytes(x);
+    }
+    if isinstance(x, tuple) {
+        return mk_tuple([ct_from_py(item) for item in x]);
+    }
+    if isinstance(x, list) {
+        return mk_list([ct_from_py(item) for item in x]);
+    }
+    if isinstance(x, range) {
+        return CtRange(start=x.start, stop=x.stop, step=x.step);
+    }
+    raise CtError(f"a '{type(x).__name__}' value is not supported in comptime code");
+}
+
+impl ct_py_call(fn: any, args: list[any], kwargs: dict[str, any]) -> any {
+    try {
+        return fn(*args, **kwargs);
+    } except (CtRaise, CtError, CtDeferredSignal, CtNotComptime, RecursionError) {
+        raise;
+    } except Exception as e {
+        raise ct_py_exc(e);
+    }
+}
+
+impl ct_format(v: CtValue, spec: str) -> str {
+    if not spec {
+        return ct_str(v);
+    }
+    return ct_py_call(format, [ct_to_py(v), spec], {});
+}
+
+impl ct_convert(v: CtValue, conv: str) -> CtValue {
+    if conv == "r" {
+        return mk_str(ct_repr(v));
+    }
+    if conv == "s" {
+        return mk_str(ct_str(v));
+    }
+    if conv == "a" {
+        return mk_str(ct_repr(v).encode("ascii", "backslashreplace").decode("ascii"));
+    }
+    return v;
+}
+
+impl ct_str_format(fmt: str, args: list[CtValue], kwargs: dict[str, CtValue]) -> str {
+    return _str_format(fmt, CtFormatState(args=args, kwargs=kwargs), 2);
+}
+
+impl _str_format(fmt: str, st: CtFormatState, depth: int) -> str {
+    if depth < 0 {
+        raise ct_exc("ValueError", "Max string recursion exceeded");
+    }
+    out: list[str] = [];
+    parts = _string.formatter_parser(fmt);
+    while True {
+        try {
+            (literal, field_name, spec, conv) = next(parts);
+        } except StopIteration {
+            break;
+        } except ValueError as e {
+            raise ct_py_exc(e);
+        }
+        out.append(literal);
+        if field_name is None {
+            continue;
+        }
+        value = _field_value(field_name, st);
+        if conv is not None {
+            if conv not in ("r", "s", "a") {
+                raise ct_exc("ValueError", f"Unknown conversion specifier {conv}");
+            }
+            value = ct_convert(value, conv);
+        }
+        if "{" in spec {
+            spec = _str_format(spec, st, depth - 1);
+        }
+        out.append(ct_format(value, spec));
+    }
+    return "".join(out);
+}
+
+impl _field_value(field_name: str, st: CtFormatState) -> CtValue {
+    (first, rest) = ct_py_call(_string.formatter_field_name_split, [field_name], {});
+    if first == "" {
+        if st.mode == "manual" {
+            raise ct_exc(
+                "ValueError",
+                "cannot switch from manual field specification to automatic field numbering"
+            );
+        }
+        st.mode = "auto";
+        first = st.auto_idx;
+        st.auto_idx += 1;
+    } elif isinstance(first, int) {
+        if st.mode == "auto" {
+            raise ct_exc(
+                "ValueError",
+                "cannot switch from automatic field numbering to manual field specification"
+            );
+        }
+        st.mode = "manual";
+    }
+    if isinstance(first, int) {
+        if first >= len(st.args) {
+            raise ct_exc(
+                "IndexError",
+                f"Replacement index {first} out of range for positional args tuple"
+            );
+        }
+        value = st.args[first];
+    } elif first in st.kwargs {
+        value = st.kwargs[first];
+    } else {
+        raise ct_exc_value("KeyError", mk_str(first));
+    }
+    while True {
+        try {
+            (is_attr, key) = next(rest);
+        } except StopIteration {
+            break;
+        } except ValueError as e {
+            raise ct_py_exc(e);
+        }
+        if is_attr {
+            value = _format_attr(value, key);
+        } elif isinstance(key, int) {
+            value = ct_getitem(value, mk_int(key));
+        } else {
+            value = ct_getitem(value, mk_str(key));
+        }
+    }
+    return value;
+}
+
+impl _format_attr(value: CtValue, attr: str) -> CtValue {
+    if isinstance(value, CtRecord) and attr in value.fields {
+        return value.fields[attr];
+    }
+    if isinstance(value, CtEnumMember) {
+        if attr == "name" {
+            return mk_str(value.member);
+        }
+        if attr == "value" {
+            return value.value;
+        }
+    }
+    raise CtError(
+        f"attribute '{attr}' in a str.format field is not supported in comptime code"
+    );
+}
+
+impl ct_binary(sym: str, l: CtValue, r: CtValue) -> CtValue {
+    if sym == "%" and isinstance(l, CtStr) {
+        return mk_str(ct_py_call(operator.mod, [l.value, ct_to_py(r)], {}));
+    }
+    return ct_binop(sym, l, r);
+}
+
+impl ct_inplace(sym: str, cur: CtValue, val: CtValue) -> CtValue {
+    if sym == "+" and isinstance(cur, CtList) {
+        cur.items.extend(ct_iter(val));
+        return cur;
+    }
+    if sym == "*" and isinstance(cur, CtList) {
+        n = as_ct_int(val);
+        if n is None {
+            raise ct_exc(
+                "TypeError",
+                f"can't multiply sequence by non-int of type '{ct_type_name(val)}'"
+            );
+        }
+        cur.items = cur.items * _repeat_count(n);
+        return cur;
+    }
+    if sym in ("|", "&", "-", "^")
+        and isinstance(cur, CtSet)
+        and not cur.frozen
+        and isinstance(val, CtSet) {
+        res = set_algebra(sym, cur, val, False);
+        cur.items = res.items;
+        cur.index = res.index;
+        return cur;
+    }
+    if sym == "|" and isinstance(cur, CtDict) and isinstance(val, CtDict) {
+        for (i, k) in enumerate(val.keys) {
+            dict_set(cur, k, val.vals[i]);
+        }
+        return cur;
+    }
+    return ct_binary(sym, cur, val);
 }

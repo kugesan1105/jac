@@ -7,8 +7,8 @@ The native codespace's second target: instead of a host binary, your module's na
 
 ## The first-class path: importing a native module from client code
 
-Keep the native code in its own module - pin it native (or let an
-anchor-free kernel infer native) - and import it from client code with a plain
+Keep the native code in its own module - pin it native (or list it under
+`[native] require`) - and import it from client code with a plain
 import - the client -> native twin of the RPC bridge:
 
 ```

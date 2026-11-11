@@ -514,7 +514,7 @@ Where markerless code runs, and the pins that override the solver:
 
 ```toml
 [placement]
-default = "native"        # markerless .jac modules: "native"/"na" or "server"/"sv"
+default = "server"        # plain .jac modules: "server"/"sv" (default) or "native"/"na"
 
 [placement.pins]
 "app.API_KEY"   = "server"    # one element: keep a secret out of the JS bundle
@@ -523,7 +523,7 @@ default = "native"        # markerless .jac modules: "native"/"na" or "server"/"
 helpers         = "client"    # module-level pin: the whole module
 ```
 
-`default` controls how a plain `.jac` module (not a `.jac` implementation variant) is treated when whole-module native compilation is possible. With `"native"` (the default) the compiler infers: a module with no server-requiring constructs, and whose imported plain `.jac` modules are likewise native-clean, is compiled whole-module in the native codespace and executed through the native engine. Modules with server-requiring constructs (OSP archetypes, python imports, serve endpoints, test blocks, JSX, and similar) compile in the server codespace, and an inferred-native module that does not lower yet is transparently recompiled server-side with a dim `note:` -- the preference is always safe. Set `"server"` to opt a project out of native inference entirely; `[placement.pins]` entries mapping to `"native"` and forced builds (`jac build --native`, `CompileOptions(force_codespace='native')`) remain strict mandates.
+`default` sets the codespace of a plain `.jac` module (not a `.jac` implementation variant). With `"server"` (the default) a module is native only where something declares it: a `[placement.pins]` entry mapping it or an element to `"native"`, a `[native] require` glob, the root of a forced build (`jac build <file> --native`, `CompileOptions(force_codespace='native')`), the bundled native stdlib, or extern C (clib) declarations, which make the declarations that use them native. Setting `"native"` declares every plain module of the project native, strictly: nothing is inferred, and a module that cannot be native (OSP archetypes, python imports, serve endpoints, JSX, and similar) is a compile error rather than a fallback. Every native declaration is strict: a declared-native module, function, method, field, or test that cannot lower is a located `E5090` / `E5092` error, fixed by changing the code or pinning it to the server.
 
 Element placement (server / client / native) is inferred by the compiler from evidence in the source (see [Placement](../placement.md)); `[placement.pins]` is the escape hatch when a decision must be forced. Keys are [fnmatch](https://docs.python.org/3/library/fnmatch.html) patterns matched against an element's dotted path -- `module` or `module.element`, relative to the project root -- and values are `"server"`, `"client"`, or `"native"` (any other value is a hard error at load time).
 
@@ -572,8 +572,8 @@ require = []              # Module-name patterns whose native lowering must succ
 
 `require` makes matching modules native-only during checking and building. For
 example, `require = ["mypkg.kernels.*"]` covers every module under
-`mypkg.kernels`. Lowering failures remain errors; Python fallback and
-opaque field erasure cannot satisfy this contract. Required dependencies stay
+`mypkg.kernels`. Lowering failures are errors, as for every native
+declaration. Required dependencies stay
 in the target compilation, and checks verify the native dependency closure
 without executing it. The policy is included in analysis and code-generation
 cache identities.

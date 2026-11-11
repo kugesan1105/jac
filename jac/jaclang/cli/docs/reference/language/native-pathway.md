@@ -37,27 +37,29 @@ Native compilation is ideal for:
 
 ## Quick Reference
 
-Native placement is **inferred, never spelled in the filename**. Under
-`[placement] default = "native"` (the default), the placement
-solver decides each module's codespace: `scan_native_blockers` plus an
-import-closure fixpoint determine whether the module can lower natively.
-A module that can, goes native; one that prefers native but cannot lower
-(Python imports, `pub` endpoints, `root`/persistence access, ...) demotes to the server codespace with a note.
-An import whose braces declare C-ABI functions, e.g. `import from raylib {
-def InitWindow(w: i32, h: i32, title: str) -> None; }`, is an FFI surface
-only the native backend can satisfy, so it -- and the declarations that
-use it -- always land native, just as JSX and npm imports infer the client
-codespace. `pub` elements anchor a *standalone* module to the server
-(endpoint semantics); a module pulled in as a native dependency may still
-use `pub` freely as its C-ABI export marker. To *force* native -- so
-lowering problems stay loud errors instead of demoting -- use `jac build
-<file> --native`, or `CompileOptions(force_codespace='native')`
-programmatically:
+Native placement is **declared, never spelled in the filename and never
+inferred**. Under `[placement] default = "server"` (the default), a module is
+server unless something declares it native: a `[placement.pins]` entry
+mapping the module or an element to `"native"`, a `[native] require` glob,
+or `[placement] default = "native"`, which declares every plain project
+module native. An import whose braces declare C-ABI functions, e.g. `import
+from raylib { def InitWindow(w: i32, h: i32, title: str) -> None; }`, is an
+FFI surface only the native backend can satisfy, so it -- and the
+declarations that use it -- always land native, just as JSX and npm imports
+infer the client codespace. `pub` elements anchor a *standalone* module to
+the server (endpoint semantics); a module pulled in as a native dependency
+may still use `pub` freely as its C-ABI export marker. Every native
+declaration is strict: a declared-native module, function, method, field, or
+test that cannot lower (Python imports, `pub` endpoints, `root`/persistence
+access, ...) is a located compile error (`E5090` / `E5092`), never a
+fallback; change the code or pin it to the server. To compile a whole
+program native without declaring it in `jac.toml`, use `jac build <file>
+--native`, or `CompileOptions(force_codespace='native')` programmatically:
 
 | Aspect | Details |
 |--------|---------|
 | **Inline section** | native-placed declarations in any `.jac` file (extern-decl seeds or a `"native"` pin) |
-| **Whole module** | Inferred by the placement solver; forced with `jac build <file> --native` |
+| **Whole module** | Declared by a `"native"` pin, `[native] require`, or `[placement] default = "native"`; forced with `jac build <file> --native` |
 | **Entry point** | `with entry { }` (standalone binaries only) |
 | **CLI command** | `jac build --native <file> [-o output] [--lib]` |
 | **Backend** | LLVM IR via llvmlite |
@@ -227,8 +229,8 @@ Hello, World!
 
 The output is a fully linked, self-contained executable. No external compiler (gcc, clang) or linker (ld, lld) is invoked -- Jac's built-in compilation pipeline handles everything from LLVM IR generation through to the final binary format for your platform.
 
-!!! info "Forcing vs. inference"
-    Under the default `[placement] default = "native"`, `jac run` already infers native placement -- but a module that cannot lower quietly demotes to the server codespace with a note. `jac build <file> --native` instead *coerces* the module native, so anything that cannot lower is a loud compile error rather than a demotion.
+!!! info "Declaring vs. forcing"
+    `jac run` executes a module natively only when it is declared native (a `"native"` pin, `[native] require`, or `[placement] default = "native"`); everything else runs on the server codespace. `jac build <file> --native` instead *coerces* the program root native for that build. Either way, anything that cannot lower is a located compile error, never a fallback.
 
 ### Compilation Pipeline
 
@@ -657,7 +659,7 @@ congruent with its CPython counterpart.
 | `sys.byteorder` | `"little"` / `"big"` (host arch) |
 | `sys.platform` | e.g. `"linux"` / `"darwin"` |
 
-`sys.argv` works both with `jac run` under a native default codespace and standalone binaries
+`sys.argv` works both with `jac run` on a module declared native and standalone binaries
 compiled via `jac build --native`.
 
 #### `os` and `os.path` -- Operating System
@@ -1159,7 +1161,7 @@ No compile-time environment variable sets behavior. The diagnostic surfaces that
 The module is the native unit. Every native-locked module's JIR carries
 native sections beside its bytecode and type interface: `SEC_NIFACE`, the
 unit's native interface (exports with their link symbols, class layouts,
-initializer, demoted symbols, C library needs, direct native dependencies;
+initializer, C library needs, direct native dependencies;
 digest-prefixed exactly as the type interface is), and `SEC_NOBJ`, its
 relocatable object, plus `SEC_NBITCODE`, its bitcode. The native sections
 are keyed by the module's content key plus a stamp of the compiler digest,
@@ -1219,15 +1221,15 @@ JAC_DUMP_IR=/tmp/output.ll jac build --native program.jac
 
 This produces a human-readable `.ll` file that can be inspected with any text editor or processed with LLVM tools (`llc`, `opt`, `llvm-dis`).
 
-### Explaining a demotion
+### Explaining a lowering failure
 
-A method the backend cannot lower is *demoted*: it falls back to its Python implementation while the rest of its class stays native. The build prints a one-line `⚠ native seam -- demoting ...` warning for each. `jac explain placement <file>` turns that line into the full story:
+A declared-native function, method, field, or test the backend cannot lower is a located compile error: `E5090` ("Native pathway does not yet support ...") for a construct with no native lowering, `E5092` ("Native lowering failed for ...") for a callable or type whose lowering failed. There is no fallback to Python. Change the code, or pin the element or its module to the server codespace under `[placement.pins]`. For more detail:
 
 ```bash
 JAC_NA_DEBUG=1 jac build --native program.jac
 ```
 
-Each demotion emits `NA_DEBUG demote <Type>.<method>` followed by every diagnostic that made the method un-lowerable, with source context. When the emitter raises outright rather than reporting a diagnostic, that is a compiler bug and the build fails with an `E5092` error naming the callable; under the flag the line `NA_DEBUG raise <Type>.<method>` and the Python traceback pointing at the codegen site are printed as well. Pin the module to the server codespace under `[placement.pins]` to keep working until the bug is fixed. The flag also forces the seam warning on when `[check] warn_native_seams = false` would otherwise silence it.
+When the emitter raises outright rather than reporting a diagnostic, that is a compiler bug and the build fails with an `E5092` error naming the callable; under the flag the line `NA_DEBUG raise <Type>.<method>` and the Python traceback pointing at the codegen site are printed as well. Pin the module to the server codespace to keep working until the bug is fixed.
 
 ### Bytecode Cache
 
@@ -1426,4 +1428,4 @@ with entry {
 
 ### Chess Engine
 
-For a complete walkthrough that covers the native default codespace, `nacompile`, `sys.argv`, declaration/implementation separation, and nearly every other native feature, see the **[Build a Chess Engine](../../tutorials/native/chess.md)** tutorial.
+For a complete walkthrough that covers native placement, `nacompile`, `sys.argv`, declaration/implementation separation, and nearly every other native feature, see the **[Build a Chess Engine](../../tutorials/native/chess.md)** tutorial.

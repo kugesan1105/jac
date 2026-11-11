@@ -1,10 +1,10 @@
 # Build a Chess Engine
 
-> **Prerequisites:** Familiarity with [Native Compilation](../../reference/language/native-pathway.md) basics -- native placement (inference or pins) and `with entry {}`.
+> **Prerequisites:** Familiarity with [Native Compilation](../../reference/language/native-pathway.md) basics -- native placement (declarations, pins, or `jac build --native`) and `with entry {}`.
 
 In this tutorial you will explore a fully playable chess engine written in idiomatic Jac, run it on the native compilation pathway, and compile it to a standalone binary. Along the way you will learn:
 
-- How the **native-by-default codespace** infers native execution for compatible `.jac` files (and how `[placement] default = "server"` opts out)
+- How **`[placement] default = "native"`** declares a project native, so `jac run` executes compatible `.jac` files natively
 - How **`jac build --native`** produces a standalone binary with no external toolchain
 - How **`sys.argv`** enables command-line argument parsing in native programs
 - How **declaration/implementation separation** keeps large native programs organized
@@ -34,30 +34,30 @@ An interactive terminal chess game with:
 
 Before diving into the code, try running the chess engine. You have three options, each demonstrating a different part of the native pathway.
 
-### Option A: Just Run It (native by default)
+### Option A: Just Run It (Python backend)
 
 ```bash
 jac run jac/examples/chess/chess.jac
 ```
 
-The native codespace is the default for markerless `.jac` modules: the compiler analyzes the program and, since chess only uses native-compatible features (no async, `by llm()`, persistent `root` graph, PyPI imports, etc.), compiles it whole-module native and JIT-executes it -- no flags, no config.
+The server codespace is the default for plain `.jac` modules, so this runs the chess engine on the Python backend -- full compatibility, familiar debugging tools -- with no flags and no config.
 
-### Option B: Opt Out to the Python Backend
+### Option B: Declare It Native
 
 ```toml
 # jac.toml
 [placement]
-default = "server"
+default = "native"
 ```
 
 ```bash
 jac run jac/examples/chess/chess.jac
 ```
 
-Setting the project's default codespace to server runs the same file on the Python backend -- full compatibility, familiar debugging tools, byte-identical behavior (the native stdlib is congruent with CPython by contract).
+Declaring the project's plain modules native compiles the same file whole-module native and JIT-executes it, with byte-identical behavior (the native stdlib is congruent with CPython by contract). A `[placement.pins]` entry such as `chess = "native"` declares just that module instead.
 
-!!! info "How native inference works"
-    The compiler scans the module and its plain-`.jac` import closure for server-only constructs at parse time. If the closure is clean, the module is coerced native, lowered to LLVM IR, JIT-compiled, and executed natively. If it carries server signals -- or turns out not to lower yet -- it compiles in the server codespace instead (with a dim `note:` when a native preference could not be honored), so programs always run.
+!!! info "How native declarations work"
+    Native is never inferred: a module runs natively only when it is declared native (a `"native"` pin, a `[native] require` glob, or `[placement] default = "native"`). A declared-native module is strict: it is lowered to LLVM IR, JIT-compiled, and executed natively, and anything that cannot lower (async, `by llm()`, persistent `root` graph, PyPI imports, ...) is a located compile error, never a fallback to the server.
 
 ### Option C: Standalone Binary
 
@@ -409,21 +409,21 @@ impl Game.benchmark(num_games: int) -> None {
 
 This chess engine demonstrates an important property of Jac's native pathway: **the same `.jac` source file works across all three execution modes**.
 
-### 1. Native by Default
+### 1. Python Backend (the default)
 
 ```bash
 jac run jac/examples/chess/chess.jac -- --benchmark
 ```
 
-The compiler analyzes each module at build time. If all code is native-compatible and lowers, it JIT-compiles to machine code and runs natively. If not, it compiles in the server codespace with a dim `note:`. No code changes, no flags -- native when it can be, server when it must be.
+With no placement configuration, the module runs in the server codespace on the standard Python runtime. Full compatibility, familiar debugging tools, identical behavior.
 
-### 2. Python Backend (`[placement] default = "server"`)
+### 2. Declared Native (`[placement] default = "native"`)
 
 ```bash
-jac run jac/examples/chess/chess.jac
+jac run jac/examples/chess/chess.jac -- --benchmark
 ```
 
-With `[placement] default = "server"` in jac.toml, the same file runs on the standard Python runtime. Full compatibility, familiar debugging tools, identical behavior.
+With `[placement] default = "native"` (or a `"native"` pin for the module) in jac.toml, the same file is JIT-compiled to machine code and runs natively. The declaration is strict: code that cannot lower is a located compile error, not a silent fallback.
 
 ### 3. Standalone Binary (`jac build --native`)
 

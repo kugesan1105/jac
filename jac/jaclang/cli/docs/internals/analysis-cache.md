@@ -48,14 +48,11 @@ object graph, so payloads stay small and identity survives round trips.
 
 The payload is prefixed with its own sha256 -- the **interface hash**. The
 hash names the encoding, so byte-identical surfaces hash identically and any
-semantic change to the surface changes the hash. A compile that acted on an
-*inferred* native placement verdict never persists an interface: only the
-codegen flavor runs that verdict, and a module analyzed under it exports
-native typing that analysis-only compiles (dependency ingestion, `jac
-check`) never see, so a hash that depended on which flavor last persisted
-the module would defeat the cutoff for every importer. Declared and pinned
-placement is coerced at parse time in every flavor and is part of the
-interface.
+semantic change to the surface changes the hash. Native placement is never
+inferred: declared and pinned placement (including `[placement] default =
+"native"`) is coerced at parse time in every flavor, so codegen and
+analysis-only compiles (dependency ingestion, `jac check`) see the same
+native typing, and it is part of the interface.
 
 `compiler/types/stubcat/modiface.jac` holds the build/open entry points;
 the typeshed stub catalog itself is the degenerate case of the same format

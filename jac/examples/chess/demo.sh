@@ -2,27 +2,26 @@
 # Benchmark the same chess engine across every Jac backend, 20-game run each.
 # Run from this directory with the project venv active (provides python3 + jac).
 #
-# Since the native-by-default switch, plain `jac run chess.jac` compiles the
-# module natively on every run (no marker, no flag). The old Python backend is
-# still reachable by setting `[build] default_codespace = "server"` in a
-# jac.toml, which is how section 2 pins it for comparison.
+# Plain `jac run chess.jac` runs on the server (Python bytecode) codespace,
+# the default. Native is opt-in: section 3 declares the module native with
+# `[placement] default = "native"` in a throwaway jac.toml.
 
 # Collected wall-clock times for the summary table (filled in per section).
 t_python="n/a"; t_server="n/a"; t_jac="n/a"; t_native="n/a"; t_cpp="n/a"
 t_jac_compile="n/a"; t_jac_run="n/a"
 
-# The server-backend leg pins the old Python codespace via a throwaway
-# jac.toml; make sure it never outlives this script.
+# The native leg declares native placement via a throwaway jac.toml; make
+# sure it never outlives this script.
 cleanup() { rm -f jac.toml; }
 trap cleanup EXIT
 
 # Warm the Jac compiler/bytecode cache so the one-time "Setting up Jac for first
 # use" bootstrap does not pollute the timed runs below. (-b 1 = single game.)
 echo "Warming caches (untimed)..."
-printf '[project]\nname = "chess"\n\n[build]\ndefault_codespace = "server"\n' > jac.toml
+jac run chess.jac -b 1 >/dev/null 2>&1
+printf '[project]\nname = "chess"\n\n[placement]\ndefault = "native"\n' > jac.toml
 jac run chess.jac -b 1 >/dev/null 2>&1
 rm -f jac.toml
-jac run chess.jac -b 1 >/dev/null 2>&1
 echo "warm."
 echo
 
@@ -38,22 +37,22 @@ sleep 1
 echo
 echo "=============================================="
 echo "2) Jac, server backend (Python bytecode)"
-echo "Pinned via jac.toml: [build] default_codespace = \"server\""
+echo "The default codespace: no jac.toml needed"
 echo "Running: time jac run chess.jac -b 20"
 echo "=============================================="
-printf '[project]\nname = "chess"\n\n[build]\ndefault_codespace = "server"\n' > jac.toml
 _s=$(date +%s.%N); time jac run chess.jac -b 20; _e=$(date +%s.%N)
 t_server=$(awk "BEGIN{printf \"%.3f\", $_e-$_s}")
-rm -f jac.toml
 echo "interesting..."
 sleep 1
 
 echo
 echo "=============================================="
-echo "3) Jac, native by default (compiles on run)"
+echo "3) Jac, declared native (compiles on run)"
+echo "Declared via jac.toml: [placement] default = \"native\""
 echo "Running: time jac run chess.jac -b 20"
 echo "=============================================="
-# The default codespace is native: every run compiles the module natively. A
+printf '[project]\nname = "chess"\n\n[placement]\ndefault = "native"\n' > jac.toml
+# Declared native: every run compiles the module natively. A
 # 1-game run is almost all compile (native run of one game is ~0.1s), so it
 # stands in for the compile cost and the 20-game total minus it is the run.
 echo "  compile proxy: jac run chess.jac -b 1"
@@ -62,6 +61,7 @@ t_jac_compile=$(awk "BEGIN{printf \"%.3f\", $_e-$_s}")
 _s=$(date +%s.%N); time jac run chess.jac -b 20; _e=$(date +%s.%N)
 t_jac=$(awk "BEGIN{printf \"%.3f\", $_e-$_s}")
 t_jac_run=$(awk "BEGIN{printf \"%.3f\", $t_jac-$t_jac_compile}")
+rm -f jac.toml
 echo "interesting..."
 sleep 1
 
@@ -91,8 +91,8 @@ echo "=================== RESULTS (20-game benchmark) ==================="
 printf "%-38s %12s\n" "Backend" "Wall time (s)"
 printf "%-38s %12s\n" "--------------------------------------" "------------"
 printf "%-38s %12s\n" "1) Python (chess.py)"                  "$t_python"
-printf "%-38s %12s\n" "2) Jac, server backend (pinned)"       "$t_server"
-printf "%-38s %12s   (compile ~%s + run ~%s)\n" "3) Jac, native default"     "$t_jac" "$t_jac_compile" "$t_jac_run"
+printf "%-38s %12s\n" "2) Jac, server backend (default)"      "$t_server"
+printf "%-38s %12s   (compile ~%s + run ~%s)\n" "3) Jac, declared native"    "$t_jac" "$t_jac_compile" "$t_jac_run"
 printf "%-38s %12s\n" "4) Native binary (AOT, run only)"      "$t_native"
 printf "%-38s %12s\n" "5) C++ reference (faithful OOP)"        "$t_cpp"
 echo "==================================================================="

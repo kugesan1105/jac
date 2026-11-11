@@ -6,16 +6,16 @@ description: Compile Jac to native executables. Use for supported native constru
 The native codespace compiles Jac through LLVM to machine code - no Python runtime, no external compiler or linker (Jac bundles the whole toolchain). Three verbs:
 
 ```bash
-jac run app.jac -- x --flag    # placement inferred: native when the module can lower, else Python (full language, PyPI, persistent `root`) with a note; `--` separates program args
+jac run app.jac -- x --flag    # native only when the module is declared native in jac.toml, else Python (the default); `--` separates program args
 jac build --native app.jac -o app   # standalone zero-dependency binary - forces native, loud errors
 ./app x --flag
 ```
 
 - `jac build --native` compiles a **plain `.jac`**, coercing the whole module native - anything that cannot lower is a loud compile error, never a demotion. `CompileOptions(force_codespace='native')` is the programmatic one.
-- Under `[placement] default = "native"` (the default), `jac run` executes a verdict-passing module natively; a module using `root`/PyPI/async just runs on Python, with a dim `note:` when a native-preferring module had to demote. Set `[placement] default = "server"` to opt a project out.
+- `[placement] default = "server"` is the default, so `jac run` executes a module natively only when it is declared native: a `[placement.pins]` entry mapping it to `"native"`, a `[native] require` glob, or `[placement] default = "native"` (every plain project module, strictly). A declared-native module, function, method, field, or test that cannot lower (`root`/PyPI/async, ...) is a located E5090/E5092 error, never a demotion: change the code or pin it to the server.
 - A standalone binary REQUIRES `with entry { }` - otherwise: *"No entry point found."*
 - `jac build --native --target wasm32|windows|macos` cross-targets; `--lib` builds a C-ABI library (see the sibling skills); `--memory managed|rc|nogc` picks the memory-management runtime (see `jac-native-memory`).
-- **Native placement is inferred - at two granularities.** Whole markerless modules: the placement solver (blocker scan + import-closure fixpoint) compiles a module native when it can lower, demoting to server with a note otherwise. Within mixed files: an import whose braces declare C-ABI functions (`import from raylib { def InitWindow(w: i32, h: i32, title: str) -> None; }`) is an FFI surface only the native backend can satisfy, so it seeds native placement and the declarations using it follow (see `jac-codespaces`). Consuming a native *module* (`import from mymod { fast_fn }`) is not a signal. When native must be mandatory, force it: `jac build --native`, `jac build --as native`, or the explicit `na` markers.
+- **Native placement is declared, never inferred for whole modules.** Whole modules: only a `"native"` pin, `[native] require`, `[placement] default = "native"`, or a forced build makes one native. Within mixed files: an import whose braces declare C-ABI functions (`import from raylib { def InitWindow(w: i32, h: i32, title: str) -> None; }`) is an FFI surface only the native backend can satisfy, so it seeds native placement and the declarations using it follow (see `jac-codespaces`). Consuming a native *module* (`import from mymod { fast_fn }`) is not a signal. To compile a program native for one build without declaring it, use `jac build --native`.
 
 ## Headline example - a CLI tool
 
@@ -41,7 +41,7 @@ with entry {
 }
 ```
 
-`jac build --native tool.jac -o tool && ./tool World --shout` -> `HELLO, WORLD!`. Same argv via `jac run tool.jac -- World --shout` (runs natively under the default codespace).
+`jac build --native tool.jac -o tool && ./tool World --shout` -> `HELLO, WORLD!`. Same argv via `jac run tool.jac -- World --shout` (runs natively once `tool` is declared native, e.g. `[placement.pins] tool = "native"`).
 
 ## What the native subset supports (much more than loops)
 
@@ -99,7 +99,7 @@ with entry {
 }
 ```
 
-These pure-compute functions carry no FFI seed, and the `json` import anchors this mixed module server, so they default to Python; pin the hot functions native in `jac.toml` (`[placement.pins] "main.sum_squares" = "native"` - see `jac-codespaces`), or move them into their own anchor-free module (which compiles whole-module native by verdict, or gets a module-level `"native"` pin), then run with plain `jac run`. Interop stubs are generated automatically in both directions; primitives, collections, and `obj` instances cross the boundary. Each codespace only sees its own definitions at compile time (context isolation) - a native function referencing a Python function defined *after* the native section fails E5090 and returns 0.
+These pure-compute functions carry no FFI seed, and the `json` import anchors this mixed module server, so they default to Python; pin the hot functions native in `jac.toml` (`[placement.pins] "main.sum_squares" = "native"` - see `jac-codespaces`), or move them into their own module with a module-level `"native"` pin, then run with plain `jac run`. Interop stubs are generated automatically in both directions; primitives, collections, and `obj` instances cross the boundary. Each codespace only sees its own definitions at compile time (context isolation) - a native function referencing a Python function defined *after* the native section fails E5090 and returns 0.
 
 ## Native-to-native imports + decl/impl separation
 

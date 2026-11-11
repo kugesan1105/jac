@@ -22,6 +22,7 @@ the bytecode. The solver consumes summaries and owns every decision:
 | `root` access, node/edge/walker archetypes | server |
 | Python imports not covered by the portability table | server |
 | extern C declarations (clib imports) | native |
+| A `[native] require` glob, or `[placement] default = "native"` for plain project modules | native (declared) |
 | `def:pub` / `def:protect` (and `walker:protect`), **in an app whose kind has a server** | server (as an endpoint contract) |
 | A `[placement.pins]` entry (base table or the selected app's `[apps.<name>.placement.pins]` overlay) | its pinned space (immovable) |
 | The entry file of a declared `service` app | server (the module is compiled in that app context) |
@@ -107,10 +108,14 @@ is never served, and a client import of it is `E5082`. The same verdict governs
 cross-app imports (`E5106` for a private element). No pin or config entry
 changes it.
 
-The analysis proposes; lowering disposes. A module that prefers native but
-fails to lower is demoted to the server with a note naming the cause, and a
-client-pulled element that fails ES lowering demotes the same way (its call
-sites bridge instead). The portability table
+Native is never inferred: a module or element is native only when something
+declares it (a `"native"` pin, a `[native] require` glob, `[placement] default
+= "native"`, the root of `jac build <file> --native`, or an extern C
+declaration it uses); no evidence makes a module native on its own. There is
+no native demotion: a declared-native element that cannot lower is a located compile
+error (`E5090` / `E5092`), fixed by changing the code or pinning it to the
+server. (A client-pulled element that fails ES lowering still falls back to
+the server, its call sites bridging instead.) The portability table
 (`jaclang/runtime/portability.jac`) is the curated fact base for which
 python modules may follow their referents into another space -- it is
 honestly empty for the client today, so every python import pins server.

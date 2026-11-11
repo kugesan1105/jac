@@ -1408,12 +1408,13 @@ node Secret { has value: str; }
 # ============================================================
 # File Extension Conventions
 # ============================================================
-# .jac           The only placement story: inference (whole-module
-#                native when the module can lower, else server; client
-#                parts from JSX/npm, native parts from C extern decls)
+# .jac           The only placement story: inference (server by
+#                default; client parts from JSX/npm, native parts from
+#                C extern decls or native declarations in jac.toml)
 # .jac        Client implementation variant of a logical module
-# (native)       No native extension - a module infers native, is pinned
-#                native in jac.toml, or is forced via jac build --native
+# (native)       No native extension - a module is declared native in
+#                jac.toml (pin, [native] require, [placement] default)
+#                or is forced via jac build --native
 # .impl.jac      Implementation annex (method bodies)
 # .test.jac      Test annex
 # .style.css     Scoped CSS annex (auto-scopes classes for the matching component file)

@@ -22,7 +22,10 @@ Status note: the native compiler kernel, which ran these code generators as
 native code, was removed; the compiler runs as Python bytecode and emits this
 IR in-process. The sealed-lane paragraphs below (sections 2, 9 and 11) are the
 record of what was measured before the removal; the tests and waiver tables
-they name no longer exist.
+they name no longer exist. Native demotion was removed as well: where this
+page says a method "demotes", ships an `abort()` stub, or leaves a waived
+seam, the compiler now reports a located `E5092` error, and the code must
+lower or be pinned to the server.
 
 Note on location: the task brief suggested `docs/community/internals/`; the
 corpus's actual home for internal design docs is `docs/internals/` (beside

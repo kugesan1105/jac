@@ -30,7 +30,7 @@ How inference decides:
 
 - **JSX and npm imports are client signals.** A declaration containing JSX or a string-path npm import (`import from "react-dom" { ... }`) is client-only by construction, so the compiler places it in the client codespace automatically. Placement then propagates through references: helpers, `glob`s, and imports that client code uses join the client bundle too.
 - **Extern C declarations are native signals.** An import whose braces declare C-ABI functions (`import from raylib { def InitWindow(w: i32, h: i32, title: str) -> None; }`) is an FFI surface only the native backend can satisfy, so the compiler places it -- and the declarations that use it -- in the native codespace automatically. Merely importing *from* a native module is not a native signal: that stays a server-side import, bridged by interop.
-- **Server-only operations constrain server placement.** Python dependencies and persistent graph access are examples. In mixed modules, ordinary helpers follow their usage and constraints; anchor-free modules can instead prefer native compilation as described below.
+- **Server-only operations constrain server placement.** Python dependencies and persistent graph access are examples. Ordinary helpers follow their usage and constraints, and everything without client or native evidence stays on the server, the default codespace.
 
 Here's a file that spans two codespaces -- with nothing marking the split:
 
@@ -79,11 +79,11 @@ Keys are fnmatch patterns over `module` or `module.element` dotted paths; values
 Two rules to keep in mind:
 
 - **Pins always win.** Inference never moves a pinned element -- the most useful pin is `"server"` on a declaration you want kept server-side even though client code references it (the client call bridges over RPC instead).
-- **Mixed-module helpers follow placement constraints.** Use a `"native"` pin or `jac build --native` when native compilation is required, and check diagnostics for unsupported constructs. Whole-module native inference follows the rule below.
+- **Mixed-module helpers follow placement constraints.** Use a `"native"` pin or `jac build --native` when native compilation is required; a declared-native element that cannot lower is a located compile error.
 
-- **Whole modules go native by inference.** Under the default `[placement] default = "native"`, an anchor-free module that can lower compiles native, and one that cannot demotes to the server with a note; extern C declarations seed native placement inside mixed files. To force the choice -- loud errors instead of demotion -- use `jac build --native` or `jac build --as native`.
+- **Whole modules go native only when declared.** The default is `[placement] default = "server"`; a module is native when a `"native"` pin, a `[native] require` glob, or `[placement] default = "native"` declares it, and extern C declarations seed native placement inside mixed files. Declarations are strict: a declared-native module that cannot lower is a compile error, never a demotion. To compile a program native for one build, use `jac build --native`.
 
-(`.jac` still exists as an **implementation variant** -- the per-space implementation of one logical module -- not as the way ordinary code is placed. Native has no per-file spelling at all: it is inferred, pinned, or forced.)
+(`.jac` still exists as an **implementation variant** -- the per-space implementation of one logical module -- not as the way ordinary code is placed. Native has no per-file spelling at all: it is declared in `jac.toml`, seeded by extern C declarations, or forced.)
 
 Codespaces are similar to namespaces, but instead of organizing names, they organize where code executes. Interop between them -- function calls, spawn calls, type sharing -- is handled by the compiler and runtime.
 

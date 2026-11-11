@@ -20,13 +20,13 @@ description: Edit jac.toml project, app, dependency, build, and runtime settings
 | `[optional-dependencies.<group>]` | extras: `jac install --extras <group>`, wheel extras on publish |
 | `[serve]` | `jac run` defaults: `port`, `session`, `on_conflict` (the served app's client is at `/`; sibling apps with a built bundle at `/cl/<app>/`) |
 | `[run]` | `jac run` defaults: `cache`, `session`, `diagnostics` (`"error"`/`"all"`/`"none"`) |
-| `[check]` | type-check behavior: `enforce_access` (promote `:pub`/`:protect`/`:priv` visibility violations from warnings to hard errors), `warn_native_seams` (warn when a native-eligible method falls back to Python) |
+| `[check]` | type-check behavior: `enforce_access` (promote `:pub`/`:protect`/`:priv` visibility violations from warnings to hard errors) |
 | `[check.lint]` | lint rule selection: `select = ["default"]` / `["all"]`, `ignore = ["combine-has"]`, `exclude = ["legacy/*"]` |
 | `[test]` | `jac test` defaults: `directory`, `filter`, `verbose`, `fail_fast`, `max_failures` |
 | `[build]` | `dir` (artifact root, default `.jac/` - holds `cache/`, `venv/`, `client/`, `data/`) |
 | `[memory]` | the memory profile: `profile = "managed"/"rc"/"nogc"` (overridable per build with `--memory`); `enforce`/`exempt` glob patterns hold modules to the zero-RC contract under a managed profile (see `jac-native-memory`) |
-| `[native]` | native build knobs: `target`, `opt`, `debug`, `threads` |
-| `[placement]` | `default = "native"/"server"` for markerless modules, beside `[placement.pins]` |
+| `[native]` | native build knobs: `target`, `opt`, `debug`, `threads`, `require` (module globs declared native, strictly) |
+| `[placement]` | `default = "server"` (the default) or `"native"` (declares every plain module native, strictly), beside `[placement.pins]` |
 | `[scripts]` | named command shortcuts run via `jac x <name>` |
 | `[environments]` / `[environment]` | per-profile overrides (below) |
 | `[byllm]` / `[byllm.model]` / `[byllm.call_params]` | AI settings: model identity, API keys, call params (see `jac-by-llm`) |

@@ -42,6 +42,10 @@ async def _aretry_sleep(attempt: int);
 def _retry_delay(attempt: int) -> float;
 
 
+def _drive(steps: Generator, serve: Callable) -> any;
+
+async def _adrive(steps: Generator, serve: Callable) -> any;
+
 def _close_stream(stream: any);
 
 
@@ -518,7 +522,7 @@ impl BaseLLM._may_retry(mt_run: MTRuntime, e: Exception, attempt: int) -> bool {
 }
 
 
-impl BaseLLM._invoke_typed_retry(mt_run: MTRuntime) -> object {
+impl BaseLLM._typed_retry_steps(mt_run: MTRuntime) -> Generator[None, object, object] {
     max_attempts = self._resolve_output_attempts(mt_run);
     base_msgs = list(mt_run.messages);
     base_scaffolding = list(mt_run._scaffolding_ids);
@@ -534,7 +538,7 @@ impl BaseLLM._invoke_typed_retry(mt_run: MTRuntime) -> object {
                 );
             }
             try {
-                result = self._invoke_react_loop(mt_run);
+                result = yield None;
             } except OutputConversionError as e {
                 (last_reason, last_output) = self._parse_failure_feedback(
                     attempt, max_attempts, e
@@ -561,48 +565,19 @@ impl BaseLLM._invoke_typed_retry(mt_run: MTRuntime) -> object {
     }
 }
 
+impl BaseLLM._invoke_typed_retry(mt_run: MTRuntime) -> object {
+    def attempt(_: None) -> object {
+        return self._invoke_react_loop(mt_run);
+    }
+    return _drive(self._typed_retry_steps(mt_run), attempt);
+}
+
 
 impl BaseLLM._ainvoke_typed_retry(mt_run: MTRuntime) -> object {
-    max_attempts = self._resolve_output_attempts(mt_run);
-    base_msgs = list(mt_run.messages);
-    base_scaffolding = list(mt_run._scaffolding_ids);
-    attempt = 0;
-    last_reason = "";
-    last_output = "";
-    try {
-        while True {
-            attempt += 1;
-            if attempt > 1 {
-                self._typed_retry_reset(
-                    mt_run, base_msgs, base_scaffolding, last_reason, last_output
-                );
-            }
-            try {
-                result = (await self.adispatch_no_streaming(mt_run)).output;
-            } except OutputConversionError as e {
-                (last_reason, last_output) = self._parse_failure_feedback(
-                    attempt, max_attempts, e
-                );
-                if attempt >= max_attempts {
-                    raise self._typed_retry_exhausted(attempt, e, last_output) from e;
-                }
-                continue;
-            }
-            if self._structured_output_ok(mt_run, result) {
-                return result;
-            }
-            (last_err, last_reason, last_output) = self._nonconforming_feedback(
-                attempt, max_attempts, mt_run, result
-            );
-            if attempt >= max_attempts {
-                raise self._typed_retry_exhausted(
-                    attempt, last_err, last_output
-                ) from last_err;
-            }
-        }
-    } finally {
-        mt_run.write_back_conversation();
+    async def attempt(_: None) -> object {
+        return (await self.adispatch_no_streaming(mt_run)).output;
     }
+    return await _adrive(self._typed_retry_steps(mt_run), attempt);
 }
 
 
@@ -1117,7 +1092,9 @@ def _raise_if_empty_truncation(finish_reason: str, content: any, tool_calls: any
 def _truncated_call_ids(message: dict[str, any], finish_reason: str) -> set[str];
 
 
-impl BaseLLM.dispatch_no_streaming(mt_run: MTRuntime) -> CompletionResult {
+impl BaseLLM._completion_steps(
+    mt_run: MTRuntime
+) -> Generator[tuple[str, any], object, CompletionResult] {
     params = self.make_model_params(mt_run);
 
     log_params = self.format_prompt(params);
@@ -1127,7 +1104,7 @@ impl BaseLLM.dispatch_no_streaming(mt_run: MTRuntime) -> CompletionResult {
     while True {
         self._arm_attempt(mt_run, params, False);
         try {
-            response = self.model_call_no_stream(params);
+            response = yield ("call", params);
             break;
         } except Exception as e {
             if self._may_retry(mt_run, e, attempt) {
@@ -1136,7 +1113,7 @@ impl BaseLLM.dispatch_no_streaming(mt_run: MTRuntime) -> CompletionResult {
                     f"Transient LLM error ({type(e).__name__}); "
                     f"retry {attempt} on {self.model_name}"
                 );
-                _retry_sleep(attempt);
+                yield ("sleep", attempt);
                 continue;
             }
 
@@ -1182,6 +1159,29 @@ impl BaseLLM.dispatch_no_streaming(mt_run: MTRuntime) -> CompletionResult {
         usage=usage_data,
         finish_reason=finish_reason
     );
+}
+
+impl BaseLLM.dispatch_no_streaming(mt_run: MTRuntime) -> CompletionResult {
+    def serve(request: tuple[str, any]) -> object {
+        (kind, arg) = request;
+        if kind == "sleep" {
+            return _retry_sleep(arg);
+        }
+        return self.model_call_no_stream(arg);
+    }
+    return _drive(self._completion_steps(mt_run), serve);
+}
+
+
+impl BaseLLM.adispatch_no_streaming(mt_run: MTRuntime) -> CompletionResult {
+    async def serve(request: tuple[str, any]) -> object {
+        (kind, arg) = request;
+        if kind == "sleep" {
+            return await _aretry_sleep(arg);
+        }
+        return await self.model_call_no_stream_async(arg);
+    }
+    return await _adrive(self._completion_steps(mt_run), serve);
 }
 
 impl BaseLLM._should_retry_stream(
@@ -1494,67 +1494,6 @@ impl BaseLLM.dispatch_streaming_with_tools(
     );
 }
 
-impl BaseLLM.adispatch_no_streaming(mt_run: MTRuntime) -> CompletionResult {
-    params = self.make_model_params(mt_run);
-    log_params = self.format_prompt(params);
-    self.api_base = params.pop("api_base", DEFAULT_BASE_URL);
-    params.pop("api_key", None);
-    attempt = 0;
-    while True {
-        self._arm_attempt(mt_run, params, False);
-        try {
-            response = await self.model_call_no_stream_async(params);
-            break;
-        } except Exception as e {
-            if self._may_retry(mt_run, e, attempt) {
-                attempt += 1;
-                self.log_info(
-                    f"Transient LLM error ({type(e).__name__}); "
-                    f"retry {attempt} on {self.model_name}"
-                );
-                await _aretry_sleep(attempt);
-                continue;
-            }
-            self.log_info(f"Calling LLM: {self.model_name} with params: {log_params}");
-            raise;
-        }
-    }
-    actual_model = response.get("model", self.model_name);
-    self.log_info(f"Calling LLM: {actual_model} with params: {log_params}");
-    message = coerce_message_dict(response.get("choices", [])[0].get("message"));
-
-    if not self.supports_native_tools {
-        message = recover_tool_calls(message, [t.get_name() for t in mt_run.tools]);
-    }
-    damaged_ids = _sanitize_tool_calls(message);
-    mt_run.add_message(message);
-    output_content = message.get("content") or "";
-    assert isinstance(output_content, str);
-    self.log_info(f"LLM call completed with response: {output_content}");
-    finish_reason = str(
-        (response.get("choices") or [{}])[0].get("finish_reason") or ""
-    );
-
-    truncated_ids = _truncated_call_ids(message, finish_reason);
-    tool_calls: list[ToolCall] = [];
-    _tc_raw: any = (message or {}).get("tool_calls") or [];
-    tool_calls_list: list[any] = _tc_raw if isinstance(_tc_raw, list) else [];
-    tool_calls = _parse_tool_calls(mt_run, tool_calls_list, truncated_ids, damaged_ids);
-    usage_data = response.get("usage", {});
-    _attach_call_cost(usage_data, self.model_name, response);
-    _record_usage(mt_run, usage_data, actual_model, finish_reason=finish_reason);
-    _notify_llm_call(mt_run);
-    _raise_if_empty_truncation(finish_reason, output_content, tool_calls_list);
-    output_value = mt_run.parse_response(output_content)
-        if not tool_calls_list
-        else output_content;
-    return CompletionResult(
-        output=output_value,
-        tool_calls=tool_calls,
-        usage=usage_data,
-        finish_reason=finish_reason
-    );
-}
 
 impl BaseLLM.adispatch_streaming(mt_run: MTRuntime) -> AsyncIterator[str] {
     params = self.make_model_params(mt_run);
@@ -3181,4 +3120,38 @@ impl _aclose_stream(stream: any) {
             await closing;
         }
     } except Exception {}
+}
+
+impl _drive(steps: Generator, serve: Callable) -> any {
+    try {
+        request = next(steps);
+        while True {
+            try {
+                reply = serve(request);
+            } except BaseException as e {
+                request = steps.throw(e);
+                continue;
+            }
+            request = steps.send(reply);
+        }
+    } except StopIteration as done {
+        return done.value;
+    }
+}
+
+impl _adrive(steps: Generator, serve: Callable) -> any {
+    try {
+        request = next(steps);
+        while True {
+            try {
+                reply = await serve(request);
+            } except BaseException as e {
+                request = steps.throw(e);
+                continue;
+            }
+            request = steps.send(reply);
+        }
+    } except StopIteration as done {
+        return done.value;
+    }
 }

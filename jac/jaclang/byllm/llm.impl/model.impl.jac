@@ -219,6 +219,12 @@ def _stream_with_telemetry(
     gen: Iterator[object], mt: MTRuntime, model_name: str, start: float
 ) -> Generator[object, None, None];
 
+def _telemetry_context(mt: MTRuntime) -> any;
+
+def _emit_stream_end(
+    mt: MTRuntime, model_name: str, start: float, error: Exception | None
+);
+
 def _is_timeout_error(e: Exception) -> bool;
 
 
@@ -265,44 +271,29 @@ impl Model.model_call_image(params: dict[str, any]) -> dict[str, any] {
     return response_dict(response);
 }
 
-impl Model.model_call_no_stream(params: dict[str, any]) -> dict[str, any] {
+
+impl Model._transport_steps(
+    params: dict[str, any]
+) -> Generator[tuple[str, dict[str, any]], object, dict[str, any]] {
     response: object;
     try {
         if self.http_client {
-            response = self.model_call_http(
-                url=self.api_base,
-                token=self.api_key,
-                payload=params,
-                ca_bundle=self.config.get("ca_bundle", None),
-            );
+            response = yield ("http", params);
         } elif self.proxy {
             require_optional("openai", "llm");
-            client: any = OpenAI(
-                base_url=self.api_base, api_key=self.api_key or None, max_retries=0
-            );
-            response = client.chat.completions.create(**params);
+            response = yield ("proxy", params);
         } else {
             require_optional("litellm", "llm");
             sent = _forced_output_params(params);
             started = time.monotonic();
             try {
-                response = litellm.completion(
-                    api_key=self.api_key or None,
-                    api_base=self.api_base or None,
-                    num_retries=0,
-                    **sent
-                );
+                response = yield ("litellm", sent);
             } except Exception as rejected {
                 if sent is not params or not _forced_tool_rejected(rejected) {
                     raise;
                 }
                 _NO_FORCED_TOOL_MODELS.add(str(params.get("model", "")));
-                response = litellm.completion(
-                    api_key=self.api_key or None,
-                    api_base=self.api_base or None,
-                    num_retries=0,
-                    **_fallback_params(params, started)
-                );
+                response = yield ("litellm", _fallback_params(params, started));
             }
         }
     } except Exception as e {
@@ -311,30 +302,142 @@ impl Model.model_call_no_stream(params: dict[str, any]) -> dict[str, any] {
     return response_dict(response);
 }
 
-impl Model.model_call_with_stream(params: dict[str, any]) -> Iterable[object] {
+impl Model._stream_transport_steps(
+    params: dict[str, any], http: bool
+) -> Generator[tuple[str, dict[str, any]], object, object] {
     params["stream_options"] = (params.get("stream_options") or {})
         | {"include_usage": True};
+    response: object;
     try {
-        if self.proxy {
+        if http and self.http_client {
+            response = yield ("http", params | {"stream": True});
+        } elif self.proxy {
             require_optional("openai", "llm");
-            client: any = OpenAI(
-                base_url=self.api_base, api_key=self.api_key or None, max_retries=0
-            );
-            response = client.chat.completions.create(stream=True, **params);
+            response = yield ("proxy", params);
         } else {
             require_optional("litellm", "llm");
-            response = litellm.completion(
-                stream=True,
-                api_key=self.api_key or None,
-                api_base=self.api_base or None,
-                num_retries=0,
-                **params
-            );
+            response = yield ("litellm", params);
         }
     } except Exception as e {
         self._raise_mapped_provider_error(e);
     }
     return response;
+}
+
+impl Model.model_call_no_stream(params: dict[str, any]) -> dict[str, any] {
+    def send(request: tuple[str, dict[str, any]]) -> object {
+        (route, body) = request;
+        if route == "http" {
+            return self.model_call_http(
+                url=self.api_base,
+                token=self.api_key,
+                payload=body,
+                ca_bundle=self.config.get("ca_bundle", None),
+            );
+        }
+        if route == "proxy" {
+            client: any = OpenAI(
+                base_url=self.api_base, api_key=self.api_key or None, max_retries=0
+            );
+            return client.chat.completions.create(**body);
+        }
+        return litellm.completion(
+            api_key=self.api_key or None,
+            api_base=self.api_base or None,
+            num_retries=0,
+            **body
+        );
+    }
+    return _drive(self._transport_steps(params), send);
+}
+
+impl Model.model_call_no_stream_async(params: dict[str, any]) -> dict[str, any] {
+    async def send(request: tuple[str, dict[str, any]]) -> object {
+        (route, body) = request;
+        if route == "http" {
+            return await self.model_call_http_async(
+                url=self.api_base,
+                token=self.api_key,
+                payload=body,
+                ca_bundle=self.config.get("ca_bundle", None),
+            );
+        }
+        if route == "proxy" {
+            return await self._async_proxy().chat.completions.create(**body);
+        }
+        return await litellm.acompletion(
+            api_key=self.api_key or None,
+            api_base=self.api_base or None,
+            num_retries=0,
+            **body
+        );
+    }
+    return await _adrive(self._transport_steps(params), send);
+}
+
+impl Model.model_call_with_stream(params: dict[str, any]) -> Iterable[object] {
+    def send(request: tuple[str, dict[str, any]]) -> object {
+        (route, body) = request;
+        if route == "proxy" {
+            client: any = OpenAI(
+                base_url=self.api_base, api_key=self.api_key or None, max_retries=0
+            );
+            return client.chat.completions.create(stream=True, **body);
+        }
+        return litellm.completion(
+            stream=True,
+            api_key=self.api_key or None,
+            api_base=self.api_base or None,
+            num_retries=0,
+            **body
+        );
+    }
+    return _drive(self._stream_transport_steps(params, http=False), send);
+}
+
+impl Model.model_call_with_stream_async(
+    params: dict[str, any]
+) -> AsyncIterator[object] {
+    async def send(request: tuple[str, dict[str, any]]) -> object {
+        (route, body) = request;
+        if route == "http" {
+            return await self.model_call_http_async(
+                url=self.api_base,
+                token=self.api_key,
+                payload=body,
+                ca_bundle=self.config.get("ca_bundle", None),
+            );
+        }
+        if route == "proxy" {
+            return await self._async_proxy().chat.completions.create(
+                stream=True, **body
+            );
+        }
+        return await litellm.acompletion(
+            stream=True,
+            api_key=self.api_key or None,
+            api_base=self.api_base or None,
+            num_retries=0,
+            **body
+        );
+    }
+    response = await _adrive(self._stream_transport_steps(params, http=True), send);
+    import from collections.abc { AsyncIterator as AsyncStreamIterator }
+    if not isinstance(response, AsyncStreamIterator) {
+        raise TypeError(
+            'The model transport returned a non-streaming response for a streaming request'
+        );
+    }
+    return response;
+}
+
+impl Model._async_proxy -> any {
+    if "async_proxy" not in self._clients {
+        self._clients["async_proxy"] = AsyncOpenAI(
+            base_url=self.api_base, api_key=self.api_key or None, max_retries=0
+        );
+    }
+    return self._clients["async_proxy"];
 }
 
 def _body_without_timeout(payload: dict[str, any]) -> dict[str, any];
@@ -355,101 +458,6 @@ impl Model.model_call_http(
     return response.json();
 }
 
-impl Model.model_call_no_stream_async(params: dict[str, any]) -> dict[str, any] {
-    response: object;
-    try {
-        if self.http_client {
-            response = await self.model_call_http_async(
-                url=self.api_base,
-                token=self.api_key,
-                payload=params,
-                ca_bundle=self.config.get("ca_bundle", None),
-            );
-        } elif self.proxy {
-            require_optional("openai", "llm");
-            if "async_proxy" not in self._clients {
-                self._clients["async_proxy"] = AsyncOpenAI(
-                    base_url=self.api_base, api_key=self.api_key or None, max_retries=0
-                );
-            }
-            async_client = self._clients["async_proxy"];
-            response = await async_client.chat.completions.create(**params);
-        } else {
-            require_optional("litellm", "llm");
-            sent = _forced_output_params(params);
-            started = time.monotonic();
-            try {
-                response = await litellm.acompletion(
-                    api_key=self.api_key or None,
-                    api_base=self.api_base or None,
-                    num_retries=0,
-                    **sent
-                );
-            } except Exception as rejected {
-                if sent is not params or not _forced_tool_rejected(rejected) {
-                    raise;
-                }
-                _NO_FORCED_TOOL_MODELS.add(str(params.get("model", "")));
-                response = await litellm.acompletion(
-                    api_key=self.api_key or None,
-                    api_base=self.api_base or None,
-                    num_retries=0,
-                    **_fallback_params(params, started)
-                );
-            }
-        }
-    } except Exception as e {
-        self._raise_mapped_provider_error(e);
-    }
-    return response_dict(response);
-}
-
-impl Model.model_call_with_stream_async(
-    params: dict[str, any]
-) -> AsyncIterator[object] {
-    response: object;
-    params["stream_options"] = (params.get("stream_options") or {})
-        | {"include_usage": True};
-    try {
-        if self.http_client {
-            response = await self.model_call_http_async(
-                url=self.api_base,
-                token=self.api_key,
-                payload=params | {"stream": True},
-                ca_bundle=self.config.get("ca_bundle", None),
-            );
-        } elif self.proxy {
-            require_optional("openai", "llm");
-            if "async_proxy" not in self._clients {
-                self._clients["async_proxy"] = AsyncOpenAI(
-                    base_url=self.api_base, api_key=self.api_key or None, max_retries=0
-                );
-            }
-            async_client = self._clients["async_proxy"];
-            response = await async_client.chat.completions.create(
-                stream=True, **params
-            );
-        } else {
-            require_optional("litellm", "llm");
-            response = await litellm.acompletion(
-                stream=True,
-                api_key=self.api_key or None,
-                api_base=self.api_base or None,
-                num_retries=0,
-                **params
-            );
-        }
-    } except Exception as e {
-        self._raise_mapped_provider_error(e);
-    }
-    import from collections.abc { AsyncIterator as AsyncStreamIterator }
-    if not isinstance(response, AsyncStreamIterator) {
-        raise TypeError(
-            'The model transport returned a non-streaming response for a streaming request'
-        );
-    }
-    return response;
-}
 
 impl Model.model_call_http_async(
     url: str, token: str, payload: dict[str, any], ca_bundle: (str | bool | None)
@@ -492,89 +500,68 @@ impl _model_lacks_tool_role(model_name: str) -> bool {
     return False;
 }
 
+
+impl _telemetry_context(mt: MTRuntime) -> any {
+    import contextvars;
+    ctx = contextvars.copy_context();
+    if mt._invocation_id is not None {
+        ctx.run(_current_invocation_id.set, mt._invocation_id);
+    }
+    return ctx;
+}
+
+impl _emit_stream_end(
+    mt: MTRuntime, model_name: str, start: float, error: Exception | None
+) {
+    elapsed_ms = (time.time() - start) * 1000;
+    if error is None {
+        _emit_agent_telemetry(
+            mt, "[streaming]", model_name, elapsed_ms, "success", None
+        );
+    } else {
+        _emit_agent_telemetry(mt, None, model_name, elapsed_ms, "error", error);
+    }
+}
+
 impl _astream_with_telemetry(
     agen: AsyncGenerator[object, None], mt: MTRuntime, model_name: str, start: float
 ) -> AsyncGenerator[object, None] {
     import asyncio;
-    import contextvars;
-    import time;
-
-    invocation_id = mt._invocation_id;
-    ctx = contextvars.copy_context();
-    if invocation_id is not None {
-        ctx.run(_current_invocation_id.set, invocation_id);
-    }
-
-    _completed = False;
+    ctx = _telemetry_context(mt);
     try {
         while True {
             try {
                 item = await asyncio.Task(agen.__anext__(), context=ctx);
             } except StopAsyncIteration {
-                _completed = True;
                 break;
             }
             yield item;
         }
-    } except Exception as inner_e {
-        _emit_agent_telemetry(
-            mt, None, model_name, (time.time() - start) * 1000, "error", inner_e
-        );
+    } except Exception as e {
+        _emit_stream_end(mt, model_name, start, e);
         raise;
-    } finally {
-        if _completed {
-            _emit_agent_telemetry(
-                mt,
-                "[streaming]",
-                model_name,
-                (time.time() - start) * 1000,
-                "success",
-                None
-            );
-        }
     }
+    _emit_stream_end(mt, model_name, start, None);
 }
 
 impl _stream_with_telemetry(
     gen: Iterator[object], mt: MTRuntime, model_name: str, start: float
 ) -> Generator[object, None, None] {
-    import contextvars;
-    import time;
-
-    invocation_id = mt._invocation_id;
-    ctx = contextvars.copy_context();
-    if invocation_id is not None {
-        ctx.run(_current_invocation_id.set, invocation_id);
-    }
-
-    _completed = False;
+    ctx = _telemetry_context(mt);
     try {
         while True {
             try {
                 item = ctx.run(next, gen);
             } except StopIteration {
-                _completed = True;
                 break;
             }
             yield item;
         }
-    } except Exception as inner_e {
-        _emit_agent_telemetry(
-            mt, None, model_name, (time.time() - start) * 1000, "error", inner_e
-        );
+    } except Exception as e {
+        _emit_stream_end(mt, model_name, start, e);
         raise;
-    } finally {
-        if _completed {
-            _emit_agent_telemetry(
-                mt,
-                "[streaming]",
-                model_name,
-                (time.time() - start) * 1000,
-                "success",
-                None
-            );
-        }
     }
+    _emit_stream_end(mt, model_name, start, None);
 }
 
 impl _is_timeout_error(e: Exception) -> bool {

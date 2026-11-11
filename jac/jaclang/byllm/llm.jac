@@ -69,6 +69,7 @@ obj BaseLLM {
         restartable: bool = True,
     ) -> bool;
 
+    def _typed_retry_steps(mt_run: MTRuntime) -> Generator[None, object, object];
     def _invoke_typed_retry(mt_run: MTRuntime) -> object;
     async def _ainvoke_typed_retry(mt_run: MTRuntime) -> object;
     def _typed_retry_reset(
@@ -102,6 +103,10 @@ obj BaseLLM {
     def log_info(message: str) -> None;
     def format_prompt(params: dict[str, any]) -> str;
     def dispatch_image(mt_run: MTRuntime) -> object;
+    def _completion_steps(
+        mt_run: MTRuntime
+    ) -> Generator[tuple[str, any], object, CompletionResult];
+
     def dispatch_no_streaming(mt_run: MTRuntime) -> CompletionResult;
     def dispatch_streaming(
         mt_run: MTRuntime, retractable: bool = False
@@ -222,6 +227,15 @@ obj Model(BaseLLM) {
         params: dict[str, any]
     ) -> AsyncIterator[object];
 
+    def _transport_steps(
+        params: dict[str, any]
+    ) -> Generator[tuple[str, dict[str, any]], object, dict[str, any]];
+
+    def _stream_transport_steps(
+        params: dict[str, any], http: bool
+    ) -> Generator[tuple[str, dict[str, any]], object, object];
+
+    def _async_proxy -> any;
     def model_call_http(
         url: str, token: str, payload: dict[str, any], ca_bundle: (str | bool | None)
     ) -> dict[str, any];

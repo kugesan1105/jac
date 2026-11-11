@@ -8,6 +8,7 @@ import from pathlib { Path }
 import from unittest.mock { patch }
 import from jaclang.compiler.driver.application { prepare_application }
 import from jaclang.compiler.driver.program { JacProgram }
+import jaclang.compiler.driver.compiler as compiler_module;
 import from jaclang.compiler.driver.compiler { JacCompiler }
 import from jaclang.runtime.prepared {
     forget,
@@ -231,8 +232,8 @@ test "preparation does not execute modules and warm restoration does not compile
         assert first.manifests[str(path)]['surface']['message']['exposure'] == 'public';
         forget(str(path));
         with patch.object(
-            JacCompiler,
-            '_compile_pipeline',
+            compiler_module,
+            'compile_module',
             side_effect=AssertionError('warm preparation entered the compiler')
         ) {
             second = prepare_application(str(path), JacProgram(), tmp);
@@ -361,8 +362,8 @@ test "runtime logs and toolchain directories do not become application inputs" {
             }
             log.write_text('still running');
             with patch.object(
-                JacCompiler,
-                '_compile_pipeline',
+                compiler_module,
+                'compile_module',
                 side_effect=AssertionError('log invalidated revision')
             ) {
                 prepare_application(str(path), JacProgram(), tmp);
@@ -524,8 +525,8 @@ test "sealed preparation consumes baked artifacts without compiling retained sou
                     retained.write_text('retained source must never be analyzed');
                 }
                 with patch.object(
-                    JacCompiler,
-                    '_compile_pipeline',
+                    compiler_module,
+                    'compile_module',
                     side_effect=AssertionError('sealed source was compiled')
                 ), patch.object(
                     JacCompiler,
@@ -753,8 +754,8 @@ test "unrelated source changes do not invalidate a prepared dependency closure" 
             }
             unrelated.write_text('def other -> int { return 3; }\n');
             with patch.object(
-                JacCompiler,
-                '_compile_pipeline',
+                compiler_module,
+                'compile_module',
                 side_effect=AssertionError('unrelated source invalidated preparation')
             ) {
                 prepare_application(str(path), JacProgram(), tmp);
@@ -995,7 +996,7 @@ test "a preparation on another thread neither breaks nor wedges an in-process pr
         compiling = threading.Event();
         released = threading.Event();
         original_release = application._release_compile_state;
-        original_enter = JacCompiler.enter_compile;
+        original_run = JacCompiler.run_module;
         def held_release(owner: any) {
             releasing.set();
             compiling.wait(5);
@@ -1005,14 +1006,13 @@ test "a preparation on another thread neither breaks nor wedges an in-process pr
                 released.set();
             }
         }
-        def held_enter(self: any, ctx: any) -> any {
-            frame = original_enter(self, ctx);
+        def held_run(self: any, *args: any) -> any {
             if threading.current_thread().name == 'dynamic-import'
                 and not compiling.is_set() {
                 compiling.set();
                 released.wait(5);
             }
-            return frame;
+            return original_run(self, *args);
         }
         errors: list[str] = [];
         def reprepare {
@@ -1033,7 +1033,7 @@ test "a preparation on another thread neither breaks nor wedges an in-process pr
         path.write_text("def:pub hello -> int { return 3; }\n");
         try {
             with patch.object(application, '_release_compile_state', held_release) {
-                with patch.object(JacCompiler, 'enter_compile', held_enter) {
+                with patch.object(JacCompiler, 'run_module', held_run) {
                     threads = [
                         threading.Thread(target=reprepare, name='hmr-reprepare'),
                         threading.Thread(target=dynamic, name='dynamic-import')
@@ -1078,9 +1078,8 @@ test "compiles on two threads leave the compiler free to release" {
         first_entered = threading.Event();
         second_entered = threading.Event();
         first_done = threading.Event();
-        original_enter = JacCompiler.enter_compile;
-        def held_enter(self: any, ctx: any) -> any {
-            frame = original_enter(self, ctx);
+        original_run = JacCompiler.run_module;
+        def held_run(self: any, *args: any) -> any {
             name = threading.current_thread().name;
             if name == 'first' and not first_entered.is_set() {
                 first_entered.set();
@@ -1091,7 +1090,7 @@ test "compiles on two threads leave the compiler free to release" {
                     "the first compile did not finish before the second"
                 );
             }
-            return frame;
+            return original_run(self, *args);
         }
         errors: list[str] = [];
         def compile_one(path: Path) {
@@ -1108,7 +1107,7 @@ test "compiles on two threads leave the compiler free to release" {
                 }
             }
         }
-        with patch.object(JacCompiler, 'enter_compile', held_enter) {
+        with patch.object(JacCompiler, 'run_module', held_run) {
             threads = [
                 threading.Thread(target=compile_one, args=(first, ), name='first'),
                 threading.Thread(target=compile_one, args=(second, ), name='second')
@@ -1247,9 +1246,8 @@ test "a compile that leaves first keeps the closure of one still running" {
         second_entered = threading.Event();
         first_done = threading.Event();
         kept: list[bool] = [];
-        original_enter = JacCompiler.enter_compile;
-        def held_enter(self: any, ctx: any) -> any {
-            frame = original_enter(self, ctx);
+        original_run = JacCompiler.run_module;
+        def held_run(self: any, *args: any) -> any {
             name = threading.current_thread().name;
             if name == 'first' and not first_entered.is_set() {
                 first_entered.set();
@@ -1261,7 +1259,7 @@ test "a compile that leaves first keeps the closure of one still running" {
                 );
                 kept.append(self._closure_opts is not None);
             }
-            return frame;
+            return original_run(self, *args);
         }
         errors: list[str] = [];
         def compile_one(path: Path) {
@@ -1278,7 +1276,7 @@ test "a compile that leaves first keeps the closure of one still running" {
                 }
             }
         }
-        with patch.object(JacCompiler, 'enter_compile', held_enter) {
+        with patch.object(JacCompiler, 'run_module', held_run) {
             threads = [
                 threading.Thread(target=compile_one, args=(first, ), name='first'),
                 threading.Thread(target=compile_one, args=(second, ), name='second')

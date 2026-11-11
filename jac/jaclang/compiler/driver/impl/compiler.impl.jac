@@ -638,39 +638,109 @@ impl JacCompiler.compile(
     use_str: (str | None) = None,
     options: CompileOptions = CompileOptions()
 ) -> uni.Module {
-    return compile_in_session(self, file_path, target_program, use_str, options);
-}
-
-impl JacCompiler.enter_compile(ctx: SessionContext) -> CompileFrame {
-    target_program = ctx.target;
-    if self._reentrant_depth == 0
-        and not self.stub_catalog_disabled
-        and not target_program.internal {
-        self.ensure_stub_catalog();
-    }
-    frame = HostCompileFrame(
-        nested=self._reentrant_depth > 0, depth_prev=self._reentrant_depth
-    );
-    self._reentrant_depth += 1;
-    if frame.depth_prev == 0 {
-        self._closure_opts = ctx.options;
-    }
-    if frame.depth_prev == 0 and not os.environ.get('JAC_GC_NO_COMPILE_BOOST') {
-        import gc;
-        gc_prev = gc.get_threshold();
-        thresholds = CHECK_GC_THRESHOLDS
-            if ctx.options.no_cgen or gc_prev == CHECK_GC_THRESHOLDS
-            else COMPILE_GC_THRESHOLDS;
-        if gc_prev[0] < thresholds[0] {
-            frame.gc_prev = gc_prev;
-            gc.set_threshold(*thresholds);
+    ctx = select_context(file_path, target_program, options);
+    target = ctx.target;
+    with compilation_scope(owner_scope_options(target, ctx.options)) {
+        with compile_progress.track(str(file_path)) {
+            depth_prev = self._reentrant_depth;
+            if depth_prev == 0
+                and not self.stub_catalog_disabled
+                and not target.internal {
+                self.ensure_stub_catalog();
+            }
+            self._reentrant_depth += 1;
+            if depth_prev == 0 {
+                self._closure_opts = ctx.options;
+            }
+            gc_prev: (tuple[int, int, int] | None) = None;
+            if depth_prev == 0 and not os.environ.get('JAC_GC_NO_COMPILE_BOOST') {
+                import gc;
+                current = gc.get_threshold();
+                thresholds = CHECK_GC_THRESHOLDS
+                    if ctx.options.no_cgen or current == CHECK_GC_THRESHOLDS
+                    else COMPILE_GC_THRESHOLDS;
+                if current[0] < thresholds[0] {
+                    gc_prev = current;
+                    gc.set_threshold(*thresholds);
+                }
+            }
+            retain_selfhost = target.internal;
+            if retain_selfhost {
+                self.selfhost.enter_execution();
+            }
+            previous_codespace = get_effective_default_codespace_override();
+            native_token = set_native_unit_compile(bool(ctx.options.native_unit));
+            outer_options: (CompileOptions | None) = None;
+            entered = False;
+            try {
+                target.scratch.compile_depth += 1;
+                entered = True;
+                if depth_prev > 0 {
+                    outer_options = target.options;
+                }
+                run_options = ctx.options;
+                try {
+                    if use_str is not None and not run_options.no_ir_cache {
+                        import copy;
+                        run_options = copy.copy(run_options);
+                        run_options.no_ir_cache = True;
+                    }
+                    parent = annex_parent(file_path, target, use_str, run_options);
+                    if parent is not None {
+                        return self.compile(parent, target, None, run_options);
+                    }
+                    run_options = inherit_session_options(
+                        target, run_options, self._closure_opts
+                    );
+                    return self.run_module(file_path, target, use_str, run_options);
+                } except Exception as crash {
+                    re_entered = import_error_re_enters(crash, file_path);
+                    if re_entered is not None {
+                        raise CompilerSourceError(
+                            f"compiling {file_path} re-entered it: a pass imported "
+                            f"'{re_entered}' while Python was still executing that "
+                            "module, so the name is not bound yet. A module a pass "
+                            "reaches at run time belongs in its product's loads (the "
+                            "PRODUCTS table in jaclang.compiler.driver.pipeline), which "
+                            "the loader pre-imports and which puts any compile nested in "
+                            "its import on the bootstrap tier."
+                        ) from crash;
+                    }
+                    raise;
+                }
+            } finally {
+                ctx.merge_alerts();
+                reset_native_unit_compile(native_token);
+                set_effective_default_codespace(previous_codespace);
+                self._reentrant_depth = max(self._reentrant_depth - 1, 0);
+                if self._reentrant_depth == 0 {
+                    self._closure_opts = None;
+                    if ctx.caller is not ctx.target {
+                        self._release_compile_scratch(ctx.caller);
+                    }
+                }
+                if outer_options is not None {
+                    target.options = outer_options;
+                }
+                if entered {
+                    target.scratch.compile_depth -= 1;
+                    if target.scratch.compile_depth <= 0 {
+                        target.scratch.compile_depth = 0;
+                        try {
+                            target.release_check_caches();
+                        } except Exception {}
+                    }
+                }
+                if gc_prev is not None {
+                    import gc;
+                    gc.set_threshold(*gc_prev);
+                }
+                if retain_selfhost {
+                    self.selfhost.exit_execution();
+                }
+            }
         }
     }
-    frame.retain_selfhost = target_program.internal;
-    if frame.retain_selfhost {
-        self.selfhost.enter_execution();
-    }
-    return frame;
 }
 
 impl JacCompiler.assemble_python(program: JacProgram, module: uni.Module) {
@@ -694,46 +764,6 @@ impl JacCompiler.assemble_native(
         require(program, module, CompilationProduct.NATIVE_OBJECT);
     } finally {
         program.options = previous;
-    }
-}
-
-impl JacCompiler.leave_compile(ctx: SessionContext, frame: CompileFrame) {
-    self._reentrant_depth = max(self._reentrant_depth - 1, 0)
-        if isinstance(frame, HostCompileFrame)
-        else 0;
-    if self._reentrant_depth == 0 {
-        self._closure_opts = None;
-        if ctx.caller is not ctx.target {
-            self._release_compile_scratch(ctx.caller);
-        }
-    }
-}
-
-impl JacCompiler.finish_compile(frame: CompileFrame) {
-    if not isinstance(frame, HostCompileFrame) {
-        return;
-    }
-    if frame.gc_prev is not None {
-        import gc;
-        gc.set_threshold(*frame.gc_prev);
-    }
-    if frame.retain_selfhost {
-        self.selfhost.exit_execution();
-    }
-}
-
-impl JacCompiler.check_crash(crash: Exception, file_path: str) {
-    re_entered = import_error_re_enters(crash, file_path);
-    if re_entered is not None {
-        raise CompilerSourceError(
-            f"compiling {file_path} re-entered it: a pass imported "
-            f"'{re_entered}' while Python was still executing that "
-            "module, so the name is not bound yet. A module a pass "
-            "reaches at run time belongs in its product's loads (the "
-            "PRODUCTS table in jaclang.compiler.driver.pipeline), which "
-            "the loader pre-imports and which puts any compile nested in "
-            "its import on the bootstrap tier."
-        ) from crash;
     }
 }
 
@@ -830,7 +860,7 @@ impl JacCompiler.run_module(
         }
     }
     if registry is None {
-        plain = self._compile_pipeline(file_path, target_program, use_str, options);
+        plain = compile_module(self, target_program, file_path, options, use_str);
         if use_str is None {
             self._persist_native_unit(iface_target, plain, target_program);
         }
@@ -841,7 +871,7 @@ impl JacCompiler.run_module(
     registry.frame_push(iface_target);
     compiled: (uni.Module | None) = None;
     try {
-        compiled = self._compile_pipeline(file_path, target_program, use_str, options);
+        compiled = compile_module(self, target_program, file_path, options, use_str);
         try {
             registry.persist_after_compile(
                 iface_target, compiled, options, err_start, warn_start
@@ -853,15 +883,6 @@ impl JacCompiler.run_module(
     }
     assert compiled is not None;
     return compiled;
-}
-
-impl JacCompiler._compile_pipeline(
-    file_path: str,
-    actual_program: JacProgram,
-    use_str: (str | None) = None,
-    options: CompileOptions = CompileOptions()
-) -> uni.Module {
-    return compile_module(self, actual_program, file_path, options, use_str);
 }
 
 impl JacCompiler.build(

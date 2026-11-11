@@ -1,6 +1,6 @@
 import os;
 
-def session_of(task: ModuleAnalysis) -> SessionHooks;
+def session_of(task: ModuleAnalysis) -> JacCompiler;
 
 def admits_native_checks(task: ModuleAnalysis) -> bool;
 
@@ -37,20 +37,8 @@ glob CODEGEN_PLAN: tuple[PlanStep, ...] = (
          PlanStep(name="CODEGEN", admit=admits_codegen, run=run_codegen)
      );
 
-def analyze_for_compile(
-    program: JacProgram, path: str, options: CompileOptions, source: str | None
-) -> ModuleAnalysis;
-
-def compile_task(
-    session: SessionHooks,
-    program: JacProgram,
-    path: str,
-    options: CompileOptions,
-    source: str | None = None
-) -> ModuleAnalysis;
-
 def compile_module(
-    session: SessionHooks,
+    session: JacCompiler,
     program: JacProgram,
     path: str,
     options: CompileOptions,

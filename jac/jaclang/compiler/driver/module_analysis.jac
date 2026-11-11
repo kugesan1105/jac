@@ -12,7 +12,7 @@ obj ModuleAnalysis {
         blocked: bool = False,
         native: bool = False,
         placement_only: bool = False,
-        session: (SessionHooks | None) = None;
+        session: (JacCompiler | None) = None;
 
     def postinit;
     def parse;

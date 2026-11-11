@@ -1,4 +1,4 @@
-impl session_of(task: ModuleAnalysis) -> SessionHooks {
+impl session_of(task: ModuleAnalysis) -> JacCompiler {
     session = task.session;
     if session is None {
         raise RuntimeError(f"codegen steps for {task.path} ran without a session");
@@ -222,31 +222,15 @@ impl report_missing_native_ir(program: JacProgram, mod: uni.Module) -> None {
     );
 }
 
-impl analyze_for_compile(
-    program: JacProgram, path: str, options: CompileOptions, source: str | None
-) -> ModuleAnalysis {
-    return analyze_module(program, path, options, source);
-}
-
-impl compile_task(
-    session: SessionHooks,
-    program: JacProgram,
-    path: str,
-    options: CompileOptions,
-    source: str | None = None
-) -> ModuleAnalysis {
-    analysis = analyze_for_compile(program, path, options, source);
-    analysis.session = session;
-    run_plan(analysis, CODEGEN_PLAN);
-    return analysis;
-}
-
 impl compile_module(
-    session: SessionHooks,
+    session: JacCompiler,
     program: JacProgram,
     path: str,
     options: CompileOptions,
     source: str | None = None
 ) -> uni.Module {
-    return compile_task(session, program, path, options, source).module;
+    analysis = analyze_module(program, path, options, source);
+    analysis.session = session;
+    run_plan(analysis, CODEGEN_PLAN);
+    return analysis.module;
 }

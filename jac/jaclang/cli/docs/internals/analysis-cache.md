@@ -166,7 +166,7 @@ always on where analysis happens.
 
 | Seam | Role |
 |------|------|
-| `JacCompiler._compile_once` | Serves eligible compiles from the cache before parsing; persists the analysis sections after the pipeline runs |
+| `JacCompiler.run_module` | Serves eligible compiles from the cache before parsing; persists the analysis sections after the pipeline runs |
 | `JacProgram.load_dependency_module` | Hub first (dirty buffers shadow disk), then the registry, then a source compile on a miss; records dependency edges |
 | `JacProgram.iface_registry` (`compiler/driver/ifacecache.jac`) | Per-program registry: entry freshness, dep-hash validation, hydration, replay, verify |
 | `write_module_cache` | Atomic merge-write: analysis writers and the bytecode writer share one JIR per module |

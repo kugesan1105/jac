@@ -5642,6 +5642,12 @@ graph import compiler {
             | passes.package_boundary_pass.PackageBoundaryPass.run_walk {
             is_compiler_source_path
         },
+        driver.compiler.JacCompiler.compile {
+            get_effective_default_codespace_override,
+            reset_native_unit_compile,
+            set_effective_default_codespace,
+            set_native_unit_compile
+        },
         driver.ifacecache.native_lowering_reads {
             is_compiler_source_path,
             is_native_by_location
@@ -5664,12 +5670,6 @@ graph import compiler {
         },
         driver.program.JacProgram.declared_codespace { is_client_by_location },
         driver.program.JacProgram.init { forget_real_paths },
-        driver.session_compile.compile_in_session {
-            get_effective_default_codespace_override,
-            reset_native_unit_compile,
-            set_effective_default_codespace,
-            set_native_unit_compile
-        },
         driver.unit_products {
             ClientArtifact,
             ClientManifest,
@@ -10113,12 +10113,11 @@ graph import compiler.driver {
         application._semantic_metadata
             | ifacecache.IfaceRegistry.ensure
             | unit_products.dependency_span_rows { program_for },
-        compiler.JacCompiler.get_bytecode
-            | ifacecache.IfaceRegistry._compilation_scope
-            | session_compile.compile_in_session {
+        compiler.JacCompiler.compile | ifacecache.IfaceRegistry._compilation_scope {
             compilation_scope,
             owner_scope_options
         },
+        compiler.JacCompiler.get_bytecode { compilation_scope, owner_scope_options },
         compiler.JacCompiler.get_client_artifact {
             compilation_scope,
             owner_scope_options
@@ -10189,7 +10188,9 @@ graph import compiler.driver {
     compiler ++> build_services.CompilerBuildServices.compiler
         | program.JacProgram._get_compiler { JacCompiler }
     compiler --> nativecache.SessionHeap.take { COMPILE_GC_THRESHOLDS }
-    type compiler ++> build_services | program { JacCompiler }
+    type compiler ++> build_services | module_analysis | module_compile | program {
+        JacCompiler
+    }
     context_passes ++> pipeline {
         AbsorbImportsPass,
         AppContextPass,
@@ -10368,7 +10369,7 @@ graph import compiler.driver {
     nativecache ++> program.JacProgram.native_units { NativeUnitRegistry }
     type nativecache ++> program { NativeUnitRegistry }
     pass_driver ++> [
-        application._prepare | session_compile.compile_in_session { compile_progress },
+        application._prepare | compiler.JacCompiler.compile { compile_progress },
         ifacecache.IfaceRegistry.analysis_profile { diagnostic_policy_for },
         module_compile.report_missing_native_ir { deliver_alerts },
         pipeline.execute_passes { build_diagnostic_policy, run_pass },
@@ -10464,12 +10465,11 @@ graph import compiler.driver {
         SelfHostCache
     }
     type selfhost ++> build_services { SelfHostCache }
-    session_compile ++> [
-        compiler { CompileFrame, SessionContext, SessionHooks },
-        compiler.JacCompiler.compile { compile_in_session },
-        module_compile { SessionHooks },
-    ]
-    type session_compile ++> module_analysis { SessionHooks }
+    session_compile ++> compiler.JacCompiler.compile {
+        annex_parent,
+        inherit_session_options,
+        select_context
+    }
     setup_progress ++> compiler { setup_progress }
     source_failures ++> [
         compiler {

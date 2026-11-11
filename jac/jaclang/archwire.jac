@@ -10111,6 +10111,7 @@ graph import compiler.driver {
             program_for
         },
         application._semantic_metadata
+            | compiler.JacCompiler.product_program
             | ifacecache.IfaceRegistry.ensure
             | unit_products.dependency_span_rows { program_for },
         compiler.JacCompiler.compile | ifacecache.IfaceRegistry._compilation_scope {
@@ -10126,12 +10127,13 @@ graph import compiler.driver {
             compilation_scope,
             owner_scope_options
         },
-        compiler.JacCompiler.product_program
-            | pipeline_runner.compile_application
-            | session_compile.select_context { bind_options, context_program },
         jir._module_projection { active_options },
         jir.compute_precompile_module_key | nativecache.NativeUnitRegistry._source_key {
             cache_scope
+        },
+        pipeline_runner.compile_application | session_compile.select_context {
+            bind_options,
+            context_program
         },
         source_products.python_text { cache_scope, owner_scope_options, program_for },
     ]

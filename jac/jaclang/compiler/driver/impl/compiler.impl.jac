@@ -54,11 +54,7 @@ impl JacCompiler.ensure_stub_catalog -> StubCatalog | None {
 impl JacCompiler.product_program(
     full_target: str, target_program: JacProgram
 ) -> JacProgram {
-    actual = self.selfhost.resolve(full_target, target_program);
-    if actual.internal {
-        return actual;
-    }
-    return context_program(actual, bind_options(full_target, actual, actual.options));
+    return program_for(full_target, self.selfhost.resolve(full_target, target_program));
 }
 
 impl JacCompiler.get_native_interop_setup(

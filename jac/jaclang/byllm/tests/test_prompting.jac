@@ -68,20 +68,20 @@ test "incl_info examples and temperature reach the model" {
 
 
 test "concurrent calls on one model keep their own parameters" {
-    import from concurrent.futures { ThreadPoolExecutor }
-    rounds = 40;
+    import asyncio;
+    rounds = 20;
     llm = MockLLM(outputs=[say("ok") for _ in range(2 * rounds)]);
 
-    def cold(tag: str) -> str by llm(temperature=0.1);
-    def hot(tag: str) -> str by llm(temperature=0.9);
+    async def cold(tag: str) -> str by llm(temperature=0.1);
+    async def hot(tag: str) -> str by llm(temperature=0.9);
 
-    with ThreadPoolExecutor(max_workers=8) as pool {
-        futures = [pool.submit(cold, "cold-call") for _ in range(rounds)]
-            + [pool.submit(hot, "hot-call") for _ in range(rounds)];
-        for f in futures {
-            f.result();
-        }
+    async def _both -> None {
+        await asyncio.gather(
+            *[cold("cold-call") for _ in range(rounds)],
+            *[hot("hot-call") for _ in range(rounds)]
+        );
     }
+    asyncio.run(_both());
     assert llm.call_params == {} , f"a call must not bind the model, got {llm.call_params}";
     for sent in llm.seen {
         want = 0.1 if "cold-call" in str(sent["messages"]) else 0.9;

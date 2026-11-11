@@ -4658,21 +4658,15 @@ graph import compiler {
     type backends.native.llvm.binding ++> driver.compiler.JacCompiler._load_native_from_cache
         | frontend.codeinfo { ExecutionEngine }
     type backends.native.llvm.ir ++> frontend.codeinfo { Module as IRModule }
-    backends.native.lowering ++> tests.test_prim_equivalence { native_lowering_issues }
-    type backends.native.lowering ++> frontend.codeinfo { NativeFallbacks }
     backends.native.na_compile_pass ++> [
         driver.nativecache.NativeBuildSession._optimize_in_parallel {
             optimize_unit_bitcodes,
-            unit_bitcode,
-            unit_fallbacks
+            unit_bitcode
         },
         driver.pipeline.native_object_passes { NativeCompilePass },
     ]
     backends.native.na_compile_pass --> [
-        driver.nativecache.NativeBuildSession.compact_ir {
-            unit_bitcode,
-            unit_fallbacks
-        },
+        driver.nativecache.NativeBuildSession.compact_ir { unit_bitcode },
         driver.nativecache.NativeBuildSession.lower { settle_unit_ir },
         driver.nativecache.NativeUnitRegistry.emit_objects { emit_unit_objects },
         driver.nativecache.NativeUnitRegistry.object_for { emit_unit_object },
@@ -5073,9 +5067,6 @@ graph import compiler {
             env_na_debug,
             env_na_debug as _ti_dbg
         },
-        backends.native.na_ir_gen_pass.NaIRGenPass._opaque_field_if_unlowerable {
-            env_na_debug as _er_dbg
-        },
         tests.test_graph_fragment_equivalence
             | tests.test_stubcat_roundtrip
             | tests.xbackend_equiv
@@ -5133,17 +5124,9 @@ graph import compiler {
     driver.na_coverage ++> backends.native.link_plan._build_link_plan {
         na_coverage_replay
     }
-    driver.na_coverage --> [
-        backends.native.na_ir_gen_pass.NaIRGenPass._export_native_iface {
-            na_coverage_capture
-        },
-        backends.native.na_ir_gen_pass.NaIRGenPass._opaque_field_if_unlowerable {
-            na_coverage_seam
-        },
-        backends.native.na_ir_gen_pass.NaIRGenPass._place_unit_python {
-            na_coverage_seam
-        },
-    ]
+    driver.na_coverage --> backends.native.na_ir_gen_pass.NaIRGenPass._export_native_iface {
+        na_coverage_capture
+    }
     driver.native_iface ++> [
         backends.native.link_plan {
             NativeIface,
@@ -5481,9 +5464,6 @@ graph import compiler {
         },
         backends.native.na_ir_gen_pass.NaIRGenPass._codegen_test { native_test_symbol },
         backends.native.na_ir_gen_pass.NaIRGenPass._default_repr_fn { native_safe_sym },
-        backends.native.na_ir_gen_pass.NaIRGenPass._demote_native_test {
-            native_test_symbol
-        },
         backends.native.na_ir_gen_pass.NaIRGenPass._discover_kernel_deps {
             FMT_KERNEL_REL,
             OSP_GRAPH_REL,
@@ -5716,12 +5696,6 @@ graph import compiler {
         },
         backends.native.na_ir_gen_pass.NaIRGenPass._native_module_call_target {
             NATIVE_STDLIB_EXTENSIONS
-        },
-        backends.native.na_ir_gen_pass.NaIRGenPass._opaque_field_if_unlowerable {
-            native_display_text
-        },
-        backends.native.na_ir_gen_pass.NaIRGenPass._place_unit_python {
-            native_display_text
         },
         backends.native.na_ir_gen_pass.NaIRGenPass._prefix_of_path {
             native_unit_prefix
@@ -6498,8 +6472,7 @@ graph import compiler {
             | tools.jac_auto_lint_pass
             | types.ct_eval.CtEvaluator._embed
             | types.type_evaluator.TypeEvaluator.__post_init__ { active_host },
-        backends.native.na_ir_gen_pass.NaIRGenPass._seam_warnings_on
-            | driver.compilation_context.compilation_scope
+        driver.compilation_context.compilation_scope
             | driver.ifacecache.IfaceRegistry.analysis_profile
             | driver.program.JacProgram.execution_hubs
             | driver.progstate.ModuleHub.is_fresh
@@ -6551,7 +6524,6 @@ graph import compiler {
     ]
     frontend.host --> [
         backends.es.client_paths.client_output_path
-            | backends.native.na_ir_gen_pass.NaIRGenPass._opaque_field_if_unlowerable
             | driver.compilation_context.context_program
             | driver.compile_options.CompileOptions.effective_triple
             | driver.jir._memoized
@@ -6566,7 +6538,6 @@ graph import compiler {
             active_host
         },
         backends.es.client_paths.jac_js_path
-            | backends.native.na_ir_gen_pass.NaIRGenPass._place_unit_python
             | driver.jir._project_env_fingerprint_uncached
             | driver.program.JacProgram.compile
             | passes.ownership_check_pass.OwnershipCheckPass._nogc_resolve_provenance {
@@ -8633,14 +8604,8 @@ graph import compiler {
     passes.package_boundary_pass ++> driver.pipeline { PackageBoundaryPass }
     passes.placement_pass ++> [
         backends.native.na_ir_gen_pass { NativeLegality, NativeRefusal, NativeRefused },
-        backends.native.na_ir_gen_pass.NaIRGenPass._demote_method_if_unlowerable {
-            refusal_from_alert
-        },
         backends.native.na_ir_gen_pass.NaIRGenPass._lower_module {
             build_native_legality
-        },
-        backends.native.na_ir_gen_pass.NaIRGenPass._owner_required {
-            element_requirements
         },
         driver.pipeline.analysis_passes { PlacementPass },
     ]
@@ -8721,8 +8686,7 @@ graph import compiler {
         frontend.codeinfo.native_arch_scope { binds_bare_arch_names },
     ]
     placement.placement ++> [
-        backends.native.na_ir_gen_pass.NaIRGenPass._owner_element
-            | passes.placement_pass.element_requirements { element_display_name },
+        passes.placement_pass.element_requirements { element_display_name },
         driver.compiler.JacCompiler.native_entry_engine { summary_store },
         driver.unit_products.placement_record | symbol_utils.report_placement_warnings {
             get_module_summary
@@ -9742,22 +9706,9 @@ graph import compiler.backends.native {
     type llvm.binding.value ++> link_plan { ValueRef }
     llvm.ir as ir ++> abi
         | lexical_scope
-        | lowering
         | na_ir_gen_pass
         | primitives_native;
     llvm.ir.types ++> link_glue.bind_shared_callbacks { _wrapname }
-    lowering ++> [
-        entry_points.validate_native_application | na_compile_pass.unit_fallbacks {
-            native_fallbacks_in_ir
-        },
-        na_ir_gen_pass {
-            DEMOTED_SUFFIX,
-            NativeLoweringIssue,
-            NativeLoweringKind,
-            native_fallbacks
-        },
-    ]
-    type lowering ++> na_compile_pass { NativeFallbacks }
     na_compile_pass ++> [
         entry_points.validate_native_application { native_linked_ir_text },
         link_plan {

@@ -52,7 +52,6 @@ obj NativeLegality {
 
 def native_unit_name(owner: UniNode) -> str;
 def native_enclosing_unit(nd: UniNode) -> (UniNode | None);
-def refusal_from_alert(alert: Alert) -> NativeRefusal;
 def build_native_legality(
     mod: Module, prog: (JacProgram | None) = None
 ) -> NativeLegality;

@@ -241,7 +241,6 @@ impl NaIRGenPass._register_archetypes(module: uni.Module) -> None {
     self._register_osp_kernel_module();
     self._emit_osp_setup();
 
-    self._predemote_capability_constructors();
     self._codegen_constructors_first(archetypes);
 
     for arch in archetypes {
@@ -293,38 +292,6 @@ impl NaIRGenPass._constructor_ability_for(cls: str, slot: str) -> (uni.Ability |
         }
     }
     return None;
-}
-
-impl NaIRGenPass._predemote_capability_constructors -> None {
-    if self._legality is None or not self._legality.units {
-        return;
-    }
-    _slots = self._constructor_slots();
-    for _full in list(self.method_funcs.keys()) {
-        (_cls, _dot, _slot) = _full.rpartition(".");
-        if not _dot or _slot not in _slots {
-            continue;
-        }
-        _ability = self._constructor_ability_for(_cls, _slot);
-        if _ability is None {
-            continue;
-        }
-        _viols = self._static_refusals(_ability);
-        if _viols is None {
-            continue;
-        }
-        _func = self.method_funcs.get(_full);
-        if _func is None {
-            continue;
-        }
-        self._claimed_units.add(id(_ability));
-        self._stub_refused_unit(
-            _full,
-            _func,
-            _viols,
-            keep_func=_slot in self.vtable_method_indices.get(_cls, {})
-        );
-    }
 }
 
 impl NaIRGenPass._codegen_constructors_first(archetypes: list[uni.Archetype]) -> None {
@@ -511,11 +478,8 @@ impl NaIRGenPass._codegen_archetype(nd: uni.Archetype, imported: bool = False) -
             } else {
                 _fld_mark = len(self.ctx.errors_had);
                 ftype = self._resolve_field_type(var);
-                _opaque = self._opaque_field_if_unlowerable(
-                    arch_name, fname, _fld_mark
-                );
-                if _opaque is not None {
-                    ftype = _opaque;
+                if len(self.ctx.errors_had) > _fld_mark {
+                    ftype = ir.IntType(8).as_pointer();
                     foreign_fields.add(fname);
                 }
                 if self._foreign_optional_field(var?.type) {
@@ -980,7 +944,6 @@ impl NaIRGenPass._forward_declare_method(
         _m_params = _m_params[1:];
     }
 
-    _sig_mark = len(self.ctx.errors_had);
     _saved_sig_kind = self._sig_decl_kind;
     self._sig_decl_kind = "signature type";
 
@@ -1036,16 +999,6 @@ impl NaIRGenPass._forward_declare_method(
     if _is_static {
         self.static_methods[full_name] = True;
     }
-
-    if len(self.ctx.errors_had) > _sig_mark {
-        self._demote_method_if_unlowerable(
-            full_name,
-            func,
-            _sig_mark,
-            keep_func=method_name in self.vtable_method_indices.get(arch_name, {}),
-            stub_body=not imported
-        );
-    }
 }
 
 impl NaIRGenPass._codegen_method(
@@ -1072,24 +1025,14 @@ impl NaIRGenPass._codegen_method(
     _pre_viols = self._static_refusals(method);
     if _pre_viols is not None {
         self._claimed_units.add(id(method));
-        _pre_virtual = method_name in self.vtable_method_indices.get(arch_name, {});
-        if self._stub_refused_unit(
-            full_name, func, _pre_viols, keep_func=_pre_virtual
-        ) {
+        if self._refuse_unit(_pre_viols) {
             return;
         }
     }
 
     if isinstance(method.signature, uni.FuncSignature)
         and self._ability_is_generator(method) {
-        _gen_mark = len(self.ctx.errors_had);
         self._codegen_generator(method, func, self_arch=arch_name);
-        self._demote_method_if_unlowerable(
-            full_name,
-            func,
-            _gen_mark,
-            keep_func=method_name in self.vtable_method_indices.get(arch_name, {})
-        );
         return;
     }
 
@@ -1154,7 +1097,6 @@ impl NaIRGenPass._codegen_method(
             self._bind_function_parameter(param_name, arg_val, rebound=_p_rebound);
         }
 
-        _is_virtual = method_name in self.vtable_method_indices.get(arch_name, {});
         _local_mark = len(self.ctx.errors_had);
 
         try {
@@ -1188,237 +1130,6 @@ impl NaIRGenPass._codegen_method(
     } finally {
         self._leave_function(state);
     }
-
-    self._demote_method_if_unlowerable(
-        full_name, func, _local_mark, keep_func=_is_virtual
-    );
-}
-
-impl NaIRGenPass._demote_method_if_unlowerable(
-    full_name: str,
-    func: ir.Function,
-    local_mark: int,
-    keep_func: bool = False,
-    stub_body: bool = True
-) -> bool {
-    if len(self.ctx.errors_had) <= local_mark {
-        return False;
-    }
-
-    _own = list(self.ctx.errors_had[local_mark:]);
-    _refusals = [refusal_from_alert(_diag) for _diag in _own];
-    if self._legality is not None {
-        self._legality.late[full_name] = _refusals;
-    }
-    required = self.prog.options.native_required_for(self.module.loc.mod_path)
-        or self._owner_required(full_name);
-    if not required and not self._lacks_python_body(full_name) {
-        del self.ctx.errors_had[local_mark:];
-    }
-    self._place_unit_python(
-        full_name, func, _refusals, keep_func=keep_func, stub_body=stub_body
-    );
-    return True;
-}
-
-impl NaIRGenPass._owner_element(full_name: str) -> (uni.UniNode | None) {
-    owner_name = full_name.split(".")[0];
-    for elem in self.module.body {
-        if isinstance(elem, uni.Archetype) and self._arch_key(elem) == owner_name {
-            return elem;
-        }
-        if element_display_name(elem) == owner_name {
-            return elem;
-        }
-    }
-    return None;
-}
-
-impl NaIRGenPass._owner_required(full_name: str) -> bool {
-    if self.module.gen.placement_mode != "inferred" {
-        return False;
-    }
-    owner = self._owner_element(full_name);
-    if owner is None {
-        return False;
-    }
-
-    need = element_requirements(self.module, self.prog).get(id(owner));
-    return need is not None and need[0] == "native";
-}
-
-impl NaIRGenPass._lacks_python_body(full_name: str) -> bool {
-    if self.module.gen.placement_mode != "inferred"
-        or self.module.decided_codespace == "native" {
-        return False;
-    }
-    owner = self._owner_element(full_name);
-    return isinstance(owner, uni.ContextAwareNode)
-        and owner.code_context == CodeContext.NATIVE;
-}
-
-impl NaIRGenPass._place_unit_python(
-    full_name: str,
-    func: ir.Function,
-    refusals: list[NativeRefusal],
-    keep_func: bool = False,
-    stub_body: bool = True
-) -> None {
-    _first = refusals[0];
-    if self._na_debug_on() {
-        import sys;
-        sys.stderr.write(f"NA_DEBUG demote {full_name}\n");
-        for _refusal in refusals {
-            sys.stderr.write(f"NA_DEBUG   {_refusal.full()}\n");
-        }
-    }
-    if self._seam_warnings_on()
-        and not self.prog.options.native_required_for(self.module.loc.mod_path) {
-        import from jaclang.compiler.frontend.host { active_host }
-        import from jaclang.compiler.frontend.codeinfo { native_display_text }
-        _why = "; ".join(_r.located() for _r in refusals);
-        active_host().note(
-            native_display_text(
-                f"native seam -- demoting {full_name} to Python-only "
-                f"(un-lowerable): {_why}"
-            ),
-            style="warning"
-        );
-    }
-    if stub_body {
-        try {
-            import from jaclang.compiler.driver.na_coverage { na_coverage_seam }
-            _code_tag = f"[{_first.code}] " if _first.code else "";
-            na_coverage_seam(
-                self.module.loc.mod_path,
-                f"{full_name}: {_code_tag}" + _first.located(),
-                late=_first.late
-            );
-        } except Exception {}
-        self._record_lowering_issue(
-            NativeLoweringIssue(
-                symbol=full_name,
-                kind=NativeLoweringKind.CALLABLE,
-                source=self.module.loc.mod_path,
-                code=_first.code,
-                detail=_first.full()
-            )
-        );
-        func.blocks.clear();
-        blk = func.append_basic_block(name="entry");
-        b = ir.IRBuilder(blk);
-        self._get_or_declare_extern("abort", ir.VoidType(), []);
-        b.call(self.extern_funcs["abort"], []);
-        b.unreachable();
-        self._seam_stub_ids.add(id(func));
-    }
-    if not keep_func {
-        self.method_funcs.pop(full_name, None);
-    }
-    self.scope.unbind_function(full_name);
-    self._native_skipped_methods.add(full_name);
-    self._demoted_names.add(full_name);
-    self._unit_exports.pop(full_name, None);
-    if full_name in self.osp_thunk_funcs {
-        self.emit(
-            E5092,
-            node_override=self.module,
-            kind="event ability",
-            name=full_name,
-            help_text=(
-                "This ability could not be lowered ("
-                + _first.headline()
-                + "). A walker runs its abilities through the native graph "
-                "engine, which has no caller to refuse, so the module cannot "
-                "stay native with it."
-            )
-        );
-    }
-}
-
-impl NaIRGenPass._seam_warnings_on -> bool {
-    if self._na_debug_on() or bool(self.prog.options.native_debug) {
-        return True;
-    }
-
-    defaults = active_host().project_defaults();
-    return defaults.check.warn_native_seams if defaults is not None else True;
-}
-
-impl NaIRGenPass._opaque_field_if_unlowerable(
-    arch_name: str, fname: str, local_mark: int
-) -> (ir.Type | None) {
-    if len(self.ctx.errors_had) <= local_mark {
-        return None;
-    }
-    _own = list(self.ctx.errors_had[local_mark:]);
-    _first = _own[0];
-    _code = _first.code.code if _first.code is not None else "";
-    _why = str(_first).split('\n')[0];
-
-    if self._seam_warnings_on()
-        and not self.prog.options.native_required_for(self.module.loc.mod_path) {
-        import from jaclang.compiler.frontend.host { active_host }
-        import from jaclang.compiler.frontend.codeinfo { native_display_text }
-        active_host().note(
-            native_display_text(
-                f"native seam -- erasing field {arch_name}.{fname} to an "
-                f"opaque slot (un-lowerable declaration): "
-                    + "; ".join(str(e) for e in _own)
-            ),
-            style="warning"
-        );
-        import from jaclang.compiler.driver.compile_options { env_na_debug as _er_dbg }
-        if _er_dbg() {
-            import sys as _er_sys;
-            _er_sys.stderr.write(
-                f"NA_DEBUG erased in unit {self.module.loc.mod_path}; known structs: "
-                f"{sorted(self.struct_types.keys())[:40]}\n"
-            );
-        }
-    }
-    try {
-        import from jaclang.compiler.driver.na_coverage { na_coverage_seam }
-        na_coverage_seam(
-            self.module.loc.mod_path,
-            f"{arch_name}.{fname}: " + (f"[{_code}] " if _code else "") + _why
-        );
-    } except Exception {}
-    self._record_lowering_issue(
-        NativeLoweringIssue(
-            symbol=f"{arch_name}.{fname}",
-            kind=NativeLoweringKind.FIELD,
-            source=self.module.loc.mod_path,
-            code=_code,
-            detail=_own[0].pretty_print()
-        )
-    );
-    if not self.prog.options.native_required_for(self.module.loc.mod_path) {
-        del self.ctx.errors_had[local_mark:];
-    }
-    if arch_name not in self.struct_field_opaque {
-        self.struct_field_opaque[arch_name] = {};
-    }
-    self.struct_field_opaque[arch_name][fname] = _why;
-    return ir.IntType(8).as_pointer();
-}
-
-impl NaIRGenPass._refuse_opaque_field(
-    nd: (uni.UniNode | None), type_name: (str | None), fname: str
-) -> bool {
-    if type_name is None {
-        return False;
-    }
-    for _cn in self._mro_of(type_name) {
-        _why = self.struct_field_opaque.get(_cn, {}).get(fname);
-        if _why is not None {
-            self.emit(
-                E5092, node_override=nd, kind="erased field", name=f"{_cn}.{fname}"
-            );
-            return True;
-        }
-    }
-    return False;
 }
 
 impl NaIRGenPass._codegen_no_sig_method(arch_name: str, method: uni.Ability) -> None {
@@ -1736,7 +1447,7 @@ impl NaIRGenPass._codegen_event_method(arch_name: str, method: uni.Ability) -> N
     _pre_viols = self._static_refusals(method);
     if _pre_viols is not None {
         self._claimed_units.add(id(method));
-        if self._stub_refused_unit(full_name, func, _pre_viols, keep_func=True) {
+        if self._refuse_unit(_pre_viols) {
             return;
         }
     }
@@ -2255,8 +1966,7 @@ impl NaIRGenPass._codegen_instantiation(
         val: (ir.Value | None) = None;
         if isinstance(init_expr, ir.Value) {
             val = init_expr;
-        } elif self._refuse_opaque_field(init_expr, type_name, key_name)
-            or key_name in foreign_fields {
+        } elif key_name in foreign_fields {
             continue;
         } else {
             val = self._ctor_arg_value(init_expr, _pre_args);
@@ -4206,9 +3916,6 @@ impl NaIRGenPass._codegen_field_access(
         }
         return None;
     }
-    if _getter is None and self._refuse_opaque_field(nd, type_name, field_name) {
-        return None;
-    }
     _recv = self._narrow_receiver_ptr(obj_val, type_name);
     if _recv is None {
         return None;
@@ -4595,9 +4302,6 @@ impl NaIRGenPass._emit_field_store(
 ) -> None {
     field_indices = self.struct_field_indices.get(type_name, {});
     _setter = self._accessor_slot_of(type_name, field_name, "setter");
-    if _setter is None and self._refuse_opaque_field(nd, type_name, field_name) {
-        return;
-    }
 
     if _setter is not None {
         _fs_struct = self.struct_types.get(type_name);

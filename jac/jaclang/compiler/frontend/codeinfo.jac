@@ -407,7 +407,6 @@ obj CodeGenTarget {
         native_iface: (NativeIface | None) = None,
         native_deps: list[str] = [],
         native_codespace: bool = False,
-        native_fallbacks: (NativeFallbacks | None) = None,
         placement_mode: str = "",
         _interop_manifest: (InteropManifest | None) = None,
         interop_py_funcs: dict[(str, any)] = {},

@@ -104,7 +104,6 @@ obj NativeIface {
         enums: dict[str, list[str]] = {},
         init_symbol: str = "",
         entry_symbol: str = "",
-        demoted: list[str] = [],
         clib_paths: list[str] = [],
         python_imports: list[str] = [],
         clib_symbol_lib: dict[str, str] = {},

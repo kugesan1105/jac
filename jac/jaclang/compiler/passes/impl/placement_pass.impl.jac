@@ -262,20 +262,6 @@ impl native_enclosing_unit(nd: UniNode) -> (UniNode | None) {
     return nd.enclosing_decl(Test);
 }
 
-impl refusal_from_alert(alert: Alert) -> NativeRefusal {
-    code = alert.code.code if alert.code is not None else "";
-    return NativeRefusal(
-        kind="lowering",
-        name=alert.msg,
-        code=code,
-        late=True,
-        help=alert.help_text,
-        text=alert.pretty_print().split('\n')[0],
-        brief=str(alert).split('\n')[0],
-        detail=alert.pretty_print()
-    );
-}
-
 impl build_native_legality(
     mod: Module, prog: (JacProgram | None) = None
 ) -> NativeLegality {

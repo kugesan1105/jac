@@ -181,20 +181,6 @@ impl native_build(
         f"  Link plan: {len(plan.units)} unit(s), mode={plan.mode}, target={plan.triple}"
     );
 
-    if not lib {
-        _demoted = plan.demoted_symbols();
-        if _demoted {
-            console.error(
-                f"{len(_demoted)} function(s) in the native closure were demoted to "
-                "Python-only: "
-                    + ", ".join(_demoted),
-                hint="A self-contained binary cannot run a demoted function. Run `jac explain placement` on the file to see why each one failed to lower."
-            );
-            _restore_target(_prev_target);
-            return 1;
-        }
-    }
-
     if assert_no_rc {
         (_rc_syms, _rc_probes) = _scan_rc_machinery(_application_ir(plan));
         if _rc_syms or _rc_probes {

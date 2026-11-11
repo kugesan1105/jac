@@ -126,19 +126,6 @@ impl LinkPlan.layout_digest -> str {
     return layout_digest_of(self.merged_layout());
 }
 
-impl LinkPlan.demoted_symbols -> list[str] {
-    out: list[str] = [];
-    for u in self.units {
-        for name in u.iface.demoted {
-            if "__jac_test_" in name {
-                continue;
-            }
-            out.append(f"{os.path.basename(u.path)}:{name}");
-        }
-    }
-    return sorted(out);
-}
-
 impl LinkPlan.clib_paths -> list[str] {
     out: list[str] = [];
     for u in self.units {

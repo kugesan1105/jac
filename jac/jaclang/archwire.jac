@@ -1007,9 +1007,9 @@ graph import {
         runtime.portability { NATIVE_SUPPORTED_STDLIB, is_bundled_native_module },
         server.watcher.watch_roots { is_compiler_source_path },
     ]
-    compiler.frontend.codeinfo --> [
-        project.compiler_host.ProjectHost.client_stub_globals { jaclang_pkg_root },
-    ]
+    compiler.frontend.codeinfo --> project.compiler_host.ProjectHost.client_stub_globals {
+        jaclang_pkg_root
+    }
     type compiler.frontend.codeinfo ++> client.client_bundle
         | client.compiler
         | client.jac_client_compiler
@@ -4865,12 +4865,10 @@ graph import compiler {
             note_capability
         },
     ]
-    capability_notes --> [
-        passes.boundary_analysis_pass.BoundaryAnalysisPass._export_mixed_native {
-            TARGET_NATIVE,
-            TARGET_SERVER
-        },
-    ]
+    capability_notes --> passes.boundary_analysis_pass.BoundaryAnalysisPass._export_mixed_native {
+        TARGET_NATIVE,
+        TARGET_SERVER
+    }
     type capability_notes ++> driver.progstate { CapabilityNote }
     driver.bccache ++> tests.test_batch_decl_identity | tests.test_global_narrowing {
         discover_base_file
@@ -4952,10 +4950,7 @@ graph import compiler {
             module_app
         },
         passes.placement_pass.PlacementPass._run_undecided
-            | placement.placement_solver._seed_from_summary
-            | placement.placement_solver.solve_module_placement {
-            _stamp_context_element
-        },
+            | placement.placement_solver._seed_from_summary { _stamp_context_element },
         passes.static_analysis_pass.StaticAnalysisPass._check_client_imports {
             ClientImportVerdict,
             classify_client_import_item,
@@ -4971,6 +4966,7 @@ graph import compiler {
             is_server_anchored_module
         },
         placement.placement_solver.dependency_summary { hub_module_for_path },
+        placement.placement_solver.solve_module_placement { _stamp_context_element },
     ]
     driver.boundary_classify --> [
         backends.py.jcir_gen_pass.JcirGenPass._generate_sv_to_sv_stubs {
@@ -6504,6 +6500,7 @@ graph import compiler {
     ]
     frontend.host --> [
         backends.es.client_paths.client_output_path
+            | backends.native.na_ir_gen_pass.NaIRGenPass._register_imported_archetype
             | driver.compilation_context.context_program
             | driver.compile_options.CompileOptions.effective_triple
             | driver.jir._memoized
@@ -6523,8 +6520,7 @@ graph import compiler {
             | passes.ownership_check_pass.OwnershipCheckPass._nogc_resolve_provenance {
             active_host
         },
-        backends.native.na_ir_gen_pass.NaIRGenPass._register_imported_archetype
-            | driver.program.JacProgram.iface_registry { active_host },
+        driver.program.JacProgram.iface_registry { active_host },
         driver.program.JacProgram.invalidate_module { active_host },
         driver.program.JacProgram.load_dependency_module { active_host },
         driver.program.JacProgram.native_units { active_host },
@@ -8666,13 +8662,13 @@ graph import compiler {
         frontend.codeinfo.native_arch_scope { binds_bare_arch_names },
     ]
     placement.placement ++> [
-        passes.placement_pass.element_requirements { element_display_name },
         driver.compiler.JacCompiler.native_entry_engine { summary_store },
         driver.unit_products.placement_record | symbol_utils.report_placement_warnings {
             get_module_summary
         },
         passes.placement_pass.PlacementPass._run_undecided { record_decided },
         passes.placement_pass.build_native_legality { native_blocker_scan },
+        passes.placement_pass.element_requirements { element_display_name },
         symbol_utils.client_bridged_endpoint { project_has_server },
         symbol_utils.report_serverless_kind_errors { project_kind_name },
         symbol_utils.serverless_server_evidence {
@@ -8680,10 +8676,8 @@ graph import compiler {
             project_has_server
         },
     ]
-    placement.placement --> [
-        driver.compiler.JacCompiler._restore_sections
-            | driver.ifacecache.IfaceRegistry._restore_placement { summary_store },
-    ]
+    placement.placement --> driver.compiler.JacCompiler._restore_sections
+        | driver.ifacecache.IfaceRegistry._restore_placement { summary_store }
     type placement.placement ++> driver.progstate { PlacementSummary }
     placement.placement_export ++> driver.unit_products.placement_record {
         summary_to_dict
@@ -9684,10 +9678,7 @@ graph import compiler.backends.native {
     ]
     llvm.binding.value ++> link_plan.internalize_native_implementation { Visibility }
     type llvm.binding.value ++> link_plan { ValueRef }
-    llvm.ir as ir ++> abi
-        | lexical_scope
-        | na_ir_gen_pass
-        | primitives_native;
+    llvm.ir as ir ++> abi | lexical_scope | na_ir_gen_pass | primitives_native;
     llvm.ir.types ++> link_glue.bind_shared_callbacks { _wrapname }
     na_compile_pass ++> [
         entry_points.validate_native_application { native_linked_ir_text },

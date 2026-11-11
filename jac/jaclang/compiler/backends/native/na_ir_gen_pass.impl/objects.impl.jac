@@ -312,7 +312,7 @@ impl NaIRGenPass._codegen_constructors_first(archetypes: list[uni.Archetype]) ->
     }
 }
 
-impl NaIRGenPass._demoted_init_of(type_name: str) -> (str | None) {
+impl NaIRGenPass._skipped_init_of(type_name: str) -> (str | None) {
     if not self._native_skipped_methods {
         return None;
     }
@@ -1668,15 +1668,15 @@ impl NaIRGenPass._codegen_instantiation(
     if self._reject_scalar_type_args(nd, type_name) {
         return None;
     }
-    _demoted_init = self._demoted_init_of(type_name);
-    if _demoted_init is not None {
+    _skipped_init = self._skipped_init_of(type_name);
+    if _skipped_init is not None {
         self.emit(
             E5092,
             node_override=nd,
             kind="constructor",
-            name=f"{type_name}() via {_demoted_init}",
+            name=f"{type_name}() via {_skipped_init}",
             help_text=(
-                "The initializer was demoted to its Python implementation, so "
+                "The initializer has no native implementation, so "
                 "native construction has no initializer to call and would "
                 "leave the object half-built. Construct this class from a "
                 "Python/@sv context, or make the initializer lowerable."
@@ -2309,8 +2309,8 @@ impl NaIRGenPass._codegen_instantiation(
                         kind="constructor",
                         name=f"{type_name}() via {pname}",
                         help_text=(
-                            "The post-initializer was demoted to its Python "
-                            "implementation, so native construction has no "
+                            "The post-initializer has no native implementation, "
+                            "so native construction has no "
                             "post-initializer to call and would leave the "
                             "object half-built. Construct this class from a "
                             "Python/@sv context, or make the post-initializer "

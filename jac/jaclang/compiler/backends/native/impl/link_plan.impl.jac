@@ -1345,12 +1345,12 @@ impl unresolved_unit_symbols(plan: LinkPlan, objects: list[bytes]) -> list[str] 
             ),
             None
         );
-        demoted = (symbol + ".__jac_demoted") in defined;
-        if owner is None and not demoted {
+        if owner is None {
             continue;
         }
-        why = "demoted to Python" if demoted else f"not defined by {owner}";
-        out.append(f"{symbol} ({why}; used by {', '.join(wanted[symbol])})");
+        out.append(
+            f"{symbol} (not defined by {owner}; used by {', '.join(wanted[symbol])})"
+        );
     }
     return out;
 }

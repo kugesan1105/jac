@@ -1376,7 +1376,6 @@ walker NaIRGenPass(CompilerPass) {
     def _lower_module -> None;
     def _static_refusals(owner: uni.UniNode) -> (list[NativeRefusal] | None);
     def _refuse_unit(refusals: list[NativeRefusal]) -> bool;
-
     def _internal_error(
         nd: uni.UniNode, kind: str, name: str, exc: Exception, mark: int = 0
     ) -> None;
@@ -2249,7 +2248,7 @@ walker NaIRGenPass(CompilerPass) {
     def _constructor_slots -> tuple[str, ...];
     def _constructor_ability_for(cls: str, slot: str) -> (uni.Ability | None);
     def _codegen_constructors_first(archetypes: list[uni.Archetype]) -> None;
-    def _demoted_init_of(type_name: str) -> (str | None);
+    def _skipped_init_of(type_name: str) -> (str | None);
     def _codegen_no_sig_method(arch_name: str, method: uni.Ability) -> None;
     def _event_from_walker(method: uni.Ability) -> bool;
     def _forward_declare_event_method(arch_name: str, method: uni.Ability) -> None;

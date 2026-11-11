@@ -1346,12 +1346,10 @@ impl _refresh_native_twin(twin: Path, jac_path: str, pkg_root: str) -> None {
     if header is None {
         return;
     }
-    magic: any = SECTIONS_MAGIC;
-    pos = data.find(magic, HEADER_SIZE);
-    if pos < 0 {
+    sections = jir_sections(data);
+    if not sections {
         return;
     }
-    sections = read_sections(data, pos + len(magic));
     changed = False;
     for (sec, raw) in fresh.items() {
         if sections.get(sec) != raw {

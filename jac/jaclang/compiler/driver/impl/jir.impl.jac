@@ -799,15 +799,15 @@ impl _compute_module_key_uncached(source_path: str) -> str {
     return h.hexdigest();
 }
 
+impl jir_sections(data: bytes) -> dict[int, bytes] {
+    magic: any = SECTIONS_MAGIC;
+    pos = data.find(magic, HEADER_SIZE);
+    return read_sections(data, pos + len(magic)) if pos >= 0 else {};
+}
+
 impl read_section_bytes(data: bytes, sec_type: int) -> (bytes | None) {
     try {
-        magic: any = SECTIONS_MAGIC;
-        pos = data.find(magic, HEADER_SIZE);
-        if pos < 0 {
-            return None;
-        }
-        sections = read_sections(data, pos + len(magic));
-        return sections.get(sec_type);
+        return jir_sections(data).get(sec_type);
     } except Exception {
         return None;
     }
@@ -1545,17 +1545,7 @@ impl read_jir(cache_path: Path) -> bytes {
 }
 
 impl read_bytecode_only(data: bytes) -> (bytes | None) {
-    try {
-        magic_bytes: any = SECTIONS_MAGIC;
-        pos = data.find(magic_bytes, HEADER_SIZE);
-        if pos < 0 {
-            return None;
-        }
-        sections = read_sections(data, pos + len(magic_bytes));
-        return sections.get(SEC_BYTECODE);
-    } except Exception {
-        return None;
-    }
+    return read_section_bytes(data, SEC_BYTECODE);
 }
 
 impl write_precompiled_jir(
@@ -1594,13 +1584,7 @@ impl write_precompiled_jir(
 
 impl read_debug_source(data: bytes) -> (str | None) {
     try {
-        magic_bytes: any = SECTIONS_MAGIC;
-        pos = data.find(magic_bytes, HEADER_SIZE);
-        if pos < 0 {
-            return None;
-        }
-        sections = read_sections(data, pos + len(magic_bytes));
-        src = sections.get(SEC_DEBUG_SRC);
+        src = jir_sections(data).get(SEC_DEBUG_SRC);
         return zlib.decompress(src).decode('utf-8') if src is not None else None;
     } except Exception {
         return None;
@@ -1655,12 +1639,10 @@ impl _mergeable_sections(
         if header is None or not header.is_compatible() {
             return ({}, 0, False);
         }
-        magic: any = SECTIONS_MAGIC;
-        pos = data.find(magic, HEADER_SIZE);
-        if pos < 0 {
+        secs = jir_sections(data);
+        if not secs {
             return ({}, 0, False);
         }
-        secs = read_sections(data, pos + len(magic));
         if secs.get(SEC_MODKEY) != key_sections.get(SEC_MODKEY) {
             return ({}, 0, False);
         }
@@ -1868,11 +1850,7 @@ impl drop_python_lane_products(source_path: str) -> None {
         try {
             data = cache_path.read_bytes();
             header = parse_header(data[:HEADER_SIZE]);
-            magic: any = SECTIONS_MAGIC;
-            pos = data.find(magic, HEADER_SIZE);
-            secs = read_sections(data, pos + len(magic))
-                if header is not None and pos >= 0
-                else {};
+            secs = jir_sections(data) if header is not None else {};
         } except OSError {
             return;
         }

@@ -123,9 +123,7 @@ impl _context_sections(path: any) -> dict[int, bytes] {
     if not cache.exists() {
         return {};
     }
-    data = read_jir(cache);
-    pos = data.find(SECTIONS_MAGIC, HEADER_SIZE);
-    return read_sections(data, (pos + len(SECTIONS_MAGIC))) if (pos >= 0) else {};
+    return jir_sections(read_jir(cache));
 }
 
 impl _project_modules(program: any, `root: any) -> dict[str, uni.Module] {
@@ -434,12 +432,10 @@ impl _prepare_sealed(
         revision.code[path] = marshal.loads(
             patch_co_filenames_bytes(bytecode, PRECOMPILE_SENTINEL, artifact_root)
         );
-        pos = data.find(SECTIONS_MAGIC, HEADER_SIZE);
-        if pos >= 0 {
+        sections = jir_sections(data);
+        if sections {
             compiler._restore_sections(
-                path,
-                compiler.selfhost.resolve(path, program),
-                read_sections(data, pos + len(SECTIONS_MAGIC))
+                path, compiler.selfhost.resolve(path, program), sections
             );
         }
         revision.native[path] = compiler.get_native_interop_setup(path, program);

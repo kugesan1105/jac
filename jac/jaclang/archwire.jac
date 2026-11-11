@@ -766,13 +766,13 @@ graph import {
             deps_section,
             get_module_cache_path,
             is_module_cache_valid,
+            jir_sections,
             parse_header,
             patch_co_filenames_bytes,
             precompiled_jir_matches_source,
             read_dep_rows,
             read_jir_paths,
             read_section_bytes,
-            read_sections,
             rebase_ct_deps_section,
             require_exact_compiler_products,
             running_compiler_digest,
@@ -10201,29 +10201,19 @@ graph import compiler.driver {
     type ifacecache ++> program { IfaceRegistry }
     jir ++> [
         application._capture_input { ct_dep_digest },
-        application._context_sections {
-            HEADER_SIZE,
-            SECTIONS_MAGIC,
-            get_module_cache_path,
-            read_jir,
-            read_sections
-        },
+        application._context_sections { get_module_cache_path, jir_sections, read_jir },
         application._identity { compiler_generation },
         application._prepare_revision { ct_dep_digest },
         application._prepare_sealed {
-            HEADER_SIZE,
             PRECOMPILE_SENTINEL,
-            SECTIONS_MAGIC,
+            jir_sections,
             patch_co_filenames_bytes,
-            read_bytecode_only,
-            read_sections
+            read_bytecode_only
         },
         application._stamp { compute_content_sha256 },
         compiler {
             FLAG_CARRIED,
             FLAG_PRECOMPILED,
-            HEADER_SIZE,
-            SECTIONS_MAGIC,
             SEC_BYTECODE,
             SEC_CLIENT,
             SEC_CTDEPS,
@@ -10238,12 +10228,12 @@ graph import compiler.driver {
             ct_deps_section,
             get_module_cache_path,
             is_module_cache_valid,
+            jir_sections,
             patch_co_filenames_bytes,
             precompiled_jir_matches_source,
             read_bytecode_only,
             read_jir,
             read_section_bytes,
-            read_sections,
             seed_definition_texts,
             write_module_cache
         },

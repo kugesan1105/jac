@@ -361,6 +361,8 @@ def write_sections(sections: (dict[int, bytes] | None)) -> bytes;
 
 def read_sections(data: (bytes | memoryview), start_pos: int) -> dict[int, bytes];
 
+def jir_sections(data: bytes) -> dict[int, bytes];
+
 def _decode_sections(data: (bytes | memoryview), start_pos: int) -> dict[int, bytes];
 
 def read_jir(cache_path: Path) -> bytes;

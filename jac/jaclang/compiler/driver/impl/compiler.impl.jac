@@ -180,14 +180,10 @@ impl JacCompiler._get_bytecode(
             (sealed_data, sealed_root) = sealed;
             bc = read_bytecode_only(sealed_data);
             if bc is not None {
-                magic0: any = SECTIONS_MAGIC;
-                sp0 = sealed_data.find(magic0, HEADER_SIZE);
-                if sp0 >= 0 {
+                sealed_secs = jir_sections(sealed_data);
+                if sealed_secs {
                     self._restore_sections(
-                        full_target,
-                        actual_program,
-                        read_sections(sealed_data, sp0 + len(magic0)),
-                        base_dir=sealed_root
+                        full_target, actual_program, sealed_secs, base_dir=sealed_root
                     );
                 }
                 return marshal.loads(
@@ -201,13 +197,7 @@ impl JacCompiler._get_bytecode(
     if (not rebuild) and is_module_cache_valid(full_target, cache_path) {
         try {
             jir_data = read_jir(cache_path);
-            magic_bytes: any = SECTIONS_MAGIC;
-            sec_pos = jir_data.find(magic_bytes, HEADER_SIZE);
-            secs: dict[int, bytes] = (
-                read_sections(jir_data, sec_pos + len(magic_bytes))
-                    if sec_pos >= 0
-                    else {}
-            );
+            secs = jir_sections(jir_data);
             bc = secs.get(SEC_BYTECODE);
             if bc is not None {
                 self._restore_sections(full_target, actual_program, secs);

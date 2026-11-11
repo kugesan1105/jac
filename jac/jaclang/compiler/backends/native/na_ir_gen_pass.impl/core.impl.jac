@@ -205,7 +205,7 @@ impl NaIRGenPass._lower_module -> None {
             continue;
         }
         for _refusal in _crefusals {
-            if _refusal.late or _refusal.site is None {
+            if _refusal.site is None {
                 continue;
             }
             _unclaimed = True;
@@ -395,12 +395,6 @@ impl NaIRGenPass._export_native_iface -> None {
     init_symbols = self._glob_init_symbols();
     iface.runtime_globals = init_symbols[0];
     iface.init_reads = init_symbols[1];
-    try {
-        import from jaclang.compiler.driver.na_coverage { na_coverage_capture }
-        iface.coverage = na_coverage_capture(mod_path) if mod_path else {};
-    } except Exception {
-        iface.coverage = {};
-    }
     self.module.gen.native_iface = iface;
     self.module.gen.native_deps = list(self._native_dep_paths);
 }

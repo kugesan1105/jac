@@ -91,10 +91,6 @@ obj ProjectHost(HostServices) {
         program: JacProgram, source: str, element: str
     ) -> (bool | None);
 
-    def record_native_coverage(
-        path: str, outcome: str, code: str = "", detail: str = ""
-    );
-
     def format_file(file_path: str, auto_lint: bool = False) -> JacProgram;
     def format_source(
         source_str: str, file_path: str, auto_lint: bool = False

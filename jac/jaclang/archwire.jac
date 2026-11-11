@@ -830,16 +830,6 @@ graph import {
         dist.precompile_bytecode._precompile_unit { cache_mode },
     ]
     compiler.driver.jir as jir --> scale.tests.microservices.test_seed_determinism;
-    compiler.driver.na_coverage ++> project.compiler_host.ProjectHost.record_native_coverage {
-        na_coverage_record
-    }
-    compiler.driver.na_coverage --> [
-        cli.commands.analysis._check_file_job {
-            na_coverage_begin,
-            na_coverage_snapshot
-        },
-        cli.commands.analysis.check { na_coverage_end },
-    ]
     compiler.driver.native_iface ++> dist.precompile_bytecode.seal_native {
         NativeIface
     }
@@ -994,7 +984,6 @@ graph import {
     ]
     compiler.driver.wiring as wiring_mod ++> studio.gate;
     compiler.frontend.codeinfo ++> [
-        cli.check_report.print_native_coverage { effective_default_codespace },
         cli.commands.execution._count_jac_files
             | server.watcher.JacFileWatcher._on_change { is_compiler_source_path },
         cli.commands.execution._exec_file | dist.precompile_bytecode.served_codespace {
@@ -1019,7 +1008,6 @@ graph import {
         server.watcher.watch_roots { is_compiler_source_path },
     ]
     compiler.frontend.codeinfo --> [
-        cli.check_report.print_native_coverage { native_display_text },
         project.compiler_host.ProjectHost.client_stub_globals { jaclang_pkg_root },
     ]
     type compiler.frontend.codeinfo ++> client.client_bundle
@@ -3840,7 +3828,6 @@ graph import cli {
         print_failed_summary,
         print_file_progress,
         print_final_summary,
-        print_native_coverage,
         print_placement_report,
         print_section
     }
@@ -3955,7 +3942,6 @@ graph import cli {
             | dispatch.run_selected_command
             | shadcn.cli.run_shadcn_add { console },
         check_report.print_guide_hint | shadcn.cli.run_shadcn_remove { console },
-        check_report.print_native_coverage { console },
         check_report.print_placement_report { console },
         check_report.print_section { console },
         commands.execution { console, use_line_buffered_output },
@@ -5120,12 +5106,6 @@ graph import compiler {
     driver.jir --> backends.native.link_plan.build_link_plan {
         begin_prepare_memo,
         end_prepare_memo
-    }
-    driver.na_coverage ++> backends.native.link_plan._build_link_plan {
-        na_coverage_replay
-    }
-    driver.na_coverage --> backends.native.na_ir_gen_pass.NaIRGenPass._export_native_iface {
-        na_coverage_capture
     }
     driver.native_iface ++> [
         backends.native.link_plan {
@@ -10255,7 +10235,6 @@ graph import compiler.driver {
         run_plan
     }
     module_compile ++> compiler { compile_module }
-    na_coverage ++> pipeline_runner.wasm_ir_units { na_coverage_begin, na_coverage_end }
     native_iface ++> [
         jir.native_deps_section { native_unit_ref },
         jir.parse_native_dep_rows { resolve_native_unit_ref },

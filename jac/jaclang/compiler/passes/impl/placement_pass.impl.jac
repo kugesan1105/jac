@@ -40,32 +40,7 @@ impl NativeRefusal.message -> str {
 }
 
 impl NativeRefusal.headline -> str {
-    if self.text {
-        return self.text;
-    }
     return f"error[{self.code}]: {self.message()}";
-}
-
-impl NativeRefusal.located -> str {
-    if self.brief {
-        return self.brief;
-    }
-    nd = self.site;
-    if nd is None or nd.loc is None {
-        return self.message();
-    }
-    return f"{nd.loc.mod_path}, line {nd.loc.first_line}, col {nd.loc.col_start}: "
-    f"{self.message()}";
-}
-
-impl NativeRefusal.full -> str {
-    if self.detail {
-        return self.detail;
-    }
-    if self.help {
-        return f"{self.headline()}\nhelp: {self.help}";
-    }
-    return self.headline();
 }
 
 impl NativeLegality.refuse_unit(owner: UniNode, refusal: NativeRefusal) -> None {
@@ -189,10 +164,6 @@ impl NativeLegality.settle -> None {
                 name=first.name,
                 site=first.site,
                 code=first.code,
-                late=first.late,
-                text=first.text,
-                brief=first.brief,
-                detail=first.detail,
                 help=f"This element reaches '{blocker}', which is placed in Python "
                 f"and cannot be called from native code."
             );
@@ -201,14 +172,6 @@ impl NativeLegality.settle -> None {
             break;
         }
     }
-}
-
-impl NativeLegality.static_units -> int {
-    return len(self.units);
-}
-
-impl NativeLegality.late_units -> int {
-    return len(self.late);
 }
 
 impl NativeLegality.unmet -> list[tuple[NativeRefusal, NativeRefusal]] {
@@ -712,7 +675,6 @@ impl PlacementPass._run_decided(ir_in: Module) -> Module {
                 self._emit_refusal(refusal, "");
             }
         }
-        active_host().record_native_coverage(mod_path, 'native');
     }
     refresh_placement_module(ir_in, self.prog);
     if solve_module_placement(ir_in, self.prog) {
@@ -817,31 +779,6 @@ impl PlacementPass._run_undecided(ir_in: Module) -> Module {
     ir_in.decided_codespace = uniform.value
         if uniform is not None and uniform != CodeContext.SERVER
         else "";
-    if CodeContext.NATIVE in placed {
-        active_host().record_native_coverage(mod_path, 'native');
-    } else {
-        first = legality.module[0]
-            if legality.module
-            else (
-                legality.blockers[0]
-                    if legality.blockers
-                    else (
-                        next(iter(legality.elements.values()))
-                            if legality.elements
-                            else (
-                                next(iter(legality.preferences.values()))
-                                    if legality.preferences
-                                    else None
-                            )
-                    )
-            );
-        active_host().record_native_coverage(
-            mod_path,
-            'server',
-            first.code if first is not None else '',
-            first.headline() if first is not None else "not declared native"
-        );
-    }
     report_serverless_kind_errors(self, ir_in);
     ir_in.gen.placement_mode = 'inferred';
 

@@ -8,16 +8,10 @@ obj NativeRefusal {
         site: (UniNode | None) = None,
         help: (str | None) = None,
         code: str = "E5090",
-        late: bool = False,
-        noted: bool = False,
-        text: str = "",
-        brief: str = "",
-        detail: str = "";
+        noted: bool = False;
 
     def message -> str;
     def headline -> str;
-    def located -> str;
-    def full -> str;
 }
 
 obj NativeLegality {
@@ -31,7 +25,6 @@ obj NativeLegality {
         module: list[NativeRefusal] = [],
         reach: list[NativeRefusal] = [],
         reached: dict[int, int] = {},
-        late: dict[str, list[NativeRefusal]] = {},
         requires: dict[int, NativeRefusal] = {},
         module_requires: list[NativeRefusal] = [],
         preferences: dict[int, NativeRefusal] = {};
@@ -45,8 +38,6 @@ obj NativeLegality {
     def unit_refused(owner: UniNode) -> bool;
     def module_refused -> bool;
     def settle -> None;
-    def static_units -> int;
-    def late_units -> int;
     def unmet -> list[tuple[NativeRefusal, NativeRefusal]];
 }
 

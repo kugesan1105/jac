@@ -226,10 +226,6 @@ impl HostServices.native_session_active(program: JacProgram) -> bool {
     return False;
 }
 
-impl HostServices.record_native_coverage(
-    path: str, outcome: str, code: str = "", detail: str = ""
-) {}
-
 impl HostServices.format_file(file_path: str, auto_lint: bool = False) -> JacProgram {
     raise RuntimeError("no compiler host is installed");
 }

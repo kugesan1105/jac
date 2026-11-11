@@ -447,7 +447,6 @@ impl NativeIface.to_dict -> dict[str, any] {
 
 impl NativeIface._with_references(fields: dict[str, any]) -> dict[str, any] {
     fields["deps"] = [native_unit_ref(x) for x in self.deps];
-    fields["coverage"] = dict(self.coverage);
     fields["runtime_globals"] = list(self.runtime_globals);
     fields["init_reads"] = list(self.init_reads);
     return fields;
@@ -487,10 +486,6 @@ impl NativeIface.from_dict(d: dict[str, any]) -> (NativeIface | None) {
     for (k, v) in _json_dict(d.get("clib_symbol_lib")).items() {
         clib_symbol_lib[str(k)] = str(v);
     }
-    coverage: dict[str, any] = {};
-    for (k, v) in _json_dict(d.get("coverage")).items() {
-        coverage[k] = v;
-    }
     return NativeIface(
         module=str(d.get("module", "")),
         prefix=str(d.get("prefix", "")),
@@ -506,7 +501,6 @@ impl NativeIface.from_dict(d: dict[str, any]) -> (NativeIface | None) {
             native_layout_from_dict(layout_d) if isinstance(layout_d, dict) else None
         ),
         deps=_json_str_list(d.get("deps")),
-        coverage=coverage,
         headerless=bool(d.get("headerless", False)),
         runtime_globals=_json_str_list(d.get("runtime_globals")),
         init_reads=_json_str_list(d.get("init_reads"))

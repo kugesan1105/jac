@@ -328,12 +328,6 @@ impl ProjectHost.native_units_for(program: JacProgram) -> NativeUnitRegistry {
     return program._natives;
 }
 
-impl ProjectHost.record_native_coverage(
-    path: str, outcome: str, code: str = "", detail: str = ""
-) {
-    na_coverage_record(path, outcome, code, detail);
-}
-
 impl ProjectHost.format_file(file_path: str, auto_lint: bool = False) -> JacProgram {
     return JacCompiler.jac_file_formatter(file_path, auto_lint);
 }
@@ -798,8 +792,7 @@ impl check_settings_of(check: any) -> CheckSettings {
         lint_select=list(lint.select) if lint else [],
         lint_ignore=list(lint.ignore) if lint else [],
         enforce_access=bool(check.enforce_access),
-        untyped_external_error=check.untyped_external == "error",
-        warn_native_seams=bool(check.warn_native_seams)
+        untyped_external_error=check.untyped_external == "error"
     );
 }
 

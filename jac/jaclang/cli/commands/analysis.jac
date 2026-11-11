@@ -1,6 +1,6 @@
 comptime SPEC_EXPLAIN: CommandSpec = CommandSpec(
          name="explain",
-         help="Explain what the compiler inferred: memory (ownership, drops), placement (demotions), ir (optimized LLVM IR)",
+         help="Explain what the compiler inferred: memory (ownership, drops), placement (codespaces), ir (optimized LLVM IR)",
          args=[
              Arg.create(
                  "topic",
@@ -33,7 +33,7 @@ comptime SPEC_EXPLAIN: CommandSpec = CommandSpec(
              ),
              (
                  "jac explain placement app.jac",
-                 "Every demotion and the diagnostics that caused it"
+                 "Every element's codespace and the evidence that decided it"
              ),
              ("jac explain ir app.jac", "Write app.ll and print the symbol map")
          ],
@@ -99,13 +99,6 @@ comptime SPEC_EXPLAIN: CommandSpec = CommandSpec(
                  help="With --lint: auto-fix violations"
              ),
              Arg.create(
-                 "native-coverage",
-                 typ=bool,
-                 `default=False,
-                 short="",
-                 help="Compile with codegen and report per-module native outcome (native / demoted / server) ranked by reason (needs the native toolchain)"
-             ),
-             Arg.create(
                  "placements",
                  typ=bool,
                  `default=False,
@@ -135,10 +128,6 @@ comptime SPEC_EXPLAIN: CommandSpec = CommandSpec(
              (
                  "jac check myprogram.jac",
                  "Check a single file; its imports are read as interfaces only"
-             ),
-             (
-                 "jac check . --native-coverage",
-                 "Rank modules by native compile outcome"
              ),
              ("jac check . --placements", "Show element placements with evidence"),
              ("jac check . --lint", "Report lint violations only"),
@@ -172,7 +161,6 @@ def check(
     nowarn: bool = False,
     lint_only: bool = False,
     fix: bool = False,
-    native_coverage: bool = False,
     placements: bool = False,
     jobs: str = "",
     app: str = ""

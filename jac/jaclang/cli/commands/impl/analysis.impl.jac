@@ -3,7 +3,7 @@ import from fnmatch { fnmatch }
 
 def _maybe_malloc_trim;
 
-glob _CHECK_STATE: dict[(str, any)] = {"prog": None, "coverage_on": False};
+glob _CHECK_STATE: dict[(str, any)] = {"prog": None};
 
 glob _CHECK_HEAP: dict[(str, int)] = {"base_rss": -1},
      CHECK_HEAP_REGROW_MB: int = 512;
@@ -50,7 +50,6 @@ impl check(
     nowarn: bool = False,
     lint_only: bool = False,
     fix: bool = False,
-    native_coverage: bool = False,
     placements: bool = False,
     jobs: str = "",
     app: str = ""
@@ -196,7 +195,6 @@ impl check(
     );
     opts: dict[(str, any)] = {
         'parse_only': parse_only,
-        'native_coverage': native_coverage,
         'placements': placements,
         'suppress_codes': list(suppressed_codes),
         'ignore': list(ignore_list)
@@ -205,7 +203,6 @@ impl check(
     results: list[dict[(str, any)]] = [];
     plan: dict[(str, int)] = {'total': len(units)};
     placement_report: dict[str, any] = {};
-    coverage_report: dict[str, any] = {};
 
     def run_units(batch: list[dict[(str, any)]]) -> None {
         if not batch {
@@ -251,7 +248,6 @@ impl check(
                     ],
                     'warnings': [],
                     'placements': {},
-                    'coverage': {},
                     'reached': []
                 };
             }
@@ -263,9 +259,6 @@ impl check(
             );
             if placements {
                 placement_report.update(_wire_dict(res.get('placements')));
-            }
-            if native_coverage {
-                coverage_report.update(_wire_dict(res.get('coverage')));
             }
         }
 
@@ -303,11 +296,6 @@ impl check(
     }
 
     run_units(units);
-    if native_coverage {
-        import from jaclang.compiler.driver.na_coverage { na_coverage_end }
-        coverage_report.update(na_coverage_end());
-        _CHECK_STATE["coverage_on"] = False;
-    }
 
     multi = len({r['label'] for r in results}) > 1;
     failed_results: list[dict[str, any]] = [];
@@ -333,9 +321,6 @@ impl check(
         } elif len(warns) > 0 {
             warning_results.append({'path': path, 'warnings': warns});
         }
-    }
-    if native_coverage {
-        print_native_coverage(coverage_report);
     }
     if placements {
         print_placement_report(placement_report);
@@ -1817,7 +1802,6 @@ impl _check_file_job(request: dict[(str, any)]) -> dict[(str, any)] {
         'errors': [],
         'warnings': [],
         'placements': {},
-        'coverage': {},
         'reached': []
     };
     if not Path(file_path).exists() {
@@ -1830,11 +1814,6 @@ impl _check_file_job(request: dict[(str, any)]) -> dict[(str, any)] {
     if prog is None {
         prog = JacProgram();
         _CHECK_STATE["prog"] = prog;
-    }
-    if opts.get("native_coverage") and not _CHECK_STATE["coverage_on"] {
-        import from jaclang.compiler.driver.na_coverage { na_coverage_begin }
-        na_coverage_begin();
-        _CHECK_STATE["coverage_on"] = True;
     }
     ignore_list = _wire_list(opts.get("ignore"));
     annex_filter_path: (str | None) = None;
@@ -1865,7 +1844,7 @@ impl _check_file_job(request: dict[(str, any)]) -> dict[(str, any)] {
             }
         } else {
             compile_options = CompileOptions(
-                no_cgen=not bool(opts.get("native_coverage")),
+                no_cgen=True,
                 native_parity=True,
                 iface_ok=True,
                 strict_dependencies=True,
@@ -1910,10 +1889,6 @@ impl _check_file_job(request: dict[(str, any)]) -> dict[(str, any)] {
                 collect_placement_rows
             }
             result['placements'] = collect_placement_rows(prog);
-        }
-        if opts.get("native_coverage") {
-            import from jaclang.compiler.driver.na_coverage { na_coverage_snapshot }
-            result['coverage'] = na_coverage_snapshot();
         }
         for m in prog.mod.hub.values() {
             m.terminals = [];

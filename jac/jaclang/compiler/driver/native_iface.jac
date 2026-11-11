@@ -109,7 +109,6 @@ obj NativeIface {
         clib_symbol_lib: dict[str, str] = {},
         layout: (NativeModuleLayout | None) = None,
         deps: list[str] = [],
-        coverage: dict[str, any] = {},
         headerless: bool = False,
         runtime_globals: list[str] = [],
         init_reads: list[str] = [];

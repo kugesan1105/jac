@@ -8,8 +8,7 @@ obj CheckSettings {
         lint_select: list[str] = [],
         lint_ignore: list[str] = [],
         enforce_access: bool = False,
-        untyped_external_error: bool = False,
-        warn_native_seams: bool = True;
+        untyped_external_error: bool = False;
 }
 
 obj ProjectDefaults {
@@ -130,9 +129,6 @@ obj HostServices {
     ) -> (bool | None);
 
     def native_session_active(program: JacProgram) -> bool;
-    def record_native_coverage(
-        path: str, outcome: str, code: str = "", detail: str = ""
-    );
 
     def format_file(file_path: str, auto_lint: bool = False) -> JacProgram;
     def format_source(

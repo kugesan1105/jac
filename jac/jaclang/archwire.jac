@@ -1469,7 +1469,7 @@ graph import {
     dist.self_update --> cli.commands.project.update { update_self }
     dist.source.project --> cli.commands.build._build_app { export_project }
     jac0 ++> [
-        compiler.driver.jir.compiler_wiring_digest { wire_facts },
+        compiler.driver.jir.compiler_input_rows { compiler_wiring_digest },
         dist.precompile_bytecode._seal_boot_unit {
             compile_jac as jac0_compile,
             discover_impl_files as jac0_impls

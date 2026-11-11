@@ -9,10 +9,12 @@ git init -q
 git config user.name 'Cache test'
 git config user.email 'cache-test@example.invalid'
 mkdir -p scripts jac/jaclang/compiler jac/jaclang/scale jac/bootstrap jac/native
-cp "$repo/scripts/ci_cache_keys.sh" scripts/
-cp "$repo/jac/jaclang/compiler_inputs.txt" jac/jaclang/
+cp "$repo/scripts/ci_cache_keys.sh" "$repo/scripts/ci_wiring_digest.py" scripts/
+cp "$repo/jac/jaclang/compiler_inputs.txt" "$repo/jac/jaclang/jac0.py" jac/jaclang/
 printf 'compiler\n' > jac/jaclang/compiler/pass.jac
+printf 'compiler\n' > jac/jaclang/compiler/other.jac
 printf 'app\n' > jac/jaclang/scale/app.jac
+printf 'graph import {\n    compiler.other ++> compiler.pass { f }\n}\n' > jac/jaclang/archwire.jac
 printf 'fetch\n' > jac/bootstrap/fetch_pbs.zig
 printf '{}\n' > jac/bootstrap/pins.json
 printf 'shim\n' > jac/native/shim.cpp
@@ -48,6 +50,37 @@ printf test > jac/jaclang/compiler/pass.test.jac
 commit tests
 after=$(keys)
 same compiler; same python
+
+# archwire.jac counts only through wires into compiler inputs.
+before=$after
+printf 'graph import {\n    compiler.other ++> compiler.pass { f }\n    compiler.other ++> scale.app { f }\n}\n' > jac/jaclang/archwire.jac
+commit non-compiler-wire
+after=$(keys)
+same compiler; changed payload
+
+before=$after
+printf '\ngraph import {\n\n    compiler.other ++> compiler.pass { f }\n    compiler.other ++> scale.app { f }\n}\n' > jac/jaclang/archwire.jac
+commit wire-shift
+after=$(keys)
+same compiler
+
+before=$after
+printf 'graph import {\n    compiler.other ++> compiler.pass { f as g }\n    compiler.other ++> scale.app { f }\n}\n' > jac/jaclang/archwire.jac
+commit compiler-wire
+after=$(keys)
+changed compiler
+
+before=$after
+printf 'graph import {\n    compiler.other ++>\n' > jac/jaclang/archwire.jac
+commit unparsable-wiring
+after=$(keys)
+changed compiler
+
+before=$after
+printf 'graph import {\n    compiler.other ++> {\n' > jac/jaclang/archwire.jac
+commit unparsable-edit
+after=$(keys)
+changed compiler
 
 before=$after
 printf 'compiler edit\n' >> jac/jaclang/compiler/pass.jac

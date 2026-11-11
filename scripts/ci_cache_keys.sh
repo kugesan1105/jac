@@ -38,7 +38,18 @@ emit() {
   printf '%s=%s\n' "$1" "$digest"
 }
 
-compiler_tree | emit compiler
+# archwire.jac counts the way the compiler digest counts it
+# (jac0.compiler_wiring_digest): only wires into compiler inputs, without
+# positions, so a wire between server or client modules keeps this key.
+wiring=""
+if [ -f jac/jaclang/archwire.jac ]; then
+  wiring=$(compiler_tree | awk -F '\t' '{print $2}' | sed 's|^jac/jaclang/||' |
+    python3 -I scripts/ci_wiring_digest.py jac/jaclang)
+fi
+{
+  compiler_tree | awk -F '\t' '$2 != "jac/jaclang/archwire.jac"'
+  [ -z "$wiring" ] || printf 'wiring\t%s\n' "$wiring"
+} | emit compiler
 # The prebuilt CPython tree: its pin and the seed that fetches it.
 tree jac/bootstrap/fetch_pbs.zig jac/bootstrap/seed.zig jac/bootstrap/pins.json |
   emit python

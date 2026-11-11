@@ -3393,6 +3393,84 @@ def wire_facts(arch_path: str) -> list[WireFact]:
     return _wiring_entry(arch_path)[1]
 
 
+def compiler_wiring_digest(pkg_dir: str, rels: list[str]) -> str:
+    """What archwire.jac contributes to the compiler identity: the wires, in
+    file order and without positions, whose consumer module is one of the
+    compiler inputs ``rels`` (package-relative posix paths). A consumer that
+    lives in a deeper module which is not an input (``compiler/tests/x``)
+    does not count. An unparsable file counts by content.
+
+    Shared by jir.compiler_source_digest and scripts/ci_cache_keys.sh, which
+    runs before any jac binary exists."""
+    import hashlib
+
+    arch = os.path.join(pkg_dir, ARCH_FILE_NAME)
+    modules: dict[str, bool] = {}
+    for rel in rels:
+        stem, ext = os.path.splitext(rel)
+        if ext not in (".jac", ".py"):
+            continue
+        parts = stem.split("/")
+        package = parts[-1] == "__init__"
+        if package:
+            parts = parts[:-1]
+        if parts:
+            modules[".".join(parts)] = package
+    try:
+        facts = wire_facts(arch)
+    except Exception:
+        with open(arch, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    on_disk: dict[str, bool] = {}
+    owned: dict[str, bool] = {}
+    h = hashlib.sha256()
+    for fact in facts:
+        consumer = fact.consumer
+        keep = owned.get(consumer)
+        if keep is None:
+            keep = False
+            parts = consumer.split(".")
+            for k in range(len(parts), 0, -1):
+                name = ".".join(parts[:k])
+                if name not in modules:
+                    continue
+                keep = True
+                if modules[name]:
+                    for deeper in range(k + 1, len(parts) + 1):
+                        key = ".".join(parts[:deeper])
+                        if key not in on_disk:
+                            stem = os.path.join(pkg_dir, *parts[:deeper])
+                            on_disk[key] = any(
+                                os.path.isfile(stem + suffix)
+                                for suffix in (
+                                    ".jac",
+                                    ".py",
+                                    os.sep + "__init__.jac",
+                                    os.sep + "__init__.py",
+                                )
+                            )
+                        if on_disk[key]:
+                            keep = False
+                            break
+                break
+            owned[consumer] = keep
+        if keep:
+            names = "\x1e".join(fact.names) if fact.names is not None else "\x1d"
+            row = "\x1f".join(
+                [
+                    fact.provider,
+                    consumer,
+                    " ".join(fact.keywords),
+                    fact.alias,
+                    names,
+                    "++>" if fact.injected else "-->",
+                ]
+            )
+            h.update(row.encode("utf-8"))
+            h.update(b"\n")
+    return h.hexdigest()
+
+
 def _is_module(root: str, parts: list[str]) -> bool:
     base = os.path.join(root, *parts)
     return (

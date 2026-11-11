@@ -89,6 +89,7 @@ jobs:
               - '.github/workflows/ci.yml'
               - '.github/actions/**'
               - 'scripts/ci_cache_keys.sh'
+              - 'scripts/ci_wiring_digest.py'
               - 'scripts/test_ci_cache_keys.sh'
               - 'scripts/ci_carry_verdict.sh'
               - 'scripts/test_ci_carry_verdict.sh'
@@ -139,6 +140,7 @@ jobs:
               - 'jac/jaclang/cli/commands/impl/precompile.impl.jac'
               - '.github/actions/**'
               - 'scripts/ci_cache_keys.sh'
+              - 'scripts/ci_wiring_digest.py'
 
   # The kit lane builds this checkout and publishes it for every test lane.
   build-kit:

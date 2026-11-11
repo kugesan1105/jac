@@ -806,7 +806,9 @@ test "a link refuses unit objects that reference a symbol no unit defines" {
                 + '  %r = call i32 @"puts"(ptr null)\n'
                 + '  ret void\n}\n'
         );
-        callee = _target_object(triple, 'define void @"callee_unit.kept"() { ret void }\n');
+        callee = _target_object(
+            triple, 'define void @"callee_unit.kept"() { ret void }\n'
+        );
         glue = _target_object(
             triple, 'define void @"jac_glue_marker"() { ret void }\n'
         );

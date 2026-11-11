@@ -106,10 +106,9 @@ test "a caller using a None call result as a value refuses with E5092" {
     for (caller, line) in (("caller", 18), ("method_caller", 23)) {
         assert any(
             e.code is not None
-            and e.code.code == "E5092"
-            and "binding a void-typed value" in e.msg
-            and e.loc.first_line == line
-            for e in prog.errors_had
+                and e.code.code == "E5092"
+                and "binding a void-typed value" in e.msg
+                and e.loc.first_line == line for e in prog.errors_had
         ) , (f"{caller} must refuse the None result it uses: {errors}");
     }
 }

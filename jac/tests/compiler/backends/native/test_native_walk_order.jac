@@ -125,13 +125,16 @@ test "an unlowerable field type is a located E5092 naming the type" {
     with open(path) as f {
         lines = f.read().splitlines();
     }
-    decl_line = [i + 1 for (i, line) in enumerate(lines) if "has view:" in line][0];
+    decl_line = [
+        i + 1
+        for (i, line) in enumerate(lines)
+        if "has view:" in line
+    ][0];
     assert any(
         e.code is not None
-        and e.code.code == "E5092"
-        and "memoryview" in e.msg
-        and e.loc.first_line == decl_line
-        for e in prog.errors_had
+            and e.code.code == "E5092"
+            and "memoryview" in e.msg
+            and e.loc.first_line == decl_line for e in prog.errors_had
     ) , f"the field declaration must carry an E5092 naming memoryview: {errors}";
     # `read_tag` and `holder_tag` never name the field: nothing is located in them.
     first_untouched = [
@@ -139,7 +142,9 @@ test "an unlowerable field type is a located E5092 naming the type" {
         for (i, line) in enumerate(lines)
         if line.startswith("def read_tag")
     ][0];
-    assert not [e for e in prog.errors_had if e.loc.first_line >= first_untouched] , (
-        f"functions that never touch the field must report nothing: {errors}"
-    );
+    assert not [
+        e
+        for e in prog.errors_had
+        if e.loc.first_line >= first_untouched
+    ] , (f"functions that never touch the field must report nothing: {errors}");
 }

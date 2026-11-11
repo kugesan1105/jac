@@ -45,7 +45,11 @@ def errors_in(errors: list[any], name: str) -> list[any] {
         if i >= start and line.startswith("def ")
     ];
     end = ends[0] if ends else len(lines);
-    return [e for e in errors if start <= e.loc.first_line <= end];
+    return [
+        e
+        for e in errors
+        if start <= e.loc.first_line <= end
+    ];
 }
 
 
@@ -61,7 +65,9 @@ test "calls over any values are located errors in their callable" {
         assert any(
             e.code is not None and e.code.code == "E5092" and refusal in e.msg
             for e in errors_in(errors, fn)
-        ) , f"{fn} must refuse its call over `any` values, got: {[str(e) for e in errors]}";
+        ) , f"{fn} must refuse its call over `any` values, got: {[
+            str(e) for e in errors
+        ]}";
     }
 }
 

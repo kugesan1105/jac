@@ -459,10 +459,9 @@ test "guardrail: @lru_cache is a located native error where a dict cache is not"
     errors = [str(e) for e in dec.errors_had];
     assert any(
         e.code is not None
-        and e.code.code in ("E5090", "E5092")
-        and "decorator 'on twice'" in e.msg
-        and e.loc.first_line == 2
-        for e in dec.errors_had
+            and e.code.code in ("E5090", "E5092")
+            and "decorator 'on twice'" in e.msg
+            and e.loc.first_line == 2 for e in dec.errors_had
     ) , (
         "a stateful decorator is still a located native error on `twice` "
         f"(drop this pin once decorated calls lower): {errors}"

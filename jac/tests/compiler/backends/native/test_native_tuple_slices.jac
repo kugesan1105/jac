@@ -61,9 +61,8 @@ test "a fixed tuple slice is refused rather than read as an index" {
     errors = [str(e) for e in prog.errors_had];
     assert any(
         e.code is not None
-        and e.code.code in ("E5090", "E5092")
-        and "slice" in e.msg
-        and e.loc.first_line == 9
-        for e in prog.errors_had
+            and e.code.code in ("E5090", "E5092")
+            and "slice" in e.msg
+            and e.loc.first_line == 9 for e in prog.errors_had
     ) , f"`t[1:3]` in tail_of_three must be a located refusal: {errors}";
 }

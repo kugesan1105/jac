@@ -106,12 +106,11 @@ test "a body-scoped static call is a located error in its owning function" {
     # `probe`'s body is the `return Merger.merge(...)` on line 12.
     assert any(
         alrt.code is not None
-        and alrt.code.code in ("E5090", "E5092")
-        and "Merger.merge" in alrt.msg
-        and os.path.realpath(alrt.loc.mod_path)
-        == os.path.realpath(os.path.join(FIXTURES, fixture))
-        and alrt.loc.first_line == 12
-        for alrt in prog.errors_had
+            and alrt.code.code in ("E5090", "E5092")
+            and "Merger.merge" in alrt.msg
+            and os.path.realpath(alrt.loc.mod_path)
+                == os.path.realpath(os.path.join(FIXTURES, fixture))
+            and alrt.loc.first_line == 12 for alrt in prog.errors_had
     ) , f"the call in probe must be a located error naming the callee: {texts}";
 }
 

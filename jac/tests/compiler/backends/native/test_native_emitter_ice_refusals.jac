@@ -67,12 +67,14 @@ test "a mismatched call argument is the checker's refusal, not the emitter's" {
     # the emitter: it must lower or refuse by name, never crash the builder.
     errors = probe_errors(
         holder
-        + "def arg_shape_mismatch(s: str) -> int {\n"
-        + "    _s: any = s;\n"
-        + "    return takes_holder(_s);\n"
-        + "}\n"
+            + "def arg_shape_mismatch(s: str) -> int {\n"
+            + "    _s: any = s;\n"
+            + "    return takes_holder(_s);\n"
+            + "}\n"
     );
     assert all(
         e.code is not None and e.code.code in ("E5090", "E5092") for e in errors
-    ) , f"the boxed argument must lower or be a located refusal: {[str(e) for e in errors]}";
+    ) , f"the boxed argument must lower or be a located refusal: {[
+        str(e) for e in errors
+    ]}";
 }

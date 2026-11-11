@@ -568,10 +568,9 @@ test "run test native broken import surfaces error" {
         sys.stdout = old_stdout;
     }
 
-    # Non-zero exit and a visible error -- never a silent green pass. With
-    # the .na.jac marker retired the module demotes to the server codespace,
-    # so the broken import surfaces as the loud python import error instead
-    # of a native E5090; the never-silently-green guarantee is unchanged.
+    # Non-zero exit and a visible error -- never a silent green pass. The
+    # module is a server module, so the broken import surfaces as the loud
+    # python import error.
     assert rc != 0;
     assert "this_module_does_not_exist_7150" in out;
     assert "passed" not in out;
@@ -2344,76 +2343,6 @@ test "jac check disable_error_code warns on unknown diagnostics" {
         "unknown codes should produce an explicit warning"
     );
     assert "E9999" in combined , "unknown warning should use canonical code casing";
-}
-
-test "jac check native-coverage flag maps to check arg" {
-    import from jaclang.cli.manifest { get_command_meta }
-    import from jaclang.cli.manifest_parse { build_command_parser }
-    check_meta = get_command_meta("check");
-    assert check_meta is not None;
-    parser = build_command_parser(check_meta);
-    (args, _) = parser.parse_known_args(
-        [fixture_path("warnings_only.jac"), "--native-coverage"]
-    );
-    assert getattr(args, "native_coverage", False) == True , (
-        "kebab flag should map to native_coverage dest"
-    );
-}
-
-test "jac check native coverage ranks module outcomes" {
-    with tempfile.TemporaryDirectory() as td {
-        with open(os.path.join(td, "pure.jac"), "w") as f {
-            f.write("def add(a: int, b: int) -> int {\n    return a + b;\n}\n");
-        }
-        with open(os.path.join(td, "demote.jac"), "w") as f {
-            f.write(
-                "obj Widget {\n    has size: int = 0;\n\n    def render -> str {\n"
-                    + "        return \"ok\";\n    }\n}\n\ndef build -> str {\n"
-                    + "    w: any = Widget();\n    return w.render();\n}\n"
-            );
-        }
-        with open(os.path.join(td, "blocked.jac"), "w") as f {
-            f.write(
-                "node Item {\n    has label: str = \"\";\n}\n\n"
-                    + "def pin(label: str) -> int {\n    root ++> Item(label=label);\n"
-                    + "    return 1;\n}\n"
-            );
-        }
-        import from jaclang.compiler.frontend.codeinfo {
-            get_effective_default_codespace_override,
-            set_effective_default_codespace
-        }
-        prior_codespace = get_effective_default_codespace_override();
-        set_effective_default_codespace("");
-        (captured_stdout, captured_stderr, old_stdout, old_stderr) = _capture_output();
-        _reset_config();
-        try {
-            result = analysis.check([td], native_coverage=True);
-            combined = captured_stdout.getvalue() + captured_stderr.getvalue();
-        } finally {
-            set_effective_default_codespace(prior_codespace);
-            _restore_output(old_stdout, old_stderr);
-            set_config(None);
-            _reset_config();
-        }
-        assert "native coverage" in combined.lower() , "coverage header missing";
-        assert "native seams" in combined , (
-            "a module whose callable demoted granularly must be reported "
-            "under the native-seams section",
-            combined
-        );
-        assert "E5092" in combined , (
-            "the seam reason must carry the first error code"
-        );
-        assert "build: " in combined , ("the seam must name the demoted callable");
-        assert "demote.jac" in combined , "seamed module path missing";
-        assert "blocked.jac" in combined , "server module path missing";
-        assert "pure.jac" in combined , "native module path missing";
-        assert "root access (persistent graph)" in combined , (
-            "server reason strings must be real signal labels"
-        );
-        assert result == 0 , "coverage seams must not flip exit code";
-    }
 }
 
 test "lexer does not hang on unterminated jsx" {

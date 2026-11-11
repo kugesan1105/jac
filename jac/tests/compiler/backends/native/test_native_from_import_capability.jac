@@ -11,11 +11,11 @@ That is the silent-miscompile class. `import from threading { Event }` with
 everything it inherits quietly missing. A refusal is the right answer, and it
 is the answer the bare spelling of the same module already gave.
 
-Inferred placement never had the hole: `scan_native_blockers` reads a `from`
-import's module through `imp.from_loc` and refuses it there. So the fix is to
-classify `ModuleItem` on the same terms the bare spelling gets, using the
-compile-time vocabulary centralized in `codeinfo` -- and the verdicts on the
-inferred path must not move at all, which is pinned below.
+The placement pre-scan never had the hole: `scan_native_blockers` reads a
+`from` import's module through `imp.from_loc` and refuses it there. So the fix
+is to classify `ModuleItem` on the same terms the bare spelling gets, using the
+compile-time vocabulary centralized in `codeinfo` -- and the pre-scan verdicts
+must not move at all, which is pinned below.
 
 The four ways a `from`-import item can be legitimate are each pinned here: a
 compile-time name (`ABC`, `cast`, `TypeVar`, `TypeAlias`, `ClassVar`), a
@@ -23,12 +23,9 @@ lowered stdlib module, an na_stdlib-shimmed module, and another Jac module on
 the native pathway. The vocabulary is per name and not per module, so a
 compile-time module's non-erasable name still refuses.
 
-Where the refusal lands is #8206's partition: a module-scope import has no
-owning callable and stays module-fatal, while a body-scoped one demotes its
-function to a seam and leaves its siblings native. A property accessor is an
-owning callable too -- the native lane lowers a `{ getter; }` body as a method
-and the demotion coverage already names it `<Archetype>.<field>.__get__` -- so
-the partition answers for it rather than falling through to a module refusal.
+Every refusal is a located error: a module-scope import is reported at the
+import, and a body-scoped one at the import inside its owning function or
+property accessor.
 """
 
 import ctypes;
@@ -37,11 +34,10 @@ import from jaclang.compiler.passes.capability_check_pass {
     native_capability_violations
 }
 import from jaclang.compiler.driver.compile_options { CompileOptions }
-import from jaclang.compiler.driver.na_coverage { na_coverage_begin, na_coverage_end }
 import from jaclang.compiler.frontend.parser { parse as rd_parse }
 import from jaclang.compiler.placement.placement { scan_native_blockers }
 import from jaclang.compiler.driver.program { JacProgram }
-import from tests.support { TESTS_DIR, by_source_name, native_address, source_spelled }
+import from tests.support { TESTS_DIR, native_address }
 
 glob FIXTURES = os.path.join(
          TESTS_DIR, "compiler", "backends", "native", "fixtures"
@@ -59,19 +55,6 @@ def _compile_native(fixture: str) -> tuple[any, ...] {
     prog = JacProgram();
     ir = prog.compile(file_path=os.path.join(FIXTURES, fixture), options=_opts());
     return (prog, ir, );
-}
-
-
-"""Compile a fixture under the demotion coverage; return (program, module, coverage)."""
-def _compile_with_coverage(fixture: str) -> tuple[any, ...] {
-    prog = JacProgram();
-    na_coverage_begin();
-    try {
-        ir = prog.compile(file_path=os.path.join(FIXTURES, fixture), options=_opts());
-    } finally {
-        coverage = na_coverage_end();
-    }
-    return (prog, ir, coverage, );
 }
 
 
@@ -124,16 +107,6 @@ def _native_int_fn(ir: any, name: str) -> any {
 }
 
 
-"""The coverage seam list recorded for a fixture path."""
-def _seams_of(coverage: dict[str, any], fixture: str) -> list[str] {
-    rec = coverage.get(os.path.realpath(os.path.join(FIXTURES, fixture)));
-    if rec is None {
-        return [];
-    }
-    return [source_spelled(str(s)) for s in (rec.get("seams") or [])];
-}
-
-
 test "a from-imported Python base is classified, not waved through" {
     assert _rejected_imports("from_import_retained_base.jac") == ["threading"] , (
         "the capability gate read the `from` import's items and found no "
@@ -163,12 +136,12 @@ test "the from-imported Python base refuses instead of lowering" {
 }
 
 
-test "the inferred-placement verdict on that import is unchanged" {
+test "the pre-scan verdict on that import is unchanged" {
     assert _scan_verdict(_module_with("import from threading { Event }"))
         == "unresolved import 'threading'" , (
         "`scan_native_blockers` already refused this import through "
         "`imp.from_loc`; closing the forced-native hole must not move the "
-        "inferred path at all"
+        "pre-scan at all"
     );
 }
 
@@ -200,7 +173,7 @@ test "a TypeAlias import no longer blocks native placement" {
     assert _scan_verdict(_module_with("import from typing { TypeAlias }")) == "OK" , (
         "native glob lowering already skips a `TypeAlias` assignment as a "
         "compile-time declaration; the import in front of it was all that "
-        "still demoted the module"
+        "still refused the module"
     );
 }
 
@@ -237,16 +210,20 @@ test "a mixed typing import is still judged per name" {
 
 test "a consumer links a ClassVar-importing dependency" {
     for _ in range(2) {
-        (prog, ir, coverage) = _compile_with_coverage("classvar_marker_consumer.jac");
+        (prog, ir) = _compile_native("classvar_marker_consumer.jac");
         assert not prog.errors_had , f"{[str(e) for e in prog.errors_had]}";
         assert ir is not None and ir.gen.llvm_ir , (
             "no native IR for a module whose dependency's only compile-time "
             "import is `ClassVar`"
         );
-        members = sorted({os.path.basename(p) for p in coverage});
-        assert "classvar_marker_dep.jac" in members , (
-            f"the dependency has to be in the consumer's native closure, not "
-            f"refused at placement and left to Python: {members}"
+        dep = [
+            m
+            for (p, m) in prog.mod.hub.items()
+            if p.endswith("classvar_marker_dep.jac")
+        ];
+        assert dep and dep[0].decided_codespace == 'native' , (
+            "the dependency has to be compiled native, not refused at placement "
+            "and left to Python"
         );
         assert _native_int_fn(ir, "run")() == 42 , (
             "the linked dependency has to answer across the native edge"
@@ -270,66 +247,35 @@ test "a from import of an na_stdlib-shimmed module lowers" {
     assert layout is not None , "whole-module native compile aborted";
     assert "run" in layout.functions , (
         "a shimmed module supplies the name natively, so nothing here "
-        f"demotes: {sorted(layout.functions)}"
+        f"refuses: {sorted(layout.functions)}"
     );
 }
 
 
-test "a property accessor is an owning callable, not a module-fatal site" {
-    (prog, ir, coverage) = _compile_with_coverage("from_import_accessor_seam.jac");
-    assert not prog.errors_had , (
-        f"a `{{ getter; }}` body is a callable the native lane lowers as a "
-        f"method, so a violation written there demotes it rather than "
-        f"refusing the module: {[str(e) for e in prog.errors_had]}"
-    );
-    layout = ir.gen.native_layout;
-    assert layout is not None , "whole-module native compile aborted";
-    assert "Box.plain" in by_source_name(layout.methods) , (
-        f"the archetype's ordinary method was lost: {sorted(layout.methods)}"
-    );
-    seams = [
-        s
-        for s in _seams_of(coverage, "from_import_accessor_seam.jac")
-        if s.startswith("Box.tagged.__get__: ")
-    ];
-    assert len(seams) == 1 , (
-        f"the accessor must be recorded under the name the demotion coverage "
-        f"and the seal waivers already use for it, got: {_seams_of(
-            coverage, 'from_import_accessor_seam.jac'
-        )}"
-    );
-    assert "collections" in seams[0] , (
-        f"the seam reason must name the blocking construct: {seams[0]}"
-    );
-}
-
-
-test "a body-scoped from-import demotes only its owning function" {
-    (prog, ir, coverage) = _compile_with_coverage("from_import_freefn_seam.jac");
-    assert not prog.errors_had , (
-        f"a function-owned violation must demote, not fail the module: {[
-            str(e) for e in prog.errors_had
-        ]}"
-    );
-    layout = ir.gen.native_layout;
-    assert layout is not None , "whole-module native compile aborted";
-    assert "clean" in layout.functions , (
-        f"clean sibling function was lost: {sorted(layout.functions)}"
-    );
-    assert "pyonly" not in layout.functions , (
-        "the violating function must be demoted out of the native layout"
-    );
-    seams = [
-        s
-        for s in _seams_of(coverage, "from_import_freefn_seam.jac")
-        if s.startswith("pyonly: ")
-    ];
-    assert len(seams) == 1 , (
-        f"expected exactly one coverage seam for pyonly, got: {seams}"
-    );
-    assert "collections" in seams[0] , (
-        f"the seam reason must name the blocking construct: {seams[0]}"
-    );
+test "a body-scoped from-import is an error located at the import" {
+    for fixture in ["from_import_accessor_seam.jac", "from_import_freefn_seam.jac"] {
+        path = os.path.realpath(os.path.join(FIXTURES, fixture));
+        with open(path, encoding="utf-8") as fh {
+            import_line = [
+                i + 1
+                for (i, line) in enumerate(fh.read().splitlines())
+                if "import from collections" in line
+            ][0];
+        }
+        (prog, _ir) = _compile_native(fixture);
+        located = [
+            e
+            for e in prog.errors_had
+            if e.loc is not None
+                and os.path.realpath(e.loc.mod_path) == path
+                and e.loc.first_line == import_line
+                and "collections" in str(e)
+        ];
+        assert located , (
+            f"{fixture}: expected an error naming `collections` at line "
+            f"{import_line}, got {[str(e) for e in prog.errors_had]}"
+        );
+    }
 }
 
 
@@ -343,8 +289,8 @@ test "a Jac field import is a compile-time declaration" {
         _module_with("import from jaclang.runtime.object_model { ObjectField }")
     )
         == "OK" , (
-        "the inferred-placement scanner reads the same vocabulary, so a "
-        "`ObjectField` import must stop demoting the module there too"
+        "the placement pre-scan reads the same vocabulary, so a "
+        "`ObjectField` import must stop refusing the module there too"
     );
 }
 
@@ -368,7 +314,7 @@ test "a field-defaulted archetype lowers and builds its defaults" {
     layout = ir.gen.native_layout;
     assert layout is not None , "whole-module native compile aborted";
     assert "run" in layout.functions , (
-        f"the declaration-site marker demoted its module: {sorted(layout.functions)}"
+        f"the declaration-site marker refused its module: {sorted(layout.functions)}"
     );
     assert _native_int_fn(ir, "run")() == 13 , (
         "a `default_factory` field must arrive as an empty container of the "

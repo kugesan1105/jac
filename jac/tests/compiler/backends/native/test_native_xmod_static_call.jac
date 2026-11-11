@@ -10,9 +10,8 @@ but the class-qualified form had no such arm: `Merger.merge(...)` found no
 said nothing -- the silent-wrong-answer class (#7685 family, found by wave 1's
 parity canary weaving two statements where bytecode wove four).
 
-The two forms now land the same way, and where they land is #8206's
-partition: a module-scope call has no owning callable and stays module-fatal,
-a body-scoped one demotes its own function and leaves its siblings native.
+The two forms now land the same way: a located compile error naming the
+callee, whether the call sits at module scope or inside a function body.
 
 The control is the same three files with the Python base removed. It must
 still lower and still agree with the Python lane, so the refusal reads as a
@@ -27,11 +26,9 @@ import from tests.support {
     TESTS_DIR,
     by_source_name,
     native_address,
-    native_force_opts,
-    source_spelled
+    native_force_opts
 }
 import from jaclang.compiler.driver.compile_options { CompileOptions }
-import from jaclang.compiler.driver.na_coverage { na_coverage_begin, na_coverage_end }
 import from jaclang.compiler.driver.program { JacProgram }
 
 glob FIXTURES = os.path.join(
@@ -40,7 +37,7 @@ glob FIXTURES = os.path.join(
      MERGED = 7;
 
 
-"""Forced-native options that skip the IR cache so the coverage always runs."""
+"""Forced-native options."""
 def _opts -> CompileOptions {
     return CompileOptions(force_codespace='native');
 }
@@ -51,29 +48,6 @@ def _compile_native(fixture: str) -> tuple[any, ...] {
     prog = JacProgram();
     ir = prog.compile(file_path=os.path.join(FIXTURES, fixture), options=_opts());
     return (prog, ir);
-}
-
-
-"""Compile a fixture under the demotion coverage; return (program, module, coverage)."""
-def _compile_with_coverage(fixture: str) -> tuple[any, ...] {
-    prog = JacProgram();
-    na_coverage_begin();
-    try {
-        ir = prog.compile(file_path=os.path.join(FIXTURES, fixture), options=_opts());
-    } finally {
-        coverage = na_coverage_end();
-    }
-    return (prog, ir, coverage);
-}
-
-
-"""The coverage seam list recorded for a fixture path."""
-def _seams_of(coverage: dict[str, any], fixture: str) -> list[str] {
-    rec = coverage.get(os.path.realpath(os.path.join(FIXTURES, fixture)));
-    if rec is None {
-        return [];
-    }
-    return [source_spelled(str(s)) for s in (rec.get("seams") or [])];
 }
 
 
@@ -125,34 +99,20 @@ test "a module-scope static call into a Python-side class refuses" {
 }
 
 
-test "a body-scoped static call demotes only its owning function" {
-    (prog, ir, coverage) = _compile_with_coverage("xmod_static_pybase_seam.jac");
-    assert not prog.errors_had , (
-        f"a function owns this violation, so it demotes rather than failing "
-        f"the module: {[str(e) for e in prog.errors_had]}"
-    );
-    layout = ir.gen.native_layout;
-    assert layout is not None , "whole-module native compile aborted";
-    assert "clean" in layout.functions , (
-        f"the clean sibling was lost: {sorted(layout.functions)}"
-    );
-    assert "probe" not in layout.functions , (
-        "the calling function must be demoted out of the native layout, not "
-        "lowered with the call quietly removed"
-    );
-    seams = [
-        s
-        for s in _seams_of(coverage, "xmod_static_pybase_seam.jac")
-        if s.startswith("probe: ")
-    ];
-    assert len(seams) == 1 , (
-        f"expected exactly one coverage seam for probe, got: {_seams_of(
-            coverage, 'xmod_static_pybase_seam.jac'
-        )}"
-    );
-    assert "Merger.merge" in seams[0] , (
-        f"the seam reason must name the callee: {seams[0]}"
-    );
+test "a body-scoped static call is a located error in its owning function" {
+    fixture = "xmod_static_pybase_seam.jac";
+    (prog, _ir) = _compile_native(fixture);
+    texts = [str(e) for e in prog.errors_had];
+    # `probe`'s body is the `return Merger.merge(...)` on line 12.
+    assert any(
+        alrt.code is not None
+        and alrt.code.code in ("E5090", "E5092")
+        and "Merger.merge" in alrt.msg
+        and os.path.realpath(alrt.loc.mod_path)
+        == os.path.realpath(os.path.join(FIXTURES, fixture))
+        and alrt.loc.first_line == 12
+        for alrt in prog.errors_had
+    ) , f"the call in probe must be a located error naming the callee: {texts}";
 }
 
 
@@ -165,7 +125,7 @@ test "the same call with no Python base still lowers" {
     layout = ir.gen.native_layout;
     assert layout is not None , "whole-module native compile aborted";
     assert "run_merge" in layout.functions , (
-        f"the caller was demoted: {sorted(layout.functions)}"
+        f"the caller was not lowered: {sorted(layout.functions)}"
     );
     assert "Merger.merge" in by_source_name(layout.methods) , (
         f"the imported static method lost its native lowering: {sorted(layout.methods)}"

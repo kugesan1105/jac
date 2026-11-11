@@ -20,7 +20,6 @@ import from tests.support {
 }
 import from jaclang.compiler.driver.program { JacProgram }
 import from jaclang.compiler.driver.compile_options { CompileOptions }
-import from jaclang.compiler.driver.na_coverage { na_coverage_begin, na_coverage_end }
 import from jaclang.compiler.frontend.diagnostics { DiagnosticInfo, E1053 }
 
 glob FIXTURE: str = "list_data_ptr.jac",
@@ -39,24 +38,26 @@ def compile_errors(source: str) -> list[tuple[DiagnosticInfo | None, str]] {
     }
 }
 
-"""The refusal fixture's demotion seams, by function."""
-def refusal_seams -> dict[str, str] {
+"""The refusal fixture's errors, keyed by the top-level function they sit in."""
+def refusals -> dict[str, list[str]] {
     path = os.path.join(NATIVE_FIXTURES, REFUSALS);
-    na_coverage_begin();
-    try {
-        JacProgram().compile(
-            file_path=path, options=CompileOptions(force_codespace="native")
-        );
-    } finally {
-        coverage = na_coverage_end();
+    prog = JacProgram();
+    prog.compile(file_path=path, options=CompileOptions(force_codespace="native"));
+    with open(path) as f {
+        lines = f.read().splitlines();
     }
-    rec = coverage.get(os.path.realpath(path));
-    seams: dict[str, str] = {};
-    for seam in ((rec.get("seams") or []) if rec is not None else []) {
-        text = str(seam);
-        seams[text.split(": ")[0]] = text;
+    out: dict[str, list[str]] = {};
+    for e in prog.errors_had {
+        owner = "";
+        for line in lines[:e.loc.first_line] {
+            if line.startswith("def ") {
+                owner = line[4:].split(" ")[0].split("(")[0];
+            }
+        }
+        code = e.code.code if e.code is not None else "";
+        out.setdefault(owner, []).append(f"[{code}] {e}");
     }
-    return seams;
+    return out;
 }
 
 test "writes through the buffer are the list's elements, and the other way" {
@@ -89,22 +90,25 @@ test "the call lowers to a load of the list's data field" {
 }
 
 test "a list of objects or strings is refused: its elements are reference counted" {
-    seams = refusal_seams();
+    found = refusals();
     for name in ["objects_list", "str_list"] {
-        seam = seams.get(name, "");
-        assert "[E5095]" in seam and "holds managed elements" in seam , f"{name}: {seams}";
+        assert any(
+            "[E5095]" in msg and "holds managed elements" in msg
+            for msg in found.get(name, [])
+        ) , f"{name}: {found}";
     }
 }
 
 test "a temporary list is refused: it is freed with the statement" {
-    seams = refusal_seams();
+    found = refusals();
     for name in ["call_result", "literal_list"] {
-        seam = seams.get(name, "");
-        assert "[E5095]" in seam
-            and "a temporary list is freed with the statement" in seam , f"{name}: {seams}";
+        assert any(
+            "[E5095]" in msg and "a temporary list is freed with the statement" in msg
+            for msg in found.get(name, [])
+        ) , f"{name}: {found}";
     }
     # the function that makes the temporary lowers: only the call site is refused
-    assert "make" not in seams , seams;
+    assert "make" not in found , found;
 }
 
 test "a non-list operand is a type error" {

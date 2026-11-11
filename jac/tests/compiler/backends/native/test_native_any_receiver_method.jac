@@ -1,11 +1,9 @@
 """A call over `any` values refuses loudly instead of vanishing."""
 
 import os;
-import ctypes;
 import from jaclang.compiler.driver.compile_options { CompileOptions }
-import from jaclang.compiler.driver.na_coverage { na_coverage_begin, na_coverage_end }
 import from jaclang.compiler.driver.program { JacProgram }
-import from tests.support { JAC_ROOT, get_func }
+import from tests.support { JAC_ROOT }
 
 glob FIXTURES = os.path.join(
          JAC_ROOT, "tests", "compiler", "backends", "native", "fixtures"
@@ -14,42 +12,45 @@ glob FIXTURES = os.path.join(
 
 glob _MEMO: list[any] = [];
 
-"""Compile the fixture once and return (seams, ir)."""
-def measured -> tuple[any, ...] {
+"""Compile the fixture once and return its errors."""
+def measured -> list[any] {
     if _MEMO {
         return _MEMO[0];
     }
-    path = os.path.join(FIXTURES, FIXTURE);
     prog = JacProgram();
-    na_coverage_begin();
-    try {
-        ir = prog.compile(
-            file_path=path, options=CompileOptions(force_codespace='native')
-        );
-    } finally {
-        coverage = na_coverage_end();
-    }
-    rec = coverage.get(os.path.realpath(path));
-    seams = [str(s) for s in ((rec.get("seams") or []) if rec is not None else [])];
-    out = (seams, ir, );
+    prog.compile(
+        file_path=os.path.join(FIXTURES, FIXTURE),
+        options=CompileOptions(force_codespace='native')
+    );
+    out = list(prog.errors_had or []);
     _MEMO.append(out);
     return out;
 }
 
-"""The one seam owned by `name`, or the empty string."""
-def seam_for(seams: list[any], name: str) -> str {
-    owned = [
-        s
-        for s in seams
-        if str(s).startswith(f"{name}: ")
+"""The errors located inside the top-level `def name` of the fixture."""
+def errors_in(errors: list[any], name: str) -> list[any] {
+    with open(os.path.join(FIXTURES, FIXTURE)) as f {
+        lines = f.read().splitlines();
+    }
+    starts = [
+        i + 1
+        for (i, line) in enumerate(lines)
+        if line.startswith(f"def {name} ") or line.startswith(f"def {name}(")
     ];
-    return owned[0] if len(owned) == 1 else "";
+    assert len(starts) == 1 , f"the fixture must define {name} once";
+    start = starts[0];
+    ends = [
+        i
+        for (i, line) in enumerate(lines)
+        if i >= start and line.startswith("def ")
+    ];
+    end = ends[0] if ends else len(lines);
+    return [e for e in errors if start <= e.loc.first_line <= end];
 }
 
 
-test "calls over any values demote their callable" {
-    # Each call over `any` values must refuse with E5092 rather than lower silently.
-    (seams, _ir) = measured();
+test "calls over any values are located errors in their callable" {
+    errors = measured();
     for (fn, refusal) in [
         ("any_field_append", "on an `any` receiver"),
         ("any_field_bytearray_append", "on an `any` receiver"),
@@ -57,26 +58,24 @@ test "calls over any values demote their callable" {
         ("any_list_sorted", "builtin call 'sorted'"),
         ("any_list_sort", "'list[Any].sort'")
     ] {
-        seam = seam_for(seams, fn);
-        assert "[E5092]" in seam and refusal in seam , (
-            f"{fn} must refuse its call over `any` values, got: {seams}"
-        );
+        assert any(
+            e.code is not None and e.code.code == "E5092" and refusal in e.msg
+            for e in errors_in(errors, fn)
+        ) , f"{fn} must refuse its call over `any` values, got: {[str(e) for e in errors]}";
     }
 }
 
 
-test "the concretely typed twins still lower and run" {
-    (seams, ir) = measured();
-    assert not seam_for(seams, "typed_field_append") , str(seams);
-    run = get_func(ir.gen.native_engine, "typed_field_append", ctypes.c_int64);
-    assert run() == 21;
+test "the concretely typed twins report no error" {
+    errors = measured();
+    assert not errors_in(errors, "typed_field_append") , [str(e) for e in errors];
 }
 
 
 test "a File parameter's methods lower without a preceding open" {
     # The File helpers used to be emitted only by `open()`, so `fp.read()` on
     # a parameter in a unit that never opens a file found no method and was
-    # dropped the same silent way.
-    (seams, _ir) = measured();
-    assert not seam_for(seams, "file_param_read") , str(seams);
+    # dropped silently.
+    errors = measured();
+    assert not errors_in(errors, "file_param_read") , [str(e) for e in errors];
 }

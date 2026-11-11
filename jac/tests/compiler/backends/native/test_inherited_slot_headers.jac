@@ -11,7 +11,7 @@ sat one slot further along in the child than in the base that declared it.
 adopts its ancestor's field indices verbatim. That is sound only when the
 headers are the same width, so `headers_agree` refused the pair and the
 adoption was declined -- leaving the child's layout without the inherited
-fields at all, and every method touching one demoted to a seam.
+fields at all, and every method touching one failed to lower.
 
 The rule is now inherited rather than re-derived: a class carries a vtable
 when something is dispatched through it, or when an ancestor already carries
@@ -30,9 +30,8 @@ identifies the header decision rather than the override as the cause.
 import os;
 import ctypes;
 import from tests.support { TESTS_DIR }
-import from tests.support { by_source_name, compile_native, get_func, source_spelled }
+import from tests.support { by_source_name, compile_native, get_func }
 import from jaclang.compiler.driver.compile_options { CompileOptions }
-import from jaclang.compiler.driver.na_coverage { na_coverage_begin, na_coverage_end }
 import from jaclang.compiler.driver.program { JacProgram }
 
 glob FIXTURES = os.path.join(
@@ -42,38 +41,20 @@ glob FIXTURES = os.path.join(
      NOVT = "inherited_slot_novt.jac";
 
 
-"""Compile a fixture natively under the coverage; return (module, coverage)."""
-def _compile(fixture: str) -> tuple[any, ...] {
+"""Compile a fixture natively, assert it reported no error; return the module."""
+def _compile(fixture: str) -> any {
     prog = JacProgram();
-    na_coverage_begin();
-    try {
-        ir = prog.compile(
-            file_path=os.path.join(FIXTURES, fixture),
-            options=CompileOptions(force_codespace='native', aot_mode=True)
-        );
-    } finally {
-        coverage = na_coverage_end();
-    }
+    ir = prog.compile(
+        file_path=os.path.join(FIXTURES, fixture),
+        options=CompileOptions(force_codespace='native', aot_mode=True)
+    );
     assert not prog.errors_had , (f"{fixture}: {[str(e) for e in prog.errors_had]}");
-    return (ir, coverage);
-}
-
-
-"""The coverage seams recorded across every module of the compile."""
-def _all_seams(coverage: dict[str, any]) -> list[str] {
-    out: list[str] = [];
-    for (_, rec) in coverage.items() {
-        for s in (rec.get("seams") or []) {
-            out.append(source_spelled(str(s)));
-        }
-    }
-    return out;
+    return ir;
 }
 
 test "an abstract interface keeps its dispatch header across imported subclasses" {
-    (module, coverage) = _compile("abstract_slot_child.jac");
+    module = _compile("abstract_slot_child.jac");
     registry = module.gen.layout_registry;
-    assert not _all_seams(coverage) , str(_all_seams(coverage));
     interface = by_source_name(registry.layouts)["SlotInterface"];
     storage = by_source_name(registry.layouts)["SlotStorage"];
     child = by_source_name(registry.layouts)["SlotLeaf"];
@@ -96,7 +77,7 @@ test "an imported dispatcher invokes implementations absent from its own module"
 
 
 test "a child of an imported base carries the same header its base does" {
-    (ir, _coverage) = _compile(CHILD);
+    ir = _compile(CHILD);
     reg = ir.gen.layout_registry;
     assert reg is not None , "no layout registry was built";
     base = by_source_name(reg.layouts).get("SlotBase");
@@ -118,7 +99,7 @@ test "a child of an imported base carries the same header its base does" {
 
 
 test "the child adopts the base's slot assignment verbatim" {
-    (ir, _coverage) = _compile(CHILD);
+    ir = _compile(CHILD);
     reg = ir.gen.layout_registry;
     base = by_source_name(reg.layouts).get("SlotBase");
     child = by_source_name(reg.layouts).get("SlotChild");
@@ -141,24 +122,11 @@ test "the child adopts the base's slot assignment verbatim" {
 }
 
 
-test "the methods that touch an inherited slot lower instead of demoting" {
-    (_ir, coverage) = _compile(CHILD);
-    seams = _all_seams(coverage);
-    for fn in [
-        "SlotChild.store_inherited",
-        "SlotChild.read_inherited",
-        "SlotChild.bump"
-    ] {
-        hits = [
-            s
-            for s in seams
-            if s.startswith(f"{fn}: ")
-        ];
-        assert not hits , (
-            f"'{fn}' reads or writes a slot its base declares; with the "
-            f"headers agreed it must lower. Got: {hits}"
-        );
-    }
+test "the methods that touch an inherited slot lower" {
+    # SlotChild.store_inherited, read_inherited and bump read or write a slot
+    # their base declares; with the headers agreed they lower, so `_compile`
+    # sees no error.
+    _compile(CHILD);
 }
 
 
@@ -166,20 +134,11 @@ test "the no-override control lowers too, which places the fault on the header" 
     # This fixture overrides nothing. It refused for the same reason the
     # overriding one did, so the override was never what forced the vtable --
     # the header decision was.
-    (ir, coverage) = _compile(NOVT);
+    ir = _compile(NOVT);
     reg = ir.gen.layout_registry;
     base = by_source_name(reg.layouts).get("SlotBase");
     child = by_source_name(reg.layouts).get("SlotChildFlat");
     assert base.vtable_ptr_slot == child.vtable_ptr_slot , (
         f"base {base.vtable_ptr_slot} != child {child.vtable_ptr_slot}"
     );
-    seams = _all_seams(coverage);
-    for fn in ["SlotChildFlat.store_inherited", "SlotChildFlat.read_inherited"] {
-        hits = [
-            s
-            for s in seams
-            if s.startswith(f"{fn}: ")
-        ];
-        assert not hits , f"'{fn}' must lower once the headers agree: {hits}";
-    }
 }

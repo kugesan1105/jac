@@ -8,9 +8,8 @@ emitter, the shared-library glue, the JIT callback registration, the
 Python-side callback table and the sealed product record.
 
 A native call to a server function that has no such provider is refused by
-the native legality analysis (E5092 "call to Python function"), which
-places the calling unit in Python, or fails the build when the module must
-be native.
+the native legality analysis (E5092 "call to Python function") as a located
+error at the call.
 """
 
 import os;
@@ -186,8 +185,7 @@ test "one name imported from two modules dispatches to each module's function" {
     (prog, mod) = _compile_main(tmp, aot=False);
     bindings = mod.gen.interop_manifest.bindings;
     assert "f" in bindings and "g" in bindings , (
-        f"bindings: {list(bindings)}; refusal: {mod.gen.native_refusal}; "
-        f"engine: {mod.gen.native_engine}"
+        f"bindings: {list(bindings)}; engine: {mod.gen.native_engine}"
     );
     sym_f = bindings["f"].symbol;
     sym_g = bindings["g"].symbol;

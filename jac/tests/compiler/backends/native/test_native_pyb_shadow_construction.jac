@@ -10,9 +10,9 @@ back as the slot's declared default and nothing was diagnosed: a wrong
 answer, not a gap, and the worst class in the ledger.
 
 Both fixtures answer 103 in the sv lane. Before the refusal both
-answered 5 natively, in silence. Now the construction refuses with
-E5088, which demotes the owning callable to its Python implementation --
-so both lanes answer 103 again and the reason is on the record.
+answered 5 natively, in silence. Now the construction is a located E5088
+compile error, so the wrong answer never runs and the reason is on the
+record.
 
 The non-generic control is what places the fault. The compiler's own
 pass chain reached this path through `BaseTransform[T_in, T_out]`, which
@@ -30,7 +30,6 @@ carrying no `postinit` has no shadow-side initializer to lose.
 import os;
 import from tests.support { TESTS_DIR }
 import from jaclang.compiler.driver.compile_options { CompileOptions }
-import from jaclang.compiler.driver.na_coverage { na_coverage_begin, na_coverage_end }
 import from jaclang.compiler.driver.program { JacProgram }
 import from jaclang.runtime.runtime { JacRuntime }
 import from jaclang.compiler.frontend.codeinfo {
@@ -47,28 +46,22 @@ glob FIXTURES = os.path.join(
      NO_BASE_POSTINIT = "pyb_gen_base_main.jac";
 
 
-"""The coverage seams a forced-native compile of a fixture recorded."""
-def _seams(fixture: str) -> list[str] {
+"""The errors a forced-native compile of a fixture reported."""
+def _errors(fixture: str) -> list[str] {
     prog = JacProgram();
-    na_coverage_begin();
-    try {
-        prog.compile(
-            file_path=os.path.join(FIXTURES, fixture),
-            options=CompileOptions(force_codespace='native')
-        );
-    } finally {
-        coverage = na_coverage_end();
-    }
-    rec = coverage.get(os.path.realpath(os.path.join(FIXTURES, fixture)));
-    return [str(s) for s in ((rec.get("seams") or []) if rec is not None else [])];
+    prog.compile(
+        file_path=os.path.join(FIXTURES, fixture),
+        options=CompileOptions(force_codespace='native')
+    );
+    return [str(e) for e in (prog.errors_had or [])];
 }
 
 
-"""The shadow-construction refusals among a fixture's seams."""
+"""The shadow-construction refusals among a fixture's errors."""
 def _refusals(fixture: str) -> list[str] {
     return [
         s
-        for s in _seams(fixture)
+        for s in _errors(fixture)
         if "on a Python shadow" in s
     ];
 }
@@ -93,7 +86,7 @@ def _sv_read_back(fixture: str) -> int {
 test "the generic pass-shaped chain refuses instead of answering wrongly" {
     assert _sv_read_back(GEN) == 103 , "the sv lane runs the override";
     hits = _refusals(GEN);
-    assert hits , (f"the hollow construction lowered without a word: {_seams(GEN)}");
+    assert hits , (f"the hollow construction lowered without a word: {_errors(GEN)}");
     assert "HollowKid" in hits[0] , f"the refusal does not name the class: {hits[0]}";
     assert "HollowGenBase.postinit" in hits[0] , (
         f"the refusal does not name the ancestor whose initializer would "

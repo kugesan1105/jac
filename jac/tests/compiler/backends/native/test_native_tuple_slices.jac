@@ -10,7 +10,6 @@ import ctypes;
 import os;
 import from tests.support { TESTS_DIR, compile_native, get_func }
 import from jaclang.compiler.driver.compile_options { CompileOptions }
-import from jaclang.compiler.driver.na_coverage { na_coverage_begin, na_coverage_end }
 import from jaclang.compiler.driver.program { JacProgram }
 
 glob FIXTURES = os.path.join(
@@ -58,19 +57,13 @@ test "a slice of a None-narrowed optional string still lowers" {
 test "a fixed tuple slice is refused rather than read as an index" {
     path = os.path.join(FIXTURES, "tuple_slice_refusal.jac");
     prog = JacProgram();
-    na_coverage_begin();
-    try {
-        prog.compile(file_path=path, options=CompileOptions(force_codespace='native'));
-    } finally {
-        coverage = na_coverage_end();
-    }
-    rec = coverage.get(os.path.realpath(path));
-    seams = [str(s) for s in ((rec.get("seams") or []) if rec is not None else [])];
-    owned = [
-        s
-        for s in seams
-        if s.startswith("tail_of_three: ")
-    ];
-    assert len(owned) == 1 , str(seams);
-    assert "slice" in owned[0] , owned[0];
+    prog.compile(file_path=path, options=CompileOptions(force_codespace='native'));
+    errors = [str(e) for e in prog.errors_had];
+    assert any(
+        e.code is not None
+        and e.code.code in ("E5090", "E5092")
+        and "slice" in e.msg
+        and e.loc.first_line == 9
+        for e in prog.errors_had
+    ) , f"`t[1:3]` in tail_of_three must be a located refusal: {errors}";
 }

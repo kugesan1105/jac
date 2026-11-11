@@ -94,10 +94,6 @@ test "unsupported keyword forms refuse lowering instead of discarding arguments"
     import from pathlib { Path }
     import from tests.support { native_force_opts }
     import from jaclang.compiler.driver.program { JacProgram }
-    import from jaclang.compiler.driver.na_coverage {
-        na_coverage_begin,
-        na_coverage_end
-    }
     for expression in [
         "min([1, 2], key=abs)",
         "max([1, 2], key=abs)",
@@ -107,14 +103,11 @@ test "unsupported keyword forms refuse lowering instead of discarding arguments"
             source = Path(directory) / "refuse.jac";
             source.write_text("def probe -> any { return " + expression + "; }");
             prog = JacProgram();
-            na_coverage_begin();
-            try {
-                prog.compile(file_path=str(source), options=native_force_opts());
-            } finally {
-                coverage = na_coverage_end();
-            }
+            prog.compile(file_path=str(source), options=native_force_opts());
             said = " ".join(
-                str(seam) for rec in coverage.values() for seam in (rec["seams"] or [])
+                str(e)
+                for e in prog.errors_had
+                if e.code is not None and e.code.code in ("E5090", "E5092")
             );
             assert "builtin call" in said , f"must refuse {expression}: {said}";
         }

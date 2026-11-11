@@ -418,12 +418,11 @@ test "an analysis that ended in errors is not memoized for replay" {
     );
 }
 
-test "a compile acting on an inferred native verdict persists no interface" {
-    # Only the codegen flavor runs the native verdict for a marker-less
-    # module in a native-default project, and a module analyzed under it
-    # exports native typing that dependency ingestion and jac check never
-    # see. Its persist must leave the analysis-flavor interface on disk, or
-    # every importer's cutoff row flips with whichever flavor ran last.
+test "a codegen compile persists no interface" {
+    # A module analyzed for codegen may carry native typing that dependency
+    # ingestion and jac check never see. Its persist must leave the
+    # analysis-flavor interface on disk, or every importer's cutoff row flips
+    # with whichever flavor ran last.
     (main, dep) = _project();
     ana = JacProgram();
     ana.compile(dep, options=_check_opts());
@@ -437,24 +436,13 @@ test "a compile acting on an inferred native verdict persists no interface" {
     );
     mod = gen.mod.hub.get(dep);
     assert mod is not None , "the codegen compile left no module in the hub";
-    if mod.decided_codespace == "native" {
-        assert mod.codespace_inferred , "a marker-less native verdict must be marked inferred";
-    }
     assert before == after , (
         f"a codegen compile rewrote the interface: {before} vs {after}"
     );
-    # The rule itself, on a machine whose native toolchain may not let the
-    # verdict pass: an inferred verdict skips the interface, a declared one
-    # reaches it through the analysis flavor; codegen never encodes.
+    # A declared native placement reaches the interface through the analysis
+    # flavor only; codegen never encodes.
     reg = gen.iface_registry();
-    encodes = reg.prog.analysis.cache_events.get("iface_encode", 0);
     mod.decided_codespace = "native";
-    mod.codespace_inferred = True;
-    reg.persist_after_compile(dep, mod, CompileOptions(), 0, 0);
-    assert reg.prog.analysis.cache_events.get("iface_encode", 0) == encodes , "an inferred verdict was encoded into an interface";
-    assert read_iface_hash(read_section_bytes(_cache_path(dep).read_bytes(), SEC_IFACE))
-        == before , "an inferred verdict overwrote the persisted interface";
-    mod.codespace_inferred = False;
     reg.persist_after_compile(dep, mod, CompileOptions(), 0, 0);
     assert read_iface_hash(read_section_bytes(_cache_path(dep).read_bytes(), SEC_IFACE))
         == before , "a codegen persist of a declared placement encoded an interface";

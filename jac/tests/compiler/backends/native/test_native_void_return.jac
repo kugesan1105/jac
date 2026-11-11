@@ -14,7 +14,7 @@ explicit `return` with an expression breaks.
 
 A callable with no `-> T` returns None as well (#7139): it used to lower to
 `i64`, so `f() is None` was False under native. It lowers to `void` now, and a
-caller that uses such a call's result as a value refuses with E5092.
+caller that uses such a call's result as a value is a located E5092 error.
 """
 
 import ctypes;
@@ -28,7 +28,6 @@ import from tests.support {
 }
 import jaclang.compiler.frontend.unitree as uni;
 import from jaclang.compiler.driver.compile_options { CompileOptions }
-import from jaclang.compiler.driver.na_coverage { na_coverage_begin, na_coverage_end }
 import from jaclang.compiler.driver.program { JacProgram }
 
 glob FIXTURES = os.path.join(
@@ -102,20 +101,15 @@ test "the returned expression is still evaluated for its effects" {
 test "a caller using a None call result as a value refuses with E5092" {
     path = os.path.join(FIXTURES, "void_binding.jac");
     prog = JacProgram();
-    na_coverage_begin();
-    try {
-        prog.compile(file_path=path, options=CompileOptions(force_codespace='native'));
-    } finally {
-        coverage = na_coverage_end();
-    }
-    assert not prog.errors_had , [str(e) for e in prog.errors_had];
-    seams = [str(s) for s in coverage[os.path.realpath(path)]["seams"]];
-    for (caller, refusal) in (
-        ("caller", "binding a void-typed value"),
-        ("method_caller", "binding a void-typed value")
-    ) {
+    prog.compile(file_path=path, options=CompileOptions(force_codespace='native'));
+    errors = [str(e) for e in prog.errors_had];
+    for (caller, line) in (("caller", 18), ("method_caller", 23)) {
         assert any(
-            s.startswith(f"{caller}: [E5092]") and refusal in s for s in seams
-        ) , (f"{caller} must refuse the None result it uses: {seams}");
+            e.code is not None
+            and e.code.code == "E5092"
+            and "binding a void-typed value" in e.msg
+            and e.loc.first_line == line
+            for e in prog.errors_had
+        ) , (f"{caller} must refuse the None result it uses: {errors}");
     }
 }

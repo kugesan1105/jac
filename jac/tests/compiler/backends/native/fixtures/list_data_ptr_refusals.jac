@@ -1,5 +1,4 @@
-"""`__list_data_ptr` refusals: each function is refused (E5095) and so stays
-Python-only."""
+"""`__list_data_ptr` refusals: each call below is a located E5095 error."""
 
 obj Cell {
     has v: int = 0;

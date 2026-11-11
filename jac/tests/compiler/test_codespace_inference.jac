@@ -3,8 +3,9 @@
 Covers the full pipeline: parse-time seeding (JSX / string-path imports),
 symbol-based propagation in CodespacePullPass (scope-aware, exclusion policy),
 the placement-vs-boundary edge model for `sv` imports, and the
-default_codespace-driven whole-module native inference (native by default,
-server signals and closure poison opt modules back out).
+default_codespace-driven whole-module native declaration (server by default;
+a native default declares every plain module native, and a module that
+cannot lower is a located error).
 """
 
 import from jaclang.compiler.backends.py.codegen_shim { generated_python }
@@ -264,7 +265,7 @@ test "a browser-global-named edge field keeps an imported graph module native" {
     }
 }
 
-test "pure modules infer native under the shipped default" {
+test "pure modules stay server under the shipped default" {
     import from jaclang.compiler.frontend.codeinfo {
         set_effective_default_codespace,
         get_effective_default_codespace_override
@@ -273,9 +274,9 @@ test "pure modules infer native under the shipped default" {
     set_effective_default_codespace('');
     try {
         mod = compile_fixture("pure_stays_server.jac", cgen=True);
-        assert mod.decided_codespace == 'native' , "the shipped default prefers native for pure modules";
-        assert stamp_of(mod, "add") == 'native';
-        assert stamp_of(mod, "mul_add") == 'native';
+        assert mod.decided_codespace == '' , "native is opt-in, never inferred";
+        assert stamp_of(mod, "add") == 'server';
+        assert stamp_of(mod, "mul_add") == 'server';
     } finally {
         set_effective_default_codespace(_prev);
     }
@@ -284,23 +285,18 @@ test "pure modules infer native under the shipped default" {
 test "test blocks lower native under native default" {
     mod = compile_with_default("nadefault_with_tests.jac", "native", cgen=True);
     assert mod.decided_codespace == 'native' , (
-        "test blocks no longer block native inference"
+        "test blocks lower native in a declared-native module"
     );
     assert mod.gen.native_engine is not None;
     names = [t.name for t in mod.gen.native_layout.tests];
     assert "test_double_works" in names;
 }
 
-test "pure modules infer native under an explicit native default" {
+test "pure modules lower native under an explicit native default" {
     mod = compile_with_default("pure_stays_server.jac", "native", cgen=True);
-    assert mod.decided_codespace == 'native' , "native default coerces pure modules";
+    assert mod.decided_codespace == 'native' , "native default declares pure modules native";
     assert stamp_of(mod, "add") == 'native';
     assert stamp_of(mod, "mul_add") == 'native';
-}
-
-test "module-level pub endpoints keep a module server under native default" {
-    mod = compile_with_default("infer_native_ffi.jac", "native");
-    assert mod.decided_codespace == '' , "def:pub is a serve endpoint, a server signal";
 }
 
 test "extern decl imports seed native and pull the module" {
@@ -346,13 +342,13 @@ def compile_with_default(name: str, dcs: str, cgen: bool = False) -> any {
     return mod;
 }
 
-test "pure markerless module infers native under native default" {
+test "pure markerless module lowers native under native default" {
     mod = compile_with_default("nadefault_pure.jac", "native", cgen=True);
-    assert mod.decided_codespace == 'native' , "pure module should coerce whole-module native";
+    assert mod.decided_codespace == 'native' , "native default declares the pure module native";
     assert stamp_of(mod, "add") == 'native';
 }
 
-test "generator module infers native under native default" {
+test "generator module lowers native under native default" {
     mod = compile_with_default("nadefault_generator.jac", "native", cgen=True);
     assert mod.decided_codespace == 'native' , (
         "generators lower natively (state machines incl. yield from) and are not server signals"
@@ -360,7 +356,7 @@ test "generator module infers native under native default" {
     assert stamp_of(mod, "evens") == 'native';
 }
 
-test "local-graph OSP module infers native under native default" {
+test "local-graph OSP module lowers native under native default" {
     mod = compile_with_default("nadefault_local_osp.jac", "native", cgen=True);
     assert mod.decided_codespace == 'native' , (
         "walkers/nodes/spawn over a local graph lower natively; OSP is a server"
@@ -369,15 +365,7 @@ test "local-graph OSP module infers native under native default" {
     assert stamp_of(mod, "collect") == 'native';
 }
 
-test "root access keeps a module server under native default" {
-    mod = compile_with_default("nadefault_root_osp.jac", "native");
-    assert mod.decided_codespace == '' , (
-        "root is the persistent graph; touching it implies a server surface"
-    );
-    assert stamp_of(mod, "add_task") == 'server';
-}
-
-test "lambda module infers native under native default" {
+test "lambda module lowers native under native default" {
     mod = compile_with_default("nadefault_lambda.jac", "native", cgen=True);
     assert mod.decided_codespace == 'native' , (
         "closures lower natively (escaping pairs, adapter callbacks) and are not server signals"
@@ -398,24 +386,12 @@ test "pure markerless module stays server under server default" {
     assert stamp_of(mod, "add") == 'server';
 }
 
-test "python import keeps module server under native default" {
-    mod = compile_with_default("nadefault_pyimport.jac", "native");
-    assert mod.decided_codespace == '' , "python import is a server signal";
-    assert stamp_of(mod, "helper") == 'server';
-}
-
-test "pure import chain infers native under native default" {
+test "pure import chain lowers native under native default" {
     mod = compile_with_default("nadefault_chain.jac", "native", cgen=True);
     assert mod.decided_codespace == 'native' , "closure of pure plain modules is native";
 }
 
-test "server signal poisons the import closure" {
-    mod = compile_with_default("nadefault_uses_sv.jac", "native");
-    assert mod.decided_codespace == '' , "importing a server-classified module keeps the importer server";
-    assert stamp_of(mod, "helper") == 'server';
-}
-
-test "import cycles infer native under native default" {
+test "import cycles lower native under native default" {
     mod = compile_with_default("nadefault_cyc_a.jac", "native", cgen=True);
     assert mod.decided_codespace == 'native' , "cyclic pure closures lower natively";
     assert stamp_of(mod, "fa") == 'native';
@@ -424,31 +400,46 @@ test "import cycles infer native under native default" {
     );
 }
 
-test "osp with root access keeps module server under native default" {
-    mod = compile_with_default("nadefault_root_osp.jac", "native", cgen=True);
-    assert mod.decided_codespace == '' , (
-        "root is the persistent graph; OSP with a persistence surface stays server"
-    );
-    assert stamp_of(mod, "Task") == 'server';
-}
-
 test "native default produces a native engine for pure modules" {
     mod = compile_with_default("nadefault_pure.jac", "native", cgen=True);
     assert mod.decided_codespace == 'native';
-    assert mod.gen.native_engine is not None , "inferred-native module should lower to a native engine";
+    assert mod.gen.native_engine is not None , "declared-native module should lower to a native engine";
 }
 
-test "variadic defs infer native under native default" {
+test "variadic defs lower native under native default" {
     mod = compile_with_default("nadefault_varargs.jac", "native", cgen=True);
-    assert mod.decided_codespace == 'native' , "variadic params are native-lowerable; no demotion";
+    assert mod.decided_codespace == 'native' , "variadic params are native-lowerable";
     assert mod.gen.native_engine is not None , "variadic module should lower to a native engine";
     assert stamp_of(mod, "pack_sum") == 'native';
 }
 
-test "non-lowerable pure module demotes to server under native default" {
-    mod = compile_with_default("nadefault_nolower.jac", "native", cgen=True);
-    assert mod.decided_codespace == '' , "demotion recompiles in the server codespace";
-    assert stamp_of(mod, "build") == 'server';
+test "a non-lowerable module under native default is a located error" {
+    import from jaclang.compiler.frontend.codeinfo {
+        set_effective_default_codespace,
+        get_effective_default_codespace_override
+    }
+    _prev = get_effective_default_codespace_override();
+    prog = JacProgram();
+    try {
+        prog.compile(
+            os.path.join(FIXTURE_DIR, "nadefault_nolower.jac"),
+            options=CompileOptions(default_codespace="native")
+        );
+    } finally {
+        set_effective_default_codespace(_prev);
+    }
+    native_errs = [
+        e
+        for e in prog.errors_had
+        if e.code is not None and e.code.code in ('E5090', 'E5092')
+    ];
+    assert native_errs , (
+        "a declared-native module that cannot lower must fail, not fall back: "
+        f"{[str(e) for e in prog.errors_had]}"
+    );
+    assert all(e.loc.mod_path.endswith("nadefault_nolower.jac") for e in native_errs) , (
+        f"the error must be located in the module: {[str(e) for e in native_errs]}"
+    );
 }
 
 test "implicit-ctor positional args lower natively under native default" {
@@ -458,11 +449,6 @@ test "implicit-ctor positional args lower natively under native default" {
     );
     assert mod.gen.native_engine is not None;
     assert stamp_of(mod, "make") == 'native';
-}
-
-test "cascade: importer of a demoted module demotes with it" {
-    mod = compile_with_default("nadefault_uses_nolower.jac", "native", cgen=True);
-    assert mod.decided_codespace == '' , "importer of a demoted dep must demote too";
 }
 
 test "an import closure of any size can be native when every module can be" {
@@ -499,13 +485,13 @@ test "an import closure of any size can be native when every module can be" {
     }
 }
 
-test "a short pure import chain infers native" {
+test "a short pure import chain lowers native under native default" {
     mod = compile_with_default("nadefault_capchain_a.jac", "native", cgen=True);
     assert mod.decided_codespace == 'native' , "3-module pure chain lowers native";
     assert mod.gen.native_engine is not None;
 }
 
-test "transitive import chain infers native under native default" {
+test "transitive import chain lowers native under native default" {
     mod = compile_with_default("nadefault_transchain_a.jac", "native", cgen=True);
     assert mod.decided_codespace == 'native' , (
         "a -> b -> c transitive pure chain must lower native"
@@ -513,49 +499,7 @@ test "transitive import chain infers native under native default" {
     assert mod.gen.native_engine is not None;
 }
 
-test "coverage records demotion with first error code" {
-    import from jaclang.compiler.driver.na_coverage {
-        na_coverage_begin,
-        na_coverage_end
-    }
-    na_coverage_begin();
-    try {
-        compile_with_default("nadefault_nolower.jac", "native", cgen=True);
-    } finally {
-        coverage = na_coverage_end();
-    }
-    rec = coverage.get(
-        os.path.realpath(os.path.join(FIXTURE_DIR, "nadefault_nolower.jac"))
-    );
-    assert rec is not None , "demoted module missing from coverage";
-    assert rec['outcome'] == 'demoted' , f"expected demoted, got {rec}";
-    assert rec['code'] == 'E5092' , f"expected first-error code, got {rec}";
-}
-
-test "coverage records native and server outcomes" {
-    import from jaclang.compiler.driver.na_coverage {
-        na_coverage_begin,
-        na_coverage_end
-    }
-    na_coverage_begin();
-    try {
-        compile_with_default("nadefault_pure.jac", "native", cgen=True);
-        compile_with_default("nadefault_root_osp.jac", "native", cgen=True);
-    } finally {
-        coverage = na_coverage_end();
-    }
-    pure = coverage.get(
-        os.path.realpath(os.path.join(FIXTURE_DIR, "nadefault_pure.jac"))
-    );
-    blocked = coverage.get(
-        os.path.realpath(os.path.join(FIXTURE_DIR, "nadefault_root_osp.jac"))
-    );
-    assert pure is not None and pure['outcome'] == 'native' , f"got {pure}";
-    assert blocked is not None and blocked['outcome'] == 'server' , f"got {blocked}";
-    assert blocked['detail'] != '' , "server record must carry the classifier reason";
-}
-
-test "include chain infers native under native default" {
+test "include chain lowers native under native default" {
     mod = compile_with_default("nadefault_star_main.jac", "native", cgen=True);
     assert mod.decided_codespace == 'native' , (
         "from-import of an include re-exporter must lower native"
@@ -570,29 +514,13 @@ test "include chain stays server under server default" {
     );
 }
 
-test "bare jac import infers native under native default" {
+test "bare jac import lowers native under native default" {
     mod = compile_with_default("nadefault_bare.jac", "native", cgen=True);
     assert mod.decided_codespace == 'native' , (
         "bare import of a resolvable plain .jac module is a dep edge, not a "
         "server signal"
     );
     assert mod.gen.native_engine is not None;
-}
-
-test "aliased bare jac import stays server under native default" {
-    mod = compile_with_default("nadefault_bare_alias.jac", "native");
-    assert mod.decided_codespace == '' , (
-        "aliased bare imports are not lowered natively (call sites key on the "
-        "alias, which never matches the module symbol set)"
-    );
-}
-
-test "bare import of a cl module stays server under native default" {
-    mod = compile_with_default("nadefault_bare_cl.jac", "native");
-    assert mod.decided_codespace == '' , (
-        "a .jac sibling is a cl/sv server signal even when its body has no "
-        "other signals"
-    );
 }
 
 """Find a module in a program hub by filename suffix."""

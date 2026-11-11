@@ -1,10 +1,5 @@
-# Workstream A4/W4 (#6930): an un-lowerable *virtual* method demotes to an
-# abort-stub vtable slot.
-#
-# `render` is virtual (Base defines it, Derived overrides it -> vtable slot).
-# The stub keeps the slot valid: native dispatch that reaches it aborts
-# loudly instead of dispatching to garbage, the method is excluded from the
-# exported native layout, and the rest of the class stays native.
+# An un-lowerable *virtual* method (`Derived.render` overrides `Base.render`).
+# Native compilation reports a located error at the `eval` call.
 obj Base {
     has raw: str;
 

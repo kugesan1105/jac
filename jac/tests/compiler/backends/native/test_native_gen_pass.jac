@@ -372,97 +372,35 @@ test "native osp: skip in an impl-annex walker event ability (issue #6794)" {
     assert collect(5, 5, 5) == 15;
 }
 
-# --- Partial-native classes / per-method opt-out (workstream A4, #6930) ---
-test "native partial class: un-lowerable method skipped, sibling stays native" {
-    # `Literal.evaluate` uses `eval` (no native lowering). Before A4 its E5090
-    # poisoned the whole module, so the class lost its native layout and every
-    # sibling method. Now the un-lowerable method is demoted to Python-only and
-    # the rest of the class compiles: native construction + the native-eligible
-    # `length` work, the module reports no errors.
-    (eng, ir) = compile_native("partial_native.jac");
-    measure = get_sfunc(eng, "measure", ctypes.c_int64, ctypes.c_char_p);
-    assert measure(b"hello") == 5;
-    assert measure(b"") == 0;
-    layout = ir.gen.native_layout;
-    assert layout is not None , "native layout missing";
-    # The native-eligible method is exported; the eval-using one is skipped.
-    assert "Literal.length" in by_source_name(layout.methods);
-    assert "Literal.evaluate" not in by_source_name(layout.methods);
-}
-
-test "native partial class: demotion warns on the terminal by default (#6934)" {
-    # warn_native_seams defaults True, so demoting an un-lowerable method prints
-    # a terminal warning naming the method — a silent native fallback is visible
-    # during a build. The compile still succeeds (A4 demotes, no errors).
-    _saved = sys.stderr;
-    _cap = io.StringIO();
-    sys.stderr = _cap;
-    try {
+test "an un-lowerable method of a native class is a located error" {
+    for fixture in [
+        "partial_native.jac",
+        "partial_native_native_caller.jac",
+        "partial_native_virtual.jac"
+    ] {
+        path = os.path.realpath(os.path.join(FIXTURES, fixture));
+        with open(path, encoding="utf-8") as fh {
+            eval_line = [
+                i + 1
+                for (i, line) in enumerate(fh.read().splitlines())
+                if "eval(" in line
+            ][0];
+        }
         prog = JacProgram();
-        prog.compile(
-            file_path=str(os.path.join(FIXTURES, "partial_native.jac")),
-            options=native_force_opts()
+        prog.compile(file_path=path, options=native_force_opts());
+        located = [
+            e
+            for e in prog.errors_had
+            if e.code is not None
+                and e.code.code in ("E5090", "E5092")
+                and os.path.realpath(e.loc.mod_path) == path
+                and e.loc.first_line == eval_line
+        ];
+        assert located , (
+            f"{fixture}: expected a native lowering error at line {eval_line}, "
+            f"got {[str(e) for e in prog.errors_had]}"
         );
-    } finally {
-        sys.stderr = _saved;
     }
-    assert not prog.errors_had;
-    _out = _cap.getvalue();
-    assert "native seam" in _out;
-    assert "Literal.evaluate" in _out;
-    assert "Python-only" in _out;
-}
-
-test "native partial class: native caller of a demoted method errors, not silent" {
-    # A method demoted to Python-only is not callable from native code: the
-    # native pathway cannot fall back to Python mid-stream. The free function
-    # that calls it cascades into a seam of its own (granular demotion), and
-    # the module entry that calls THAT function stays a loud E5092 naming its
-    # call site instead of silently dropping to a null result.
-    prog = JacProgram();
-    prog.compile(
-        file_path=str(os.path.join(FIXTURES, "partial_native_native_caller.jac")),
-        options=native_force_opts()
-    );
-    codes = [
-        e.code.code
-        for e in (prog.errors_had or [])
-        if e.code
-    ];
-    assert "E5092" in codes , (
-        f"expected E5092 for the native call chain into a demoted method, "
-        f"got {codes}"
-    );
-    # The diagnostic names the demoted callable at the surviving call site,
-    # not the discarded eval body that was demoted away.
-    msgs = " ".join(str(e) for e in (prog.errors_had or []));
-    assert "call_evaluate" in msgs , (f"E5092 should name call_evaluate, got: {msgs}");
-}
-
-test "native partial class: un-lowerable virtual method demotes to a stub slot" {
-    # `render` is virtual (Base + Derived override -> vtable slot). An
-    # un-lowerable virtual now demotes like any other method: its vtable
-    # slot keeps the abort() stub so native dispatch that reaches it fails
-    # loudly, the function is excluded from the exported layout, and the
-    # module still lowers (#6930 W4).
-    prog = JacProgram();
-    ir_mod = prog.compile(
-        file_path=str(os.path.join(FIXTURES, "partial_native_virtual.jac")),
-        options=native_force_opts()
-    );
-    codes = [
-        e.code.code
-        for e in (prog.errors_had or [])
-        if e.code
-    ];
-    assert codes == [] , (f"virtual demotion must not leave hard errors, got {codes}");
-    assert ir_mod is not None and ir_mod.gen.llvm_ir is not None;
-    layout = ir_mod.gen.native_layout;
-    assert layout is not None;
-    assert "Derived.render" not in by_source_name(layout.methods) , (
-        "demoted virtual must not be exported in the layout"
-    );
-    assert "Base.render" in by_source_name(layout.methods);
 }
 
 # Regression (#7593 item 1): f32 operands must promote to double instead of
@@ -1513,9 +1451,9 @@ test "na_method_import" {
 }
 
 # Regression test for: a TRANSITIVE from-import chain (a -> b -> c) failed
-# native lowering with E5092 ("type 'int'") under inferred-native, while a
+# native lowering with E5092 ("type 'int'") under a native default, while a
 # flat diamond (a imports b and c directly) lowered fine.
-test "cross-module transitive chain executes via native inference" {
+test "cross-module transitive chain executes under a native default" {
     import from jaclang.compiler.frontend.codeinfo {
         set_effective_default_codespace,
         get_effective_default_codespace_override
@@ -3712,7 +3650,7 @@ test "keyword arguments bind to their named parameters (issue #7026)" {
     }
 }
 
-# --- Native-Default Inference Tests ---
+# --- Native-Default Tests ---
 glob CHESS_JAC = os.path.join(JAC_ROOT, "examples", "chess", "chess.jac");
 
 """Compile a regular .jac file under a native default and return the engine."""
@@ -3732,18 +3670,18 @@ def compile_auto_native(file_path: str) -> tuple[uni.Module, JacProgram] {
     return (ir, prog);
 }
 
-test "native default infers chess.jac native" {
+test "native default compiles chess.jac native" {
     (ir, _) = compile_auto_native(CHESS_JAC);
     assert ir is not None;
     assert ir.decided_codespace == 'native' , (
-        "chess.jac should infer native under a native default"
+        "chess.jac should be native under a native default"
     );
     assert ir.gen.native_engine is not None , (
-        "Inferred-native chess.jac should have a native engine"
+        "Native-default chess.jac should have a native engine"
     );
 }
 
-test "inferred-native chess.jac has entry and key functions" {
+test "native-default chess.jac has entry and key functions" {
     (ir, _) = compile_auto_native(CHESS_JAC);
     eng = ir.gen.native_engine;
     assert eng is not None;
@@ -6425,7 +6363,7 @@ test "jac test runs test blocks inside inline na blocks (no false green)" {
     assert result.returncode != 0 , "jac test must exit non-zero on failure";
 }
 
-test "jac test runs inferred-native test blocks natively (item #19)" {
+test "jac test runs pinned-native test blocks natively (item #19)" {
     fixture = os.path.join(FIXTURES, "test_blocks_inferred.jac");
     result = subprocess.run(
         jac_command("test", fixture), capture_output=True, text=True, timeout=300
@@ -6438,7 +6376,7 @@ test "jac test runs inferred-native test blocks natively (item #19)" {
     # The native failure format carries the source location; the python path
     # reports a bare AssertionError -- this is the native-execution discriminator.
     assert "assertion failed at" in output , (
-        f"inferred test blocks must execute natively.\noutput tail: {output[-800:]}"
+        f"pinned-native test blocks must execute natively.\noutput tail: {output[-800:]}"
     );
     assert "test_blocks_inferred.jac:12" in output , (
         f"failure report must point at the failing assert.\noutput tail: {output[-800:]}"
@@ -6446,7 +6384,7 @@ test "jac test runs inferred-native test blocks natively (item #19)" {
     assert result.returncode != 0 , "jac test must exit non-zero on failure";
 }
 
-test "restore-failure falls back to recompile for inferred modules (item #19)" {
+test "restore-failure falls back to recompile for native-default modules (item #19)" {
     import shutil;
     import from unittest.mock { patch }
     import from jaclang.compiler.driver.compiler { JacCompiler }
@@ -6485,7 +6423,7 @@ test "restore-failure falls back to recompile for inferred modules (item #19)" {
         assert len(loads) == 1 , f"expected 1 loader call, saw {len(loads)}";
         (eng, _) = comp.get_native_interop_setup(fx, prog2);
         assert eng is not None , (
-            "restore failure must trigger recompile for inferred modules"
+            "restore failure must trigger recompile for native-default modules"
         );
     } finally {
         set_effective_default_codespace(_prev);
@@ -6585,9 +6523,9 @@ test "default-codespace option does not leak across compiles in one process" {
     assert eng_b is not None;
 }
 
-test "from-imported plain jac dep with glob does not demote" {
+test "from-imported plain jac dep with glob lowers natively" {
     # Pins the dep-glob type-tag path: `glob G: int` in a plain .jac dep must
-    # lower via the inferred tag type instead of demoting with E5092.
+    # lower via the inferred tag type instead of failing with E5092.
     (eng, _) = compile_native("glob_dep_main.jac");
     entry_fn = get_func(eng, "jac_entry", None);
     entry_fn();

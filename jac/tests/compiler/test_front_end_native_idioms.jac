@@ -163,18 +163,12 @@ test "helpers module scope binds no Python modules" {
 # It could not: `format_related_spans` took its location as `object`, the
 # underline narrowed to `LiteralString`, `path_matches_exclude` took a bare
 # `list`, and `read_file_with_encoding` asked `open` for an `encoding`. Those
-# are type errors, and a type error in a native module refuses the module --
-# there is no callable to demote a signature to. Every one of them is fixed
-# or demotable now, so the module reaches the backend and the constructs that
-# genuinely cannot lower become seams instead of a whole-module refusal. The
-# encoding-probing file reader now lives in `project.textio`, the host-side
-# text I/O module, so none of the helpers here has to demote at all.
+# are type errors, and a type error in a native module refuses the module.
+# Every one of them is fixed now, so the module reaches the backend with no
+# error. The encoding-probing file reader now lives in `project.textio`, the
+# host-side text I/O module, so none of the helpers here fails to lower.
 test "source helpers lower when a native unit reaches them" {
     import jaclang;
-    import from jaclang.compiler.driver.na_coverage {
-        na_coverage_begin,
-        na_coverage_end
-    }
     helpers_path = os.path.join(
         os.path.dirname(jaclang.__file__), "project", "source.jac"
     );
@@ -182,29 +176,15 @@ test "source helpers lower when a native unit reaches them" {
     opts = CompileOptions(
         aot_mode=True, force_codespace='native'
     ).clone_for_native_import();
-    na_coverage_begin();
-    try {
-        ir = prog.compile(file_path=helpers_path, options=opts);
-    } finally {
-        coverage = na_coverage_end();
-    }
+    ir = prog.compile(file_path=helpers_path, options=opts);
     assert not prog.errors_had , (
-        f"project/source.jac must reach the backend, not refuse on a signature no "
-        f"callable owns: {[str(e) for e in prog.errors_had]}"
+        f"project/source.jac must lower with no error: "
+        f"{[str(e) for e in prog.errors_had]}"
     );
     assert ir is not None and ir.gen.llvm_ir is not None , (
         "no LLVM IR for project/source.jac, so every consumer that links it inherits "
         "a module-level refusal"
     );
-    rec = coverage.get(os.path.realpath(helpers_path));
-    assert rec is not None , "the coverage recorded nothing for project/source.jac";
-    seams = [str(s) for s in (rec["seams"] or [])];
-    own_seams = [
-        s
-        for s in seams
-        if os.path.join("project", "source.jac") in s
-    ];
-    assert not own_seams , f"project/source.jac demoted its own helpers: {own_seams}";
 }
 
 test "helpers no longer exports the moved symbols" {
@@ -466,64 +446,26 @@ test "scan_native_blockers names the offending node from the table" {
     assert reason == "contains JsxElement" , f"got reason {reason!r}";
 }
 
-test "guardrail: @lru_cache binds the bundled module where a dict cache does not" {
+test "guardrail: @lru_cache is a located native error where a dict cache is not" {
     import from tests.support { native_force_opts }
-    import from jaclang.compiler.driver.na_coverage {
-        na_coverage_begin,
-        na_coverage_end
-    }
     dec = JacProgram();
-    dec_ir = dec.compile(
+    dec.compile(
         file_path=os.path.join(FIXTURES, "_idiom_lru_cache.jac"),
         use_str="import from functools { lru_cache }\n"
         "@lru_cache(maxsize=8)\n"
         "def twice(n: int) -> int { return n * 2; }\n",
         options=native_force_opts()
     );
-    assert not dec.errors_had , (
-        f"`functools` now binds the bundled native module, so the decorator "
-        f"resolves to `_LruDeco` and nothing is module-fatal: "
-        f"{[str(e) for e in dec.errors_had]}"
-    );
-    assert dec_ir.gen.llvm_ir is not None , (
-        "the decorated module compiles; LLVM IR must be emitted (calls of "
-        "the decorated name go through the explicit `.__call__(...)` shape "
-        "prim_functools pins)"
-    );
-    called_path = os.path.join(FIXTURES, "_idiom_lru_cache_call.jac");
-    called = JacProgram();
-    na_coverage_begin();
-    try {
-        called.compile(
-            file_path=called_path,
-            use_str="import from functools { lru_cache }\n"
-            "@lru_cache(maxsize=8)\n"
-            "def twice(n: int) -> int { return n * 2; }\n"
-            "def use_twice() -> int { return twice(3); }\n",
-            options=native_force_opts()
-        );
-    } finally {
-        coverage = na_coverage_end();
-    }
-    rec = coverage.get(os.path.realpath(called_path));
-    assert rec is not None , "the coverage recorded nothing for the decorated module";
-    seams = [str(s) for s in (rec["seams"] or [])];
-    assert [
-        s
-        for s in seams
-        if "decorator 'on twice'" in s
-    ] , (
-        "compiling the decorated declaration is not the same as calling it: "
-        "a stateful decorator still demotes `twice` to its Python-only "
-        f"implementation (drop this pin once decorated calls lower): {seams}"
-    );
-    assert [
-        s
-        for s in seams
-        if "function 'twice'" in s
-    ] , (
-        "a native caller of the decorated name cannot reach it either, so it "
-        f"must demote with it instead of lowering a call to nothing: {seams}"
+    errors = [str(e) for e in dec.errors_had];
+    assert any(
+        e.code is not None
+        and e.code.code in ("E5090", "E5092")
+        and "decorator 'on twice'" in e.msg
+        and e.loc.first_line == 2
+        for e in dec.errors_had
+    ) , (
+        "a stateful decorator is still a located native error on `twice` "
+        f"(drop this pin once decorated calls lower): {errors}"
     );
     memo = check_na_inline(
         "dict_memo",

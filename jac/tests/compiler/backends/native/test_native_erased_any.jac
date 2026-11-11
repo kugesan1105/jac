@@ -4,7 +4,7 @@ This file used to pin a refusal and a three-item clearing list: `typing`'s
 compile-time vocabulary admitted `TypeVar`, `cast`, `TypeAlias` and
 `ClassVar` but not `Any`, so `import from typing { Any }` answered
 `unresolved import 'typing'` and `compiler/frontend/codeinfo.jac` -- whose only typing
-import that was -- fell out of native inference. Three seams in
+import that was -- failed the native pre-scan. Three seams in
 `capability_check_pass` were that one fact, and the list said what admitting
 `Any` would cost.
 
@@ -16,15 +16,7 @@ vocabulary to decide. The first test below pins that -- the vocabulary must
 keep refusing `Any`, now for a reason that cannot change back.
 
 `codeinfo` spells its four annotations `any` and imports nothing from
-`typing`, so the import-shaped blocker is gone. The hold that replaced the
-accident is lane-scoped now: B4 (#8323) answered what it priced for the
-compiler's own roots -- `test_codeinfo_baseline.jac` carried the closure and
-its arriving seams until #8746 retired it with the rest of the seal's
-coverage baselines -- so `PLACEMENT_HOLD_EXEMPT_ROOTS` exempts
-`jac0core/` and `compiler/` from the hold, while user-facing inference keeps
-it (admitting codeinfo there flipped byllm/scale module codespaces). The
-third test below pins that contract: exactly codeinfo is held, its reason
-names the exemption, and both compiler roots are exempt.
+`typing`, so the import-shaped blocker is gone.
 
 The clearing list, and where each item stands:
 
@@ -44,13 +36,7 @@ The clearing list, and where each item stands:
      change, and it did: a flat `list[str]` of "/"-joined relative paths,
      rejoined with `os.sep` at its one use site.
 
-So the list is spent as a list: nothing on it blocks anything any more. The
-single named hold that replaced it is spent too, and its prediction held
-exactly: with the entry empty, four of `capability_check_pass`'s five seams
-cleared -- three because it reads `codeinfo`'s tables in-unit, and
-`ClientCapabilityCheckPass.transform` because the module-facts helpers (then
-`module_codegen_pass`, now `frontend/module_facts`) joined alongside. That measurement lived in `test_pass_seal_wave6_baseline.jac`,
-deleted with the native seal (#8735).
+So the list is spent as a list: nothing on it blocks anything any more.
 
 The last test keeps the half of the old reasoning that outlived the rest.
 `ModuleFacts.is_erased_type_decl` reads the *marker* set
@@ -101,42 +87,13 @@ test "the typing vocabulary refuses Any, and no module can ask it to" {
 }
 
 
-test "a module annotated with the any keyword needs no import to infer native" {
+test "a module annotated with the any keyword passes the native pre-scan" {
     (reason, _deps) = scan_native_blockers(_parse(FIXTURE), FIXTURES, allow_pub=True);
     assert reason == "" , (
         f"the pre-scan refused an any-annotated module with {reason!r}. The "
         "lowercase keyword is a builtin: it binds no import, so there is "
         "nothing here for the scan to resolve"
     );
-}
-
-
-test "the inference hold is lane-scoped: codeinfo held for users, compiler roots exempt" {
-    import from jaclang.compiler.placement.placement {
-        PLACEMENT_HOLD_EXEMPT_ROOTS,
-        PLACEMENT_INFERENCE_HELD
-    }
-    assert set(PLACEMENT_INFERENCE_HELD) == {"compiler/frontend/codeinfo.jac"} , (
-        "the inference hold table changed: "
-        f"{sorted(PLACEMENT_INFERENCE_HELD)!r}. A hold is a deliberate debt "
-        "with a named reason and a coverage measurement that prices it -- "
-        "codeinfo's is carried here for user-facing inference only (B4, "
-        "#8323, lane-scoped); a new entry needs the same treatment, and "
-        "dropping this one re-opens the jaclang-internal import universe to "
-        "default-native flips in user programs"
-    );
-    why = PLACEMENT_INFERENCE_HELD["compiler/frontend/codeinfo.jac"];
-    assert "PLACEMENT_HOLD_EXEMPT_ROOTS" in why , (
-        f"codeinfo's hold reason must name the exemption that answers it: {why!r}"
-    );
-    for marker in ("/jaclang/jac0core/", "/jaclang/compiler/") {
-        assert marker in PLACEMENT_HOLD_EXEMPT_ROOTS , (
-            f"{marker} is no longer exempt from the hold: "
-            f"{PLACEMENT_HOLD_EXEMPT_ROOTS!r}. The compiler's own roots are "
-            "what B4 unheld -- without the exemption the pass spine leaves "
-            "every sealed closure again"
-        );
-    }
 }
 
 

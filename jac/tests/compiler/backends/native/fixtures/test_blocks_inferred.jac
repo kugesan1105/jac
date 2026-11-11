@@ -1,4 +1,4 @@
-"""Fixture: test blocks in a markerless module that infers native."""
+"""Fixture: test blocks in a module pinned native by the fixtures jac.toml."""
 
 def double(x: int) -> int {
     return x * 2;

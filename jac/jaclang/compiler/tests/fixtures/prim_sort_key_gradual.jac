@@ -5,9 +5,8 @@ overloads, so only the native lane can refuse an object-returning key.
 `emit_sort` resolves the key's semantic return type, finds it gradual,
 and the erased LLVM type decides -- and an object lowers to bare `i8*`,
 the same type as raw string data. That lane is closed: gradual keys are
-rejected (E5092, the function demotes to its Python implementation)
-instead of reaching strcmp. A semantic `-> str` key in the same module
-stays natively lowered as the positive control.
+rejected with a located E5092 instead of reaching strcmp. The
+semantic `-> str` key beside it is the lowerable control.
 """
 node Gthing {
     has name: str = "";

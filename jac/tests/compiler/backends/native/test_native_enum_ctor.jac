@@ -15,15 +15,13 @@ value it validated, which is the member's runtime form.
 
 String-valued enums look up the declared value and return its ordinal.
 Members whose values cannot be folded still have no table to validate against,
-and noninteger inputs to integer enums remain refused under E5092.
+and noninteger inputs to integer enums are located E5092 errors.
 
 The subprocess pair is the contract: the server pathway and a native binary
 print the same lines, and CPython's own answers for the same six calls are
 `2 1 25 4 rejected rejected 0`.
 """
 
-import contextlib;
-import io;
 import os;
 import subprocess;
 import tempfile;
@@ -61,16 +59,9 @@ def sv_lines(fixture: str) -> list[str] {
 }
 
 
-"""The seam report a build would show on stderr for a fixture."""
-def seam_report(fixture: str) -> str {
-    buf = io.StringIO();
-    prog = JacProgram();
-    with contextlib.redirect_stderr(buf) {
-        prog.compile(
-            file_path=os.path.join(FIXTURES, fixture), options=native_force_opts()
-        );
-    }
-    return buf.getvalue();
+def native_errors(fixture: str) -> str {
+    (prog, _) = compile_native(fixture);
+    return "\n".join(e.as_log() for e in prog.errors_had);
 }
 
 
@@ -95,7 +86,7 @@ def na_lines(fixture: str) -> list[str] {
 }
 
 
-test "the enum-constructor fixture lowers with no seam" {
+test "the enum-constructor fixture lowers without errors" {
     (prog, ir) = compile_native("enum_ctor.jac");
     assert not prog.errors_had , f"{[str(e) for e in prog.errors_had]}";
     assert ir is not None and ir.gen.llvm_ir , "no native IR for the fixture";
@@ -137,13 +128,10 @@ test "declared and undeclared values answer as CPython does" {
 }
 
 
-test "a noninteger input to an integer enum refuses by name" {
-    seams = seam_report("xmod_demote_dyn_lib.jac");
-    assert "enum constructor 'Hue'" in seams , (
-        f"the floating-point input lowered silently:\n{seams}"
-    );
-    assert "from_code" in seams , (
-        f"the refusal did not demote the callable that owns it:\n{seams}"
+test "a noninteger input to an integer enum is a located error" {
+    errs = native_errors("xmod_demote_dyn_lib.jac");
+    assert "E5092" in errs and "enum constructor 'Hue'" in errs , (
+        f"the floating-point input lowered silently:\n{errs}"
     );
 }
 
@@ -172,10 +160,10 @@ test "a same-named local function is not read as the enum" {
 }
 
 
-test "a non-integer argument refuses instead of being coerced" {
-    seams = seam_report("enum_ctor_bad_arg.jac");
-    assert "enum constructor 'Level'" in seams , (
-        f"a float argument was coerced into the member table:\n{seams}"
+test "a non-integer argument is an error instead of being coerced" {
+    errs = native_errors("enum_ctor_bad_arg.jac");
+    assert "E5092" in errs and "enum constructor 'Level'" in errs , (
+        f"a float argument was coerced into the member table:\n{errs}"
     );
 }
 

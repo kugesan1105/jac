@@ -452,6 +452,8 @@
 "prim_set.set_cl" = "client"
 "prim_set.set_na" = "native"
 "prim_shutil.shutil_cl" = "client"
+"prim_sort_key_gradual.grad_obj_na" = "native"
+"prim_sort_key_gradual.grad_str_na" = "native"
 "prim_shutil.shutil_na" = "native"
 "prim_socket.from:socket" = "native"
 "prim_socket.socket_cl" = "client"
@@ -468,7 +470,6 @@
 "prim_sqlite3._txn_na" = "native"
 "prim_sqlite3._types_na" = "native"
 "prim_sqlite3.import:sqlite3" = "native"
-
 "prim_sqlite3.sqlite3_cl" = "client"
 "prim_sqlite3.sqlite3_na" = "native"
 "prim_ssl.from:socket" = "native"

@@ -9,7 +9,7 @@ graph import {
     edge Comptime: comptime --> byllm.* | cli.* | client.* | scale.* | server.*;
     edge Data: data.* --> cli.* | client.* | compiler.* | runtime.* | scale.* | server.* | studio.*;
     edge Dist: dist.* --> cli.* | client.* | compiler.* | packages.* | scale.*;
-    edge Jac0: jac0 --> dist.*;
+    edge Jac0: jac0 --> compiler.driver.* | dist.*;
     edge Jac0core: jac0core.* --> artifacts.* | cache.* | cli.* | client.* | compiler.* | data.* | dist.* | packages.* | project.* | runtime.* | scale.* | server.* | testing.* | toolchains.*;
     edge Lsp: lsp.* --> cli.* | studio.*;
     edge MetaImporter: meta_importer --> client.*;
@@ -1468,10 +1468,13 @@ graph import {
     ]
     dist.self_update --> cli.commands.project.update { update_self }
     dist.source.project --> cli.commands.build._build_app { export_project }
-    jac0 ++> dist.precompile_bytecode._seal_boot_unit {
-        compile_jac as jac0_compile,
-        discover_impl_files as jac0_impls
-    }
+    jac0 ++> [
+        compiler.driver.jir.compiler_wiring_digest { wire_facts },
+        dist.precompile_bytecode._seal_boot_unit {
+            compile_jac as jac0_compile,
+            discover_impl_files as jac0_impls
+        },
+    ]
     jac0 --> dist.publish.runtime_vendor._compile_runtime_module {
         compile_jac,
         discover_impl_files

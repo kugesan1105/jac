@@ -137,7 +137,9 @@ def compiler_input_rules(pkg_dir: str) -> tuple[tuple[str, ...], tuple[str, ...]
 
 def compiler_source_files(pkg_dir: str) -> list[str];
 
-def resolve_compiler_input(pkg_dir: str, rel: str) -> str;
+def compiler_input_rows(pkg_dir: str) -> list[tuple[str, str]];
+
+def compiler_wiring_digest(pkg_dir: str, rels: list[str]) -> str;
 
 def fold_compiler_digest(rows: list[tuple[str, str]]) -> str;
 

@@ -333,12 +333,107 @@ impl compiler_source_files(pkg_dir: str) -> list[str] {
     return sorted(rels);
 }
 
-impl resolve_compiler_input(pkg_dir: str, rel: str) -> str {
-    (_roots, roster) = compiler_input_rules(pkg_dir);
-    if is_roster_input(rel, roster) {
-        return COMPILER_DIGEST_ROSTER_MARK;
+impl compiler_input_rows(pkg_dir: str) -> list[tuple[str, str]] {
+    base = str(Path(pkg_dir));
+    (_roots, roster) = compiler_input_rules(base);
+    rels = compiler_source_files(base);
+    rows: list[tuple[str, str]] = [];
+    for rel in rels {
+        if is_roster_input(rel, roster) {
+            rows.append((rel, COMPILER_DIGEST_ROSTER_MARK));
+        } elif rel == "archwire.jac" {
+            rows.append((rel, compiler_wiring_digest(base, rels)));
+        } else {
+            rows.append(
+                (
+                    rel,
+                    compute_content_sha256(os.path.join(base, rel.replace("/", os.sep)))
+                )
+            );
+        }
     }
-    return compute_content_sha256(os.path.join(str(pkg_dir), rel.replace("/", os.sep)));
+    return rows;
+}
+
+impl compiler_wiring_digest(pkg_dir: str, rels: list[str]) -> str {
+    arch = os.path.join(pkg_dir, "archwire.jac");
+    modules: dict[str, bool] = {};
+    for rel in rels {
+        (stem, ext) = os.path.splitext(rel);
+        if ext not in COMPILER_DIGEST_SUFFIXES {
+            continue;
+        }
+        parts = stem.split("/");
+        package = parts[-1] == "__init__";
+        if package {
+            parts = parts[:-1];
+        }
+        if parts {
+            modules[".".join(parts)] = package;
+        }
+    }
+    try {
+        facts = wire_facts(arch);
+    } except Exception {
+        return compute_content_sha256(arch);
+    }
+    on_disk: dict[str, bool] = {};
+    owned: dict[str, bool] = {};
+    h = hashlib.sha256();
+    for fact in facts {
+        consumer = fact.consumer;
+        held = owned.get(consumer);
+        keep = bool(held);
+        if held is None {
+            parts = consumer.split(".");
+            for k in range(len(parts), 0, -1) {
+                name = ".".join(parts[:k]);
+                if name in modules {
+                    keep = True;
+                    if modules[name] {
+                        for deeper in range(k + 1, len(parts) + 1) {
+                            sub = parts[:deeper];
+                            key = ".".join(sub);
+                            if key not in on_disk {
+                                stem = os.path.join(pkg_dir, os.sep.join(sub));
+                                on_disk[key] = any(
+                                    os.path.isfile(stem + suffix)
+                                    for suffix in (
+                                        ".jac",
+                                        ".py",
+                                        os.sep + "__init__.jac",
+                                        os.sep + "__init__.py"
+                                    )
+                                );
+                            }
+                            if on_disk[key] {
+                                keep = False;
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+            owned[consumer] = keep;
+        }
+        if keep {
+            names = "\x1e".join(fact.names) if fact.names is not None else "\x1d";
+            row = "\x1f".join(
+                [
+                    fact.provider,
+                    consumer,
+                    " ".join(fact.keywords),
+                    fact.alias,
+                    names,
+                    "++>" if fact.injected else "-->"
+                ]
+            );
+            h.update(row.encode("utf-8"));
+            h.update(b"\n");
+        }
+    }
+    return h.hexdigest();
 }
 
 impl fold_compiler_digest(rows: list[tuple[str, str]]) -> str {
@@ -351,18 +446,11 @@ impl fold_compiler_digest(rows: list[tuple[str, str]]) -> str {
 }
 
 impl compiler_source_digest(pkg_dir: str) -> str {
-    base = str(Path(pkg_dir));
-    rows = [
-        (rel, resolve_compiler_input(base, rel)) for rel in compiler_source_files(base)
-    ];
-    return fold_compiler_digest(rows);
+    return fold_compiler_digest(compiler_input_rows(pkg_dir));
 }
 
 impl _manifest_compiler_digest(pkg_dir: str) -> str {
-    base = str(Path(pkg_dir));
-    rows = [
-        (rel, resolve_compiler_input(base, rel)) for rel in compiler_source_files(base)
-    ];
+    rows = compiler_input_rows(pkg_dir);
     digest = fold_compiler_digest(rows);
     _COMPILER_INPUT_ROWS[digest] = rows;
     return digest;

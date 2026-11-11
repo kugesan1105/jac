@@ -141,21 +141,33 @@ test "a zero TTL disables the sweep" {
     assert gen.is_dir();
 }
 
-test "the wiring file is part of the producing compiler identity" {
-    # Every module under jaclang/ takes its imports from archwire.jac, so the
-    # same sources wired differently are a different compiler.
+test "only wires into compiler inputs are part of the producing compiler identity" {
+    # Every compiler module takes its imports from archwire.jac, so the same
+    # sources wired differently are a different compiler; wires into other
+    # modules, and where a wire sits in the file, are not.
     import from jaclang.compiler.driver.jir {
         compiler_source_digest,
         _manifest_compiler_digest
     }
     with tempfile.TemporaryDirectory() as pkg {
-        src = Path(pkg) / "compiler" / "module.jac";
-        src.parent.mkdir(parents=True, exist_ok=True);
-        src.write_text("def f() -> int { return 1; }\n");
+        for rel in ("compiler/module.jac", "compiler/other.jac", "scale/app.jac") {
+            src = Path(pkg) / rel;
+            src.parent.mkdir(parents=True, exist_ok=True);
+            src.write_text("def f() -> int { return 1; }\n");
+        }
         wiring = Path(pkg) / "archwire.jac";
-        wiring.write_text("graph import compiler {}\n");
+        wiring.write_text(
+            "graph import {\n    compiler.other ++> compiler.module { f }\n}\n"
+        );
         before = compiler_source_digest(pkg);
-        wiring.write_text("graph import compiler {\n    module --> other { f }\n}\n");
+        wiring.write_text(
+            "graph import {\n\n    compiler.other ++> compiler.module { f }\n"
+                + "    compiler.other ++> scale.app { f }\n}\n"
+        );
+        assert compiler_source_digest(pkg) == before , "a non-compiler wire or a moved wire changed the compiler identity";
+        wiring.write_text(
+            "graph import {\n    compiler.other ++> compiler.module { f as g }\n}\n"
+        );
         assert compiler_source_digest(pkg) != before;
         assert _manifest_compiler_digest(pkg) != before;
     }

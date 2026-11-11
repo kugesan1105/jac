@@ -100,7 +100,8 @@ impl NaIRGenPass._run_impl(ir_in: uni.Module) -> uni.Module {
     if self._deps_deferred {
         return self.module;
     }
-    self._settle_module();
+    self.ctx.errors_had.extend(self._internal_errors);
+    self._internal_errors = [];
     return self.module;
 }
 
@@ -109,20 +110,6 @@ impl NaIRGenPass._static_refusals(owner: uni.UniNode) -> (list[NativeRefusal] | 
         return None;
     }
     return self._legality.units.get(id(owner));
-}
-
-impl NaIRGenPass._settle_module -> None {
-    if self._internal_errors {
-        self.ctx.errors_had.extend(self._internal_errors);
-        self._internal_errors = [];
-        return;
-    }
-    refusal = settle_native_module(
-        self.module, self.prog, self.ctx.errors_had, self.ctx.warnings_had
-    );
-    if refusal is not None and self._legality is not None {
-        self._legality.refuse_module(refusal);
-    }
 }
 
 impl NaIRGenPass._internal_error(

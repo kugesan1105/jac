@@ -516,10 +516,7 @@ impl JacProgram.declared_codespace(self: JacProgram, file_path: str) -> str {
         return '';
     }
     forced = opts.force_codespace if opts is not None else '';
-    if not forced
-        and opts is not None
-        and opts.aot_mode
-        and _default_codespace_for(self) == 'native' {
+    if not forced and _default_codespace_for(self) == 'native' {
         forced = 'native';
     }
     if forced {
@@ -529,38 +526,6 @@ impl JacProgram.declared_codespace(self: JacProgram, file_path: str) -> str {
         file_path, opts.app_kind if opts is not None else ''
     );
     return kind_space if kind_space in ('client', 'native') else '';
-}
-
-impl JacProgram.prefers_native_codespace(self: JacProgram, file_path: str) -> bool {
-    if self.internal
-        or native_only(file_path)
-        or is_kernel_unit_path(file_path)
-        or native_placement_hard(self, file_path) {
-        return False;
-    }
-    if effective_module_pin(file_path, self) == 'native' {
-        return True;
-    }
-    opts = self.options;
-    return config_kind_space(file_path, opts.app_kind if opts is not None else '')
-        == 'native';
-}
-
-impl JacProgram.infers_native_codespace(self: JacProgram, file_path: str) -> bool {
-    if self.prefers_native_codespace(file_path) {
-        return True;
-    }
-    opts = self.options;
-    if opts is not None and opts.no_cgen and not opts.native_import {
-        return False;
-    }
-    if opts is not None and opts.native_unit {
-        import from jaclang.compiler.pkg_paths { package_host_edge }
-        if package_host_edge(file_path) {
-            return False;
-        }
-    }
-    return not self.internal and _default_codespace_for(self) == 'native';
 }
 
 impl JacProgram.parse_source(
@@ -600,10 +565,6 @@ impl JacProgram.parse_source(
             _coerce_native_module
         }
         codespace = self.declared_codespace(file_path);
-        if codespace == 'native' and self.prefers_native_codespace(file_path) {
-            codespace = '';
-        }
-        infer_native = not codespace and self.infers_native_codespace(file_path);
         (parsed, had_error) = parse_woven(
             source_str, file_path, self, annex_sources(file_path)
         );
@@ -617,13 +578,6 @@ impl JacProgram.parse_source(
         } elif codespace == 'server' {
             parsed.set_code_context(CodeContext.SERVER);
             parsed.gen.placement_mode = 'declared';
-        } elif infer_native and not had_error {
-            import from jaclang.compiler.placement.placement_solver {
-                native_placement_candidate
-            }
-            (opened, closed_why) = native_placement_candidate(parsed, self);
-            parsed.gen.native_undecided = opened;
-            parsed.gen.native_closed_why = closed_why;
         }
     }
     hub_key = self.hub_key(parsed.loc.mod_path);

@@ -1596,7 +1596,6 @@ impl SubTag.postinit -> None {
 
 impl Module.postinit -> None {
     self.src_terminals = self.terminals;
-    self.codespace_inferred = False;
     self.persistence = [];
     self.ct_file_deps = [];
     self.ct_body_deps = [];

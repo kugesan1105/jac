@@ -295,10 +295,6 @@ impl NativeCompilePass._run_impl(ir_in: uni.Module) -> uni.Module {
         } else {
             self.ctx.emit(E5020, error=str(e));
         }
-        import from jaclang.compiler.passes.placement_pass { settle_native_module }
-        settle_native_module(
-            module, self.prog, self.ctx.errors_had, self.ctx.warnings_had
-        );
     }
     return ir_in;
 }

@@ -592,22 +592,12 @@ impl element_requirements(mod: Module, prog: JacProgram) -> dict[int, tuple[str,
     out: dict[int, tuple[str, str]] = {};
     mod_path = mod.loc.mod_path if mod.loc is not None else "";
     declared = prog.declared_codespace(mod_path) if mod_path else "";
-    preferred = declared == TARGET_NATIVE and prog.prefers_native_codespace(mod_path);
-    if preferred {
-        declared = "";
-    }
     for elem in mod.elements {
         if not isinstance(elem, ContextAwareNode) {
             continue;
         }
         name = element_display_name(elem);
-        pin = (
-            config_element_pin(mod_path, name)
-                if preferred
-                else config_pin_for(mod_path, name)
-        )
-            if mod_path
-            else "";
+        pin = config_pin_for(mod_path, name) if mod_path else "";
         if pin {
             out[id(elem)] = (pin, "pinned in jac.toml");
         } elif declared {
@@ -641,184 +631,6 @@ impl client_refused_elements(mod: Module) -> dict[int, list[tuple[UniNode, str]]
         out[id(top)].append((vnode, vkind));
     }
     return out;
-}
-
-impl uncrossable_native(mod: Module, prog: JacProgram, held: set[int]) -> set[int] {
-    refresh_placement_module(mod, prog);
-    refs = placement_work(prog).refs(mod);
-    tops: dict[int, ContextAwareNode] = {};
-    for elem in mod.elements {
-        if isinstance(elem, ContextAwareNode) and not isinstance(elem, Import) {
-            tops[id(elem)] = elem;
-        }
-    }
-    def crosses(callee: ContextAwareNode, src: str, dst: str) -> bool {
-        return isinstance(callee, Ability)
-            and ability_crossing(callee, src, dst) is None;
-    }
-    moved: set[int] = set();
-    changed = True;
-    while changed {
-        changed = False;
-        runs = [
-            e
-            for e in tops.values()
-            if not isinstance(e, Test)
-        ];
-        mixed = any(e.code_context == CodeContext.NATIVE for e in runs)
-            and any(e.code_context == CodeContext.SERVER for e in runs);
-        split = _runs_split(mod);
-        if mixed {
-            for (eid, elem) in tops.items() {
-                if eid not in held
-                    and elem.code_context == CodeContext.NATIVE
-                    and not crosses(elem, TARGET_SERVER, TARGET_NATIVE) {
-                    _stamp_context_element(elem, CodeContext.SERVER);
-                    moved.add(eid);
-                    changed = True;
-                }
-            }
-        }
-        for (eid, elem) in tops.items() {
-            if elem.code_context == CodeContext.CLIENT {
-                continue;
-            }
-            caller_native = elem.code_context == CodeContext.NATIVE;
-            for target_id in refs.get(eid, set()) {
-                target = tops.get(target_id);
-                if target is None or target.code_context == CodeContext.CLIENT {
-                    continue;
-                }
-                target_native = target.code_context == CodeContext.NATIVE;
-                if caller_native == target_native {
-                    continue;
-                }
-                src = TARGET_NATIVE if caller_native else TARGET_SERVER;
-                dst = TARGET_SERVER if caller_native else TARGET_NATIVE;
-                if crosses(target, src, dst) {
-                    continue;
-                }
-                native_side = elem if caller_native else target;
-                if id(native_side) in held
-                    or (
-                        isinstance(elem, Test) and native_side is not elem and not split
-                    ) {
-                    continue;
-                }
-                _stamp_context_element(native_side, CodeContext.SERVER);
-                moved.add(id(native_side));
-                changed = True;
-            }
-        }
-    }
-    return moved;
-}
-
-impl _demote_unreached_imports(
-    mod: Module, tentative: list[ContextAwareNode], prog: JacProgram
-) -> None {
-    refresh_placement_module(mod, prog);
-    refs = placement_work(prog).refs(mod);
-    reached: set[int] = set();
-    for elem in mod.elements {
-        if isinstance(elem, ContextAwareNode)
-            and elem.code_context == CodeContext.NATIVE
-            and not isinstance(elem, Import) {
-            reached.update(refs.get(id(elem), set()));
-        }
-    }
-    for elem in tentative {
-        if isinstance(elem, Import)
-            and elem.parent is mod
-            and elem.code_context == CodeContext.NATIVE
-            and id(elem) not in reached {
-            elem.code_context = CodeContext.SERVER;
-        }
-    }
-}
-
-impl _runs_split(mod: Module) -> bool {
-    has_native = False;
-    has_server = False;
-    for elem in mod.elements {
-        if not isinstance(elem, ContextAwareNode) or isinstance(elem, Test) {
-            continue;
-        }
-        if elem.code_context == CodeContext.NATIVE {
-            has_native = True;
-        } elif elem.code_context == CodeContext.SERVER {
-            has_server = True;
-        }
-    }
-    return has_native and has_server;
-}
-
-impl stamp_native(mod: Module, held: set[int]) -> list[ContextAwareNode] {
-    stamped: list[ContextAwareNode] = [];
-    for elem in mod.elements {
-        if not isinstance(elem, ContextAwareNode)
-            or elem.code_context != CodeContext.SERVER
-            or id(elem) in held {
-            continue;
-        }
-        elem.code_context = CodeContext.NATIVE;
-        stamped.append(elem);
-        if isinstance(elem, ModuleCode) and elem.body {
-            for inner in elem.body {
-                if isinstance(inner, ContextAwareNode)
-                    and inner.code_context == CodeContext.SERVER {
-                    inner.code_context = CodeContext.NATIVE;
-                    stamped.append(inner);
-                }
-            }
-        }
-    }
-    return stamped;
-}
-
-impl settle_native_module(
-    mod: Module, prog: JacProgram, pending: list[Alert], warnings: list[Alert]
-) -> (NativeRefusal | None) {
-    if not pending or not native_placement_soft(prog, mod) {
-        return None;
-    }
-    if mod.gen.placement_mode == "inferred" {
-        for (need, _why) in element_requirements(mod, prog).values() {
-            if need == "native" {
-                return None;
-            }
-        }
-    }
-
-    refusal = refusal_from_alert(pending[0]);
-    del pending[:];
-    del warnings[:];
-    gen = mod.gen;
-    gen.native_refusal_code = refusal.code;
-    gen.native_refusal = refusal.headline();
-    gen.llvm_ir = None;
-    gen.native_engine = None;
-    gen.native_bitcode = None;
-    gen.native_object = None;
-    gen.native_iface = None;
-    gen.native_layout = None;
-    gen.native_deps = [];
-    settle_server(mod);
-
-    record_decided(prog, mod);
-    mod_path = mod.loc.mod_path if mod.loc is not None else "";
-    resolved = os.path.realpath(mod_path);
-    for stale in invalidate_importers_es(prog, resolved) {
-        drop_native_bindings(stale, resolved);
-    }
-    host = active_host();
-    host.record_native_coverage(resolved, 'demoted', refusal.code, refusal.headline());
-    host.note(
-        f"note: {mod_path} preferred native but did not lower; "
-        f"compiled in the server codespace ({refusal.headline()})",
-        "dim"
-    );
-    return refusal;
 }
 
 impl PlacementPass._emit_refusal(refusal: NativeRefusal, required_by: str) -> None {
@@ -941,92 +753,18 @@ impl PlacementPass._run_undecided(ir_in: Module) -> Module {
             _stamp_context_element(elem, spaces[need[0]]);
         }
     }
-    (candidate, why) = native_placement_candidate(ir_in, self.prog);
-    if candidate and not ir_in.gen.native_undecided {
-        candidate = False;
-        why = ir_in.gen.native_closed_why
-            or "the module was parsed without the native preference";
-    }
-    tentative: list[ContextAwareNode] = stamp_native(ir_in, set(required.keys()))
-        if candidate
-        else [];
-    judged = candidate
-        or ModuleFacts.has_native_context_stmts(ir_in)
+    judged = ModuleFacts.has_native_context_stmts(ir_in)
         or bool(capability_notes_of(self.prog, mod_path));
     legality = build_native_legality(ir_in, self.prog) if judged else NativeLegality();
     native_refused = legality.refused_elements(ir_in);
     client_refused = client_refused_elements(ir_in);
-    inferred_refused: set[int] = set(native_refused);
-    inferred_refused.update(legality.preferences.keys());
-    for elem in tentative {
-        owner = elem.element_in(ir_in);
-        if legality.blockers or (owner is not None and id(owner) in inferred_refused) {
-            elem.code_context = CodeContext.SERVER;
-        }
-    }
-    if mod_path
-        and self.prog.options is not None
-        and self.prog.options.native_required_for(mod_path) {
-        for elem in tentative {
-            if isinstance(elem, Test) and elem.code_context == CodeContext.SERVER {
-                for refusal in legality.unit_refusals(elem) {
-                    self._emit_refusal(refusal, "the module is native-required");
-                }
-            }
-        }
-    }
-    if tentative {
-        inferred_refused.update(
-            uncrossable_native(ir_in, self.prog, set(required.keys()))
-        );
-    }
+    refused_native: set[int] = set(native_refused);
+    refused_native.update(legality.preferences.keys());
     self.prog.analysis.placement_refusals[os.path.realpath(mod_path)] = {
-        'native': inferred_refused,
+        'native': refused_native,
         'client': set(client_refused.keys())
     };
-    carries_native = False;
-    for elem in ir_in.elements {
-        if isinstance(elem, ContextAwareNode)
-            and elem.code_context == CodeContext.NATIVE
-            and not isinstance(elem, Import) {
-            carries_native = True;
-            break;
-        }
-    }
-    if not carries_native {
-        for elem in tentative {
-            if elem.code_context == CodeContext.NATIVE {
-                elem.code_context = CodeContext.SERVER;
-            }
-        }
-    }
     refresh_placement_module(ir_in, self.prog);
-    if carries_native and inferred_refused {
-        _demote_unreached_imports(ir_in, tentative, self.prog);
-        if _runs_split(ir_in) {
-            split_moved = uncrossable_native(ir_in, self.prog, set(required.keys()));
-            if split_moved {
-                inferred_refused.update(split_moved);
-                _demote_unreached_imports(ir_in, tentative, self.prog);
-                still_native = False;
-                for elem in ir_in.elements {
-                    if isinstance(elem, ContextAwareNode)
-                        and elem.code_context == CodeContext.NATIVE
-                        and not isinstance(elem, Import) {
-                        still_native = True;
-                        break;
-                    }
-                }
-                if not still_native {
-                    for elem in tentative {
-                        if elem.code_context == CodeContext.NATIVE {
-                            elem.code_context = CodeContext.SERVER;
-                        }
-                    }
-                }
-            }
-        }
-    }
     pulled = solve_module_placement(ir_in, self.prog);
     if pulled or contexts_of(ir_in) != given {
         placement_work(self.prog).changed(ir_in);
@@ -1086,16 +824,13 @@ impl PlacementPass._run_undecided(ir_in: Module) -> Module {
             }
         }
     }
-    self._report_unmet(legality, "" if candidate else why);
+    self._report_unmet(legality, "the module is not declared native");
 
     runs = runs or placed;
     uniform = runs[0] if runs and all(ctx == runs[0] for ctx in runs) else None;
     ir_in.decided_codespace = uniform.value
         if uniform is not None and uniform != CodeContext.SERVER
         else "";
-    ir_in.codespace_inferred = any(
-        elem.code_context == CodeContext.NATIVE for elem in tentative
-    );
     if CodeContext.NATIVE in placed {
         active_host().record_native_coverage(mod_path, 'native');
     } else {
@@ -1118,7 +853,7 @@ impl PlacementPass._run_undecided(ir_in: Module) -> Module {
             mod_path,
             'server',
             first.code if first is not None else '',
-            first.headline() if first is not None else why
+            first.headline() if first is not None else "not declared native"
         );
     }
     report_serverless_kind_errors(self, ir_in);

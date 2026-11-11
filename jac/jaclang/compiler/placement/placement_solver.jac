@@ -22,11 +22,9 @@ def placement_work(prog: JacProgram) -> PlacementWork;
 
 def refresh_placement_module(module: uni.Module, prog: JacProgram);
 
-def _native_dep_scan(
-    path: str, hold_exempt: bool = False
-) -> (tuple[str, list[str]] | None);
+def _native_dep_scan(path: str) -> (tuple[str, list[str]] | None);
 
-def _native_scan_digest(files: list[str], hold_exempt: bool) -> str;
+def _native_scan_digest(files: list[str]) -> str;
 
 def _read_native_scan(path: str, digest: str) -> (NativeDepScan | None);
 
@@ -34,15 +32,9 @@ def _keep_native_scan(
     path: str, digest: str, reason: str, deps: list[str], probes: list[str]
 );
 
-def _native_deps_ok(
-    root_path: str, root_deps: list[str], hold_exempt: bool = False
-) -> bool;
+def _native_deps_ok(root_path: str, root_deps: list[str]) -> bool;
 
 def native_default_path_ok(path: str) -> bool;
-
-def native_placement_candidate(
-    module: uni.Module, prog: JacProgram
-) -> tuple[bool, str];
 
 def dependency_summary(prog: JacProgram, path: str) -> (PlacementSummary | None);
 

@@ -536,7 +536,6 @@ node Module(AstDocNode, UniScopeNode) {
     ) -> None;
 
     has decided_codespace: str { getter; setter(decided_codespace: str); }
-    has codespace_inferred: bool = False;
 
     def postinit -> None;
 

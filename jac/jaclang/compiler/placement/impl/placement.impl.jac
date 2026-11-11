@@ -442,21 +442,9 @@ impl _erased_only_import(imp: uni.Import) -> bool {
 }
 
 impl native_blocker_scan(
-    module: uni.Module,
-    base_dir: str,
-    allow_pub: bool = False,
-    hold_exempt: bool = False
+    module: uni.Module, base_dir: str, allow_pub: bool = False
 ) -> NativeBlockerScan {
     scan = NativeBlockerScan();
-    _held_path = (module.loc.mod_path if module.loc is not None else '') or '';
-    if not hold_exempt {
-        for (_held_rel, _held_why) in PLACEMENT_INFERENCE_HELD.items() {
-            if _held_path.replace(os.sep, "/").endswith("/jaclang/" + _held_rel) {
-                scan.module = f"inference held: {_held_why}";
-                return scan;
-            }
-        }
-    }
     _scan_blockers_under(scan, module, module, base_dir, allow_pub);
     for stmt in module.body {
         if isinstance(stmt, uni.Test) {
@@ -673,12 +661,9 @@ impl _scan_blockers_under(
 }
 
 impl scan_native_blockers(
-    module: uni.Module,
-    base_dir: str,
-    allow_pub: bool = False,
-    hold_exempt: bool = False
+    module: uni.Module, base_dir: str, allow_pub: bool = False
 ) -> tuple[str, list[str]] {
-    scan = native_blocker_scan(module, base_dir, allow_pub, hold_exempt);
+    scan = native_blocker_scan(module, base_dir, allow_pub);
     return (scan.first(), scan.deps);
 }
 
@@ -710,18 +695,8 @@ impl summarize_module(
         es.name = element_display_name(stmt);
         es.pinned = '';
         if ps.mod_path {
-            import from jaclang.compiler.placement.placement_pins {
-                config_element_pin,
-                config_module_pin,
-                effective_pin_for
-            }
+            import from jaclang.compiler.placement.placement_pins { effective_pin_for }
             es.pinned = effective_pin_for(ps.mod_path, es.name, prog);
-            if es.pinned == 'native'
-                and prog is not None
-                and config_module_pin(ps.mod_path) == 'native'
-                and prog.prefers_native_codespace(ps.mod_path) {
-                es.pinned = config_element_pin(ps.mod_path, es.name);
-            }
         }
         es.is_pub = _endpoint_evidence(stmt) == 'pub access';
         es.reqs = _element_reqs(stmt);

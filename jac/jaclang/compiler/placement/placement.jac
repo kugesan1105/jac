@@ -5,22 +5,7 @@ glob PLACEMENT_SCHEMA: int = 6,
          ("TypedCtxBlock", uni.TypedCtxBlock),
          ("JsxElement", uni.JsxElement)
      ],
-     PLACEMENT_NATIVE_REJECT_NODES: list[tuple[str, type[uni.UniNode]]] = [],
-     PLACEMENT_INFERENCE_HELD: dict[str, str] = {
-         "compiler/frontend/codeinfo.jac": (
-             "runtime JIT inference stays conservative: admitting codeinfo "
-             "opens the jaclang-internal import universe to default-native "
-             "flips (walker identity splits, sv envelopes). The compiler's "
-             "own roots are exempt via PLACEMENT_HOLD_EXEMPT_ROOTS, which "
-             "is what B4 (#8323) actually needed"
-         )
-     },
-     PLACEMENT_HOLD_EXEMPT_ROOTS: tuple[str, ...] = (
-         "/jaclang/compiler/",
-         "/jaclang/runtime/",
-         "/jaclang/lib/",
-         "/jaclang/jac0core/"
-     );
+     PLACEMENT_NATIVE_REJECT_NODES: list[tuple[str, type[uni.UniNode]]] = [];
 
 obj NativeBlockerScan {
     has module: str = '',
@@ -107,10 +92,7 @@ def module_anchor_reasons(module: uni.Module) -> list[str];
 def _erased_only_import(imp: uni.Import) -> bool;
 
 def native_blocker_scan(
-    module: uni.Module,
-    base_dir: str,
-    allow_pub: bool = False,
-    hold_exempt: bool = False
+    module: uni.Module, base_dir: str, allow_pub: bool = False
 ) -> NativeBlockerScan;
 
 def _scan_blockers_under(
@@ -122,10 +104,7 @@ def _scan_blockers_under(
 );
 
 def scan_native_blockers(
-    module: uni.Module,
-    base_dir: str,
-    allow_pub: bool = False,
-    hold_exempt: bool = False
+    module: uni.Module, base_dir: str, allow_pub: bool = False
 ) -> tuple[str, list[str]];
 
 def summarize_module(

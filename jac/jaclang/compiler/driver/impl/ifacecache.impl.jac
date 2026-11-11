@@ -835,7 +835,6 @@ impl IfaceRegistry._encode_iface(
 impl IfaceRegistry._prepare_interface_in_context(resolved: str, mod: any) -> bool {
     if self.verifying
         or mod.parse_failed
-        or mod.codespace_inferred
         or not _interface_source_path(resolved)
         or not os.path.isfile(resolved) {
         return False;
@@ -885,12 +884,9 @@ impl IfaceRegistry._persist_in_context(
     } except Exception {
         modkey = "";
     }
-    inferred = bool(getattr(mod, "codespace_inferred", False));
     memo = self._iface_bytes.get(resolved);
     payload: (bytes | None) = None;
-    if inferred {
-        digest = self._disk_iface_digest(resolved);
-    } elif modkey and memo is not None and memo.module_key == modkey {
+    if modkey and memo is not None and memo.module_key == modkey {
         payload = memo.section;
         digest = memo.digest;
     } else {

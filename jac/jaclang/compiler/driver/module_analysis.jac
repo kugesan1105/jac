@@ -11,7 +11,6 @@ obj ModuleAnalysis {
         parse_failed: bool = False,
         blocked: bool = False,
         native: bool = False,
-        placement_only: bool = False,
         session: (SessionHooks | None) = None;
 
     def postinit;

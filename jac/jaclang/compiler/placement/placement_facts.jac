@@ -14,16 +14,7 @@ glob TOOLCHAIN_NATIVE_ONLY_REL: tuple[str, ...] = ("runtime", "na_stdlib"),
      );
 
 
-def native_placement_hard(prog: JacProgram, mod_path: str) -> bool;
-
-
-def native_placement_soft(prog: JacProgram, mod: uni.Module) -> bool;
-
-
 def contexts_of(module: uni.Module) -> list[str];
-
-
-def settle_server(module: uni.Module) -> bool;
 
 
 def project_root_of(source_path: str) -> (str | None);

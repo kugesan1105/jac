@@ -1,44 +1,8 @@
-impl native_placement_hard(prog: JacProgram, mod_path: str) -> bool {
-    opts = prog.options;
-    if opts is None {
-        return False;
-    }
-    if opts.aot_mode or opts.force_codespace {
-        return True;
-    }
-    return bool(mod_path and opts.native_required_for(mod_path));
-}
-
-impl native_placement_soft(prog: JacProgram, mod: uni.Module) -> bool {
-    if mod.decided_codespace != SPACE_NATIVE and not mod.codespace_inferred {
-        return False;
-    }
-    mod_path = mod.loc.mod_path if mod.loc is not None else "";
-    return not native_placement_hard(prog, mod_path);
-}
-
 impl contexts_of(module: uni.Module) -> list[str] {
     return [
         elem.code_context.value if isinstance(elem, uni.ContextAwareNode) else ''
         for elem in module.elements
     ];
-}
-
-impl settle_server(module: uni.Module) -> bool {
-    moved = False;
-    for elem in module.elements {
-        if isinstance(elem, uni.ContextAwareNode)
-            and elem.code_context == CodeContext.NATIVE {
-            _stamp_context_element(elem, CodeContext.SERVER);
-            moved = True;
-        }
-    }
-    if module.decided_codespace == SPACE_NATIVE {
-        module.decided_codespace = "";
-    }
-    module.codespace_inferred = False;
-    module.gen.native_codespace = False;
-    return moved;
 }
 
 impl project_root_of(source_path: str) -> (str | None) {

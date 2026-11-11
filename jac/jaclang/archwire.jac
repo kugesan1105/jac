@@ -4715,7 +4715,6 @@ graph import compiler {
     boundary_rules ++> [
         passes.placement_pass.NativeLegality.settle { ability_crossing },
         passes.placement_pass.bridged_use_crosses { ability_crossing },
-        passes.placement_pass.uncrossable_native { ability_crossing },
     ]
     boundary_rules --> [
         passes.boundary_analysis_pass.BoundaryAnalysisPass._export_mixed_native {
@@ -4880,7 +4879,6 @@ graph import compiler {
             TARGET_NATIVE,
             capability_notes_of
         },
-        passes.placement_pass.uncrossable_native { TARGET_NATIVE, TARGET_SERVER },
         types.type_evaluator.TypeEvaluator.neutral_site { placement_neutral },
         types.type_evaluator.TypeEvaluator.note_native {
             TARGET_NATIVE,
@@ -4891,11 +4889,6 @@ graph import compiler {
         passes.boundary_analysis_pass.BoundaryAnalysisPass._export_mixed_native {
             TARGET_NATIVE,
             TARGET_SERVER
-        },
-        passes.static_analysis_pass.StaticAnalysisPass._check_undefined_names {
-            TARGET_NATIVE,
-            note_capability,
-            placement_neutral
         },
     ]
     type capability_notes ++> driver.progstate { CapabilityNote }
@@ -4979,9 +4972,7 @@ graph import compiler {
             module_app
         },
         passes.placement_pass.PlacementPass._run_undecided
-            | placement.placement_facts.settle_server
-            | placement.placement_solver._seed_from_summary { _stamp_context_element },
-        passes.placement_pass.uncrossable_native
+            | placement.placement_solver._seed_from_summary
             | placement.placement_solver.solve_module_placement {
             _stamp_context_element
         },
@@ -5319,9 +5310,6 @@ graph import compiler {
         | types.stubcat.build
         | types.type_evaluator { JacProgram }
     driver.selfhost ++> types.stubcat.build.build_catalog { SelfHostCache }
-    driver.session_compile ++> passes.placement_pass.settle_native_module {
-        drop_native_bindings
-    }
     driver.unit_products ++> boundary_audit.boundary_audit { interop_record }
     driver.wiring ++> [
         passes.import_wiring_pass {
@@ -5459,8 +5447,7 @@ graph import compiler {
             native_unit_identity
         },
         backends.native.link_plan._build_link_plan
-            | backends.native.na_ir_gen_pass.NaIRGenPass._is_kernel_unit
-            | driver.program.JacProgram.prefers_native_codespace {
+            | backends.native.na_ir_gen_pass.NaIRGenPass._is_kernel_unit {
             is_kernel_unit_path
         },
         backends.native.link_plan._write_sidecar { native_unit_identity },
@@ -5956,7 +5943,6 @@ graph import compiler {
             | passes.static_analysis_pass.StaticAnalysisPass._check_client_imports
             | placement.placement.summarize_module
             | placement.placement_export
-            | placement.placement_facts.settle_server
             | placement.placement_solver
             | symbol_utils.report_placement_warnings { CodeContext },
         driver.module_analysis.run_analysis { CodeContext as _CodeCtx },
@@ -6524,7 +6510,6 @@ graph import compiler {
         driver.compilation_context.context_app
             | driver.program.JacProgram.jac_file_formatter
             | driver.progstate.ModuleHub.stamp
-            | passes.placement_pass.settle_native_module
             | placement.placement_solver._native_dep_scan
             | tools.jac_auto_lint_pass.JacAutoLintPass._base_decl_archetypes
             | types.type_evaluator.TypeEvaluator._declared_missing_dependency {
@@ -6541,7 +6526,6 @@ graph import compiler {
             | placement.placement_solver._read_native_scan
             | types.type_evaluator.TypeEvaluator._load_ts_declarations { active_host },
         driver.program.JacProgram.note_stub_tree_served
-            | placement.placement_solver.native_placement_candidate
             | types.type_evaluator.TypeEvaluator._resolve_client_npm_module {
             active_host
         },
@@ -8658,14 +8642,8 @@ graph import compiler {
         backends.native.na_ir_gen_pass.NaIRGenPass._owner_required {
             element_requirements
         },
-        backends.native.na_ir_gen_pass.NaIRGenPass._settle_module {
-            settle_native_module
-        },
         driver.pipeline.analysis_passes { PlacementPass },
     ]
-    passes.placement_pass --> backends.native.na_compile_pass.NativeCompilePass._run_impl {
-        settle_native_module
-    }
     passes.pyast_load_pass ++> [
         driver.pipeline.python_ast_passes | tools.lang_tools { PyastBuildPass },
         tools.lang_tools.AstTool.py_uni_nodes { PyastBuildPass },
@@ -8739,7 +8717,6 @@ graph import compiler {
     ]
     pkg_paths --> [
         driver.jir._ct_row_path { target_pkg_root },
-        driver.program.JacProgram.infers_native_codespace { package_host_edge },
         frontend.codeinfo._inferred_native_path { scope_allows_inferred_path },
         frontend.codeinfo.native_arch_scope { binds_bare_arch_names },
     ]
@@ -8752,7 +8729,6 @@ graph import compiler {
         },
         passes.placement_pass.PlacementPass._run_undecided { record_decided },
         passes.placement_pass.build_native_legality { native_blocker_scan },
-        passes.placement_pass.settle_native_module { record_decided },
         symbol_utils.client_bridged_endpoint { project_has_server },
         symbol_utils.report_serverless_kind_errors { project_kind_name },
         symbol_utils.serverless_server_evidence {
@@ -8763,7 +8739,6 @@ graph import compiler {
     placement.placement --> [
         driver.compiler.JacCompiler._restore_sections
             | driver.ifacecache.IfaceRegistry._restore_placement { summary_store },
-        driver.module_analysis.run_analysis { record_decided },
     ]
     type placement.placement ++> driver.progstate { PlacementSummary }
     placement.placement_export ++> driver.unit_products.placement_record {
@@ -8779,20 +8754,13 @@ graph import compiler {
             native_unit,
             variant_selected
         },
-        driver.program.JacProgram.prefers_native_codespace {
-            native_only,
-            native_placement_hard
-        },
         driver.unit_products.placement_record { module_spaces },
-        passes.placement_pass { native_placement_soft },
         passes.placement_pass.PlacementPass._run_undecided { contexts_of },
-        passes.placement_pass.settle_native_module { settle_server },
     ]
     placement.placement_facts --> [
         backends.native.na_ir_gen_pass.NaIRGenPass._native_imports {
             native_unit as _typed_native_unit
         },
-        driver.module_analysis.run_analysis { settle_server },
         driver.nativecache.NativeUnitRegistry.known_native_deps
             | pkg_paths.package_host_edge { native_unit },
     ]
@@ -8805,18 +8773,11 @@ graph import compiler {
             config_kind_space,
             effective_module_pin
         },
-        driver.program.JacProgram.prefers_native_codespace {
-            config_kind_space,
-            effective_module_pin
-        },
         driver.program.JacProgram.stamp_boundary_facts
             | passes.boundary_analysis_pass.BoundaryAnalysisPass._bind_server_callee {
             config_module_pin
         },
-        passes.placement_pass.element_requirements {
-            config_element_pin,
-            config_pin_for
-        },
+        passes.placement_pass.element_requirements { config_pin_for },
     ]
     placement.placement_pins --> [
         driver.jir._project_env_fingerprint_uncached { config_kind_space, pins_digest },
@@ -8837,26 +8798,15 @@ graph import compiler {
             solve_module_placement
         },
         passes.placement_pass.PlacementPass._run_undecided {
-            native_placement_candidate,
             placement_work,
             refresh_placement_module,
             solve_module_placement
         },
-        passes.placement_pass._demote_unreached_imports {
-            placement_work,
-            refresh_placement_module
-        },
         passes.placement_pass.build_native_legality { native_closure_blocker },
-        passes.placement_pass.settle_native_module { invalidate_importers_es },
-        passes.placement_pass.uncrossable_native {
-            placement_work,
-            refresh_placement_module
-        },
     ]
     placement.placement_solver --> [
         driver.boundary_classify.plain_native_import_target { _materialize_module },
         driver.module_analysis.run_analysis { placement_work },
-        driver.program.JacProgram.parse_source { native_placement_candidate },
         frontend.codeinfo._inferred_native_path { native_default_path_ok },
     ]
     type placement.placement_work ++> driver.progstate { PlacementWork }
@@ -10081,7 +10031,6 @@ graph import compiler.driver {
     ]
     boundary_classify ++> [
         program.JacProgram.declared_codespace { _default_codespace_for },
-        program.JacProgram.infers_native_codespace { _default_codespace_for },
         program.JacProgram.stamp_boundary_facts {
             ClientImportVerdict,
             _default_codespace_for,
@@ -11155,7 +11104,6 @@ graph import compiler.placement {
             placement_evidence_for
         },
         placement_solver {
-            PLACEMENT_HOLD_EXEMPT_ROOTS,
             PlacementSummary,
             get_module_summary,
             native_blocker_scan,

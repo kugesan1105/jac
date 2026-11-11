@@ -15,9 +15,7 @@ impl refresh_placement_module(module: uni.Module, prog: JacProgram) {
     placement_work(prog).refresh(module);
 }
 
-impl _native_dep_scan(
-    path: str, hold_exempt: bool = False
-) -> (tuple[str, list[str]] | None) {
+impl _native_dep_scan(path: str) -> (tuple[str, list[str]] | None) {
     host = active_host();
     files = [path]
         + host.annex_files(path, '.impl.jac')
@@ -32,12 +30,12 @@ impl _native_dep_scan(
             return None;
         }
     }
-    memo_key = f"{int(hold_exempt)}:{path}";
+    memo_key = path;
     cached = _na_scan_memo.get(memo_key);
     if cached is not None and cached.fresh == fresh {
         return (cached.reason, cached.deps);
     }
-    digest = _native_scan_digest(stamped, hold_exempt);
+    digest = _native_scan_digest(stamped);
     held = _read_native_scan(path, digest);
     if held is not None {
         _na_scan_memo[memo_key] = NativeDepScan(
@@ -52,9 +50,7 @@ impl _native_dep_scan(
     base_dir = os.path.dirname(os.path.abspath(path)) or '.';
     woven = host.woven_module(path, JacProgram()) if arch is not None else None;
     if woven is not None {
-        scan = native_blocker_scan(
-            woven, base_dir, allow_pub=True, hold_exempt=hold_exempt
-        );
+        scan = native_blocker_scan(woven, base_dir, allow_pub=True);
         sv_reason = scan.first();
         deps = scan.deps;
         probes = scan.probes;
@@ -72,9 +68,7 @@ impl _native_dep_scan(
                 sv_reason = "parse error";
                 break;
             }
-            scan = native_blocker_scan(
-                dep_mod, base_dir, allow_pub=True, hold_exempt=hold_exempt
-            );
+            scan = native_blocker_scan(dep_mod, base_dir, allow_pub=True);
             probes.extend(scan.probes);
             unresolved = unresolved or scan.unresolved;
             f_sv = scan.first();
@@ -95,9 +89,9 @@ impl _native_dep_scan(
     return (sv_reason, deps);
 }
 
-impl _native_scan_digest(files: list[str], hold_exempt: bool) -> str {
+impl _native_scan_digest(files: list[str]) -> str {
     host = active_host();
-    parts: list[str] = [NATIVE_SCAN_RECORD, str(int(hold_exempt))];
+    parts: list[str] = [NATIVE_SCAN_RECORD];
     for f in files {
         try {
             text = host.read_source(f);
@@ -158,9 +152,7 @@ impl _keep_native_scan(
     active_host().keep_native_scan_record(path, digest, "\n".join(rows) + "\n");
 }
 
-impl _native_deps_ok(
-    root_path: str, root_deps: list[str], hold_exempt: bool = False
-) -> bool {
+impl _native_deps_ok(root_path: str, root_deps: list[str]) -> bool {
     edges: dict[str, list[str]] = {root_path: list(root_deps)};
     queue: list[str] = list(root_deps);
     while queue {
@@ -168,7 +160,7 @@ impl _native_deps_ok(
         if dep in edges {
             continue;
         }
-        info = _native_dep_scan(dep, hold_exempt=hold_exempt);
+        info = _native_dep_scan(dep);
         if info is None {
             return False;
         }
@@ -188,10 +180,7 @@ impl _native_deps_ok(
 
 impl native_default_path_ok(path: str) -> bool {
     ap = os.path.abspath(path);
-
-    _ap_posix = ap.replace(os.sep, "/");
-    exempt = any(marker in _ap_posix for marker in PLACEMENT_HOLD_EXEMPT_ROOTS);
-    info = _native_dep_scan(ap, hold_exempt=exempt);
+    info = _native_dep_scan(ap);
     if info is None {
         return False;
     }
@@ -199,36 +188,7 @@ impl native_default_path_ok(path: str) -> bool {
     if has_sv {
         return False;
     }
-    return _native_deps_ok(ap, deps, hold_exempt=exempt);
-}
-
-impl native_placement_candidate(
-    module: uni.Module, prog: JacProgram
-) -> tuple[bool, str] {
-    mod_path = module.loc.mod_path if module.loc is not None else '';
-    if not mod_path {
-        return (False, "no module path");
-    }
-    if not prog.infers_native_codespace(mod_path) {
-        return (False, "the default codespace is not native");
-    }
-    if module.app_kind == 'web-app' {
-        return (False, "web-app project: native is opt-in");
-    }
-    (env_ok, env_reason) = active_host().native_pipeline_available();
-    if not env_ok {
-        return (False, env_reason);
-    }
-    if not any([isinstance(e, uni.ElementStmt) for e in module.elements]) {
-        return (False, "empty module: nothing to lower");
-    }
-    for elem in module.elements {
-        if isinstance(elem, uni.ContextAwareNode)
-            and elem.code_context == CodeContext.CLIENT {
-            return (False, "declares client elements");
-        }
-    }
-    return (True, '');
+    return _native_deps_ok(ap, deps);
 }
 
 impl dependency_summary(prog: JacProgram, path: str) -> (PlacementSummary | None) {
@@ -1009,16 +969,6 @@ impl PlacementApplyPass._run_impl(ir_in: uni.Module) -> uni.Module {
         self.prog.analysis.placement_refusals.pop(
             os.path.realpath(ir_in.loc.mod_path), None
         );
-    }
-    if ir_in.gen.native_undecided and ir_in.loc is not None and ir_in.loc.mod_path {
-        base_dir = os.path.dirname(os.path.abspath(ir_in.loc.mod_path)) or ".";
-        closed = native_blocker_scan(
-            ir_in, base_dir, allow_pub=bool(self.prog.options?.native_import)
-        ).first();
-        if closed {
-            ir_in.gen.native_undecided = False;
-            ir_in.gen.native_closed_why = closed;
-        }
     }
     refresh_placement_module(ir_in, self.prog);
     if solve_module_placement(ir_in, self.prog) {

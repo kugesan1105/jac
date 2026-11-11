@@ -42,9 +42,5 @@ impl forget_capability_notes(prog: JacProgram, mod_path: str) {
 }
 
 impl placement_neutral(nd: UniNode) -> bool {
-    if nd.in_native_context() or nd.in_client_context() {
-        return False;
-    }
-    mod = nd if isinstance(nd, Module) else nd.find_parent_of_type(Module);
-    return mod is not None and mod.gen.native_undecided;
+    return False;
 }

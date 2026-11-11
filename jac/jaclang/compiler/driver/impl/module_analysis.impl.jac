@@ -86,15 +86,7 @@ impl run_analysis(task: ModuleAnalysis) {
     module = task.module;
     task.native = module is not None
         and module.declares_codespace(_CodeCtx.NATIVE, path_hint=task.path);
-    candidate = task.native
-        or (
-            module is not None
-            and not task.parse_failed
-            and not module.gen.placement_mode
-            and module.gen.native_undecided
-            and program.infers_native_codespace(task.path)
-        );
-    if candidate {
+    if task.native {
         task.options.native_tree_demand = True;
     }
     _is_decl_stub = str(task.path).endswith('.pyi')
@@ -112,25 +104,11 @@ impl run_analysis(task: ModuleAnalysis) {
     _analyze = task.has_full_ir()
         and not _is_decl_stub
         and not _annex_of_base
-        and (candidate or _client or not _unasked);
-    task.placement_only = _analyze and _unasked and not task.native and not _client;
-    errors_mark = len(program.errors_had);
-    blocked_before = task.blocked;
+        and (task.native or _client or not _unasked);
     if _analyze
         and not task.ready(CompilationProduct.ANALYSIS)
         and not task.require(CompilationProduct.ANALYSIS) {
         task.blocked = True;
-    }
-    if task.placement_only
-        and not blocked_before
-        and len(program.errors_had) > errors_mark
-        and not cancelled(task.options) {
-        import from jaclang.compiler.placement.placement_facts { settle_server }
-        del program.errors_had[errors_mark:];
-        settle_server(module);
-        import from jaclang.compiler.placement.placement { record_decided }
-        record_decided(program, module);
-        task.blocked = False;
     }
     if not task.blocked and program.count_module_errors(task.module_path) > 0 {
         task.blocked = True;

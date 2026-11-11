@@ -263,6 +263,26 @@ impl app_scale_schema -> dict[str, any] {
     };
 }
 
+impl schema_defaults(options: dict[str, any]) -> dict[str, any] {
+    defaults: dict[str, any] = {};
+    for (key, spec) in options.items() {
+        if not isinstance(spec, dict) {
+            continue;
+        }
+        nested = spec.get("nested");
+        if isinstance(nested, dict) {
+            defaults[key] = schema_defaults(nested);
+        } elif "default" in spec {
+            defaults[key] = copy.deepcopy(spec["default"]);
+        }
+    }
+    return defaults;
+}
+
+impl scale_defaults -> dict[str, any] {
+    return schema_defaults(JacScalePluginConfig.get_config_schema()["options"]);
+}
+
 impl JacScalePluginConfig.get_plugin_metadata -> dict[str, any] {
     return {
         "name": "scale",

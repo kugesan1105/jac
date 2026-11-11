@@ -3,29 +3,6 @@ import shutil;
 import tempfile;
 import from pathlib { Path }
 
-def _collect_default_mismatches(
-    options: dict[str, any], defaults: dict[str, any], path: str, bad: list[str]
-) {
-    for (key, dval) in defaults.items() {
-        spec = options.get(key);
-        if not isinstance(spec, dict) {
-            continue;
-        }
-        if isinstance(dval, dict) {
-            nested = spec.get("nested");
-            if isinstance(nested, dict) {
-                _collect_default_mismatches(nested, dval, f"{path}.{key}", bad);
-            }
-            continue;
-        }
-        if "default" in spec and spec.get("default") != dval {
-            bad.append(
-                f"{path}.{key}: schema={spec.get('default')!r} runtime={dval!r}"
-            );
-        }
-    }
-}
-
 test "unknown section is flagged with a suggestion" {
     msgs = validate_scale_config({"gatway": {"colocate": True}});
     assert len(msgs) == 1 , f"expected 1 finding, got {msgs}";
@@ -96,15 +73,28 @@ test "every default config key is declared in the schema" {
     assert msgs == [] , f"defaults drifted from schema: {msgs}";
 }
 
-test "schema defaults agree with runtime defaults" {
-    bad: list[str] = [];
-    _collect_default_mismatches(
-        JacScalePluginConfig.get_config_schema().get("options", {}),
-        JacScaleConfig().get_default_config(),
-        "scale",
-        bad
-    );
-    assert bad == [] , f"schema/defaults disagree: {bad}";
+test "loaded defaults are derived from the schema" {
+    schema = scale_defaults();
+    defaults = JacScaleConfig().get_default_config();
+    for name in SELF_DEFAULTED_SECTIONS {
+        assert name not in defaults , name;
+        schema.pop(name);
+    }
+    assert defaults == schema;
+
+    gateway = scale_defaults()["gateway"];
+    normalized = normalize_gateway_config({});
+    for key in (
+        "colocate",
+        "gateway_port",
+        "gateway_host",
+        "http_forward_timeout",
+        "rate_limit",
+        "cors",
+        "identity"
+    ) {
+        assert normalized[key] == gateway[key] , key;
+    }
 }
 
 # get_default_config no longer restates the [scale.kubernetes] block, because

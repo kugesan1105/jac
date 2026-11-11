@@ -139,23 +139,22 @@ test "a non-positive websocket limit is rejected at load" {
     # locking the socket forever after its first message.
     for bad in [0, -1, 0.0] {
         try {
-            _ws_positive({'messages_per_second': bad}, 'messages_per_second', 20);
+            _ws_positive({'messages_per_second': bad}, 'messages_per_second');
             assert False , f"messages_per_second={bad!r} should be rejected";
         } except ValueError as e {
             assert '[scale.websocket].messages_per_second' in str(e) , f"got {e}";
         }
     }
     try {
-        _ws_positive({'max_message_bytes': 'lots'}, 'max_message_bytes', 65536);
+        _ws_positive({'max_message_bytes': 'lots'}, 'max_message_bytes');
         assert False , "a non-numeric limit should be rejected";
     } except ValueError as e {
         assert '[scale.websocket].max_message_bytes' in str(e) , f"got {e}";
     }
     # fractional values survive instead of truncating to zero
-    assert _ws_positive({'messages_per_second': 0.5}, 'messages_per_second', 20) == 0.5;
+    assert _ws_positive({'messages_per_second': 0.5}, 'messages_per_second') == 0.5;
     assert (
-        _ws_positive({'target_timeout_seconds': 1.5}, 'target_timeout_seconds', 30)
-        == 1.5
+        _ws_positive({'target_timeout_seconds': 1.5}, 'target_timeout_seconds') == 1.5
     );
 }
 

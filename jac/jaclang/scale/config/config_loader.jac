@@ -40,6 +40,8 @@ glob ADMIN_PASSWORD_ENV: str = "JAC_SCALE_ADMIN_PASSWORD",
          "route_refresh_seconds"
      );
 
+glob SELF_DEFAULTED_SECTIONS: tuple[str, ...] = ("kubernetes", "gateway");
+
 class JacScaleConfig(PluginConfigBase) {
     override def get_plugin_name(self: JacScaleConfig) -> str;
     override def get_default_config(self: JacScaleConfig) -> dict[str, any];
@@ -75,12 +77,11 @@ glob _scale_config_instance: JacScaleConfig | None = None,
      _app_scale_cache: dict[str, dict[str, any]] = {},
      _prometheus_namespace_warned: bool = False;
 
+def _section_defaults(section: str) -> dict[str, any];
 def _scope_text(value: any) -> str;
 def sanitize_prometheus_namespace(name: str) -> str;
 def _resolve_prometheus_namespace(configured: str | None, k8s_namespace: str) -> str;
-def _ws_positive(
-    ws_config: dict[str, any], key: str, fallback: (int | float)
-) -> float;
+def _ws_positive(ws_config: dict[str, any], key: str) -> float;
 
 def get_scale_config(project_dir: Path | None = None) -> JacScaleConfig;
 def peek_scale_config -> JacScaleConfig | None;

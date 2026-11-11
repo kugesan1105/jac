@@ -16,98 +16,14 @@ impl JacScaleConfig.get_config_strict_env(self: JacScaleConfig) -> str {
 
 impl JacScaleConfig.get_default_config(self: JacScaleConfig) -> dict[str, any] {
     return {
-        'sso': {
-            'host': 'http://localhost:8000',
-            'client_auth_callback_url': '',
-            'google': {'client_id': '', 'client_secret': ''},
-            'apple': {'client_id': '', 'client_secret': ''},
-            'github': {'client_id': '', 'client_secret': ''},
-            'firebase': {'project_id': ''}
-        },
-        'database': {
-            'url': None,
-            'deploy_mode': 'image',
-            'postgres_image': 'postgres:18',
-            'postgres_storage': '2Gi'
-        },
-        'websocket': {
-            'backplane': None,
-            'max_message_bytes': 65536,
-            'max_connections_per_target': 5000,
-            'max_connections_per_user': 10,
-            'max_anonymous_per_target': 100,
-            'target_timeout_seconds': 30,
-            'messages_per_second': 20
-        },
-        'secrets': {},
-        'server': {'structured_logs': True},
-        'webhook': {
-            'secret': 'webhook-secret-key',
-            'signature_header': 'X-Webhook-Signature',
-            'timestamp_header': 'X-Webhook-Timestamp',
-            'verify_signature': True,
-            'replay_tolerance_seconds': 300,
-            'max_body_bytes': 1048576,
-            'rate_limit_per_minute': 0,
-            'api_key_expiry_days': 365,
-            'github_secret': '',
-            'github_signature_header': 'X-Hub-Signature-256'
-        },
-        'monitoring': {
-            'enabled': False,
-            'endpoint': '/metrics',
-            'namespace': 'jaclang_scale',
-            'walker_metrics': False,
-            'histogram_buckets': [
-                0.005,
-                0.01,
-                0.025,
-                0.05,
-                0.075,
-                0.1,
-                0.25,
-                0.5,
-                0.75,
-                1.0,
-                2.5,
-                5.0,
-                10.0
-            ],
-            'prometheus_admin_password': 'Adminpassword123',
-            'k8s_metrics_enabled': True
-        },
-        'admin': {
-            'enabled': True,
-            'username': 'admin',
-            'email': 'admin@localhost',
-            'default_password': '',
-            'session_expiry_hours': 24,
-            'require_password_reset': True
-        },
-        'scheduler': {
-            'collection': 'scheduled_jobs',
-            'thread_pool_size': 10,
-            'misfire_grace_time': 60,
-            'shutdown_timeout': 10,
-            'system_user_password': '__no_login__',
-            'user_exists_ttl': 30.0
-        },
-        'telemetry': {'max_traces': 1000},
-        'emailer': {
-            'provider': '',
-            'enabled': True,
-            'from_address': '',
-            'smtp': {
-                'host': 'localhost',
-                'port': 25,
-                'username': '',
-                'password': '',
-                'use_tls': True,
-                'timeout': 10.0
-            }
-        },
-        'gateway': {'gateway_port': 8000, 'gateway_host': '0.0.0.0', 'colocate': True}
+        name: value
+        for (name, value) in scale_defaults().items()
+        if name not in SELF_DEFAULTED_SECTIONS
     };
+}
+
+impl _section_defaults(section: str) -> dict[str, any] {
+    return scale_defaults()[section];
 }
 
 impl _scope_text(value: any) -> str {
@@ -122,48 +38,33 @@ impl _scope_text(value: any) -> str {
 }
 
 impl JacScaleConfig.get_sso_config(self: JacScaleConfig) -> dict[str, any] {
-    config = self.load();
-    sso_config = config.get('sso', {});
-    google_config = sso_config.get('google', {});
-    apple_config = sso_config.get('apple', {});
-    github_config = sso_config.get('github', {});
-    firebase_config = sso_config.get('firebase', {});
-    return {
-        'host': sso_config.get('host', 'http://localhost:8000'),
-        'client_auth_callback_url': sso_config.get('client_auth_callback_url', ''),
-        'google': {
-            'client_id': google_config.get('client_id', ''),
-            'client_secret': google_config.get('client_secret', ''),
-            'scopes': _scope_text(google_config.get('scopes', ''))
-        },
-        'apple': {
-            'client_id': apple_config.get('client_id', ''),
-            'client_secret': apple_config.get('client_secret', ''),
-            'scopes': _scope_text(apple_config.get('scopes', ''))
-        },
-        'github': {
-            'client_id': github_config.get('client_id', ''),
-            'client_secret': github_config.get('client_secret', ''),
-            'scopes': _scope_text(github_config.get('scopes', ''))
-        },
-        'firebase': {
-            'project_id': resolve_firebase_project_id(
-                FIREBASE_AUTH_PROJECT_ID_ENV,
-                firebase_config.get('project_id', '') or None
-            )
-                or ''
-        }
+    sso_config = self.load()['sso'];
+    resolved: dict[str, any] = {
+        'host': sso_config['host'],
+        'client_auth_callback_url': sso_config['client_auth_callback_url']
     };
+    for platform in ('google', 'apple', 'github') {
+        platform_config = sso_config[platform];
+        resolved[platform] = {
+            'client_id': platform_config['client_id'],
+            'client_secret': platform_config['client_secret'],
+            'scopes': _scope_text(platform_config['scopes'])
+        };
+    }
+    resolved['firebase'] = {
+        'project_id': resolve_firebase_project_id(
+            FIREBASE_AUTH_PROJECT_ID_ENV, sso_config['firebase']['project_id'] or None
+        )
+            or ''
+    };
+    return resolved;
 }
 
 impl JacScaleConfig.get_deploy_database_config(self: JacScaleConfig) -> dict[str, any] {
-    config = self.load();
-    db_config = config.get('database', {});
+    db_config = self.load()['database'];
     return {
-        'url': db_config.get('url'),
-        'deploy_mode': db_config.get('deploy_mode', 'image'),
-        'postgres_image': db_config.get('postgres_image', 'postgres:18'),
-        'postgres_storage': db_config.get('postgres_storage', '2Gi')
+        key: db_config[key]
+        for key in ('url', 'deploy_mode', 'postgres_image', 'postgres_storage')
     };
 }
 
@@ -183,7 +84,7 @@ impl JacScaleConfig.get_kubernetes_config(self: JacScaleConfig) -> dict[str, any
     k8s_config['k8s_metrics_enabled'] = monitoring['k8s_metrics_enabled'];
     k8s_config['prometheus_admin_password'] = monitoring['prometheus_admin_password'];
 
-    k8s_config['admin_username'] = self.get_admin_config().get('username', 'admin');
+    k8s_config['admin_username'] = self.get_admin_config()['username'];
 
     system_deps = self.get_jac_config().get_plugin_deps("system");
     k8s_config['service_dependencies'] = [
@@ -201,39 +102,29 @@ impl JacScaleConfig.get_kubernetes_config(self: JacScaleConfig) -> dict[str, any
 }
 
 impl JacScaleConfig.get_server_config(self: JacScaleConfig) -> dict[str, any] {
-    config = self.load();
-    server_config = config.get('server', {});
-    return {'structured_logs': bool(server_config.get('structured_logs', True))};
+    return {'structured_logs': bool(self.load()['server']['structured_logs'])};
 }
 
 impl JacScaleConfig.get_webhook_config(self: JacScaleConfig) -> dict[str, any] {
-    config = self.load();
-    webhook_config = config.get('webhook', {});
+    webhook_config = self.load()['webhook'];
     return {
-        'signature_header': webhook_config.get(
-            'signature_header', 'X-Webhook-Signature'
-        ),
-        'timestamp_header': webhook_config.get(
-            'timestamp_header', 'X-Webhook-Timestamp'
-        ),
-        'verify_signature': webhook_config.get('verify_signature', True),
-        'replay_tolerance_seconds': int(
-            webhook_config.get('replay_tolerance_seconds', 300)
-        ),
-        'max_body_bytes': int(webhook_config.get('max_body_bytes', 1048576)),
-        'rate_limit_per_minute': int(webhook_config.get('rate_limit_per_minute', 0)),
-        'api_key_expiry_days': int(webhook_config.get('api_key_expiry_days', 365)),
-        'github_secret': str(webhook_config.get('github_secret', '') or ''),
+        'signature_header': webhook_config['signature_header'],
+        'timestamp_header': webhook_config['timestamp_header'],
+        'verify_signature': webhook_config['verify_signature'],
+        'replay_tolerance_seconds': int(webhook_config['replay_tolerance_seconds']),
+        'max_body_bytes': int(webhook_config['max_body_bytes']),
+        'rate_limit_per_minute': int(webhook_config['rate_limit_per_minute']),
+        'api_key_expiry_days': int(webhook_config['api_key_expiry_days']),
+        'github_secret': str(webhook_config['github_secret'] or ''),
         'github_signature_header': str(
-            webhook_config.get('github_signature_header', 'X-Hub-Signature-256')
-                or 'X-Hub-Signature-256'
+            webhook_config['github_signature_header']
+                or _section_defaults('webhook')['github_signature_header']
         )
     };
 }
 
 impl JacScaleConfig.get_secrets_config(self: JacScaleConfig) -> dict[str, str] {
-    config = self.load();
-    return config.get('secrets', {});
+    return self.load()['secrets'];
 }
 
 impl sanitize_prometheus_namespace(name: str) -> str {
@@ -271,70 +162,40 @@ impl _resolve_prometheus_namespace(configured: str | None, k8s_namespace: str) -
 
 impl JacScaleConfig.get_monitoring_config(self: JacScaleConfig) -> dict[str, any] {
     config = self.load();
-    monitoring_config = config.get('monitoring', {});
-    default_buckets = [
-        0.005,
-        0.01,
-        0.025,
-        0.05,
-        0.075,
-        0.1,
-        0.25,
-        0.5,
-        0.75,
-        1.0,
-        2.5,
-        5.0,
-        10.0
-    ];
-
+    monitoring_config = config['monitoring'];
     k8s_config = config.get('kubernetes', {});
     namespace = _resolve_prometheus_namespace(
-        monitoring_config.get('namespace'), k8s_config.get('namespace', 'default')
+        monitoring_config['namespace'], k8s_config.get('namespace', 'default')
     );
     return {
-        'enabled': monitoring_config.get('enabled', False),
-        'endpoint': monitoring_config.get('endpoint', '/metrics'),
+        'enabled': monitoring_config['enabled'],
+        'endpoint': monitoring_config['endpoint'],
         'namespace': namespace,
-        'walker_metrics': monitoring_config.get('walker_metrics', False),
-        'histogram_buckets': monitoring_config.get(
-            'histogram_buckets', default_buckets
-        ),
-        'k8s_metrics_enabled': monitoring_config.get('k8s_metrics_enabled', True),
-        'prometheus_admin_password': monitoring_config.get(
-            'prometheus_admin_password', 'Adminpassword123'
-        )
+        'walker_metrics': monitoring_config['walker_metrics'],
+        'histogram_buckets': monitoring_config['histogram_buckets'],
+        'k8s_metrics_enabled': monitoring_config['k8s_metrics_enabled'],
+        'prometheus_admin_password': monitoring_config['prometheus_admin_password']
     };
 }
 
 impl JacScaleConfig.get_events_config(self: JacScaleConfig) -> dict[str, any] {
-    config = self.load();
-    events_config = config.get('events', {});
-    retry_config = events_config.get('retry', {});
-    retry_defaults = RetryPolicy();
+    events_config = self.load()['events'];
+    retry_config = events_config['retry'];
     return {
-        'enabled': events_config.get('enabled', False),
-        'url': events_config.get('url'),
-        'consumer_group': events_config.get('consumer_group', 'jac-scale'),
-        'serializer': events_config.get('serializer', 'json'),
+        'enabled': events_config['enabled'],
+        'url': events_config['url'],
+        'consumer_group': events_config['consumer_group'],
+        'serializer': events_config['serializer'],
         'retry': {
-            'max_attempts': retry_config.get(
-                'max_attempts', retry_defaults.max_attempts
-            ),
-            'backoff_seconds': retry_config.get(
-                'backoff_seconds', retry_defaults.backoff_seconds
-            ),
-            'dead_letter_suffix': retry_config.get(
-                'dead_letter_suffix', retry_defaults.dead_letter_suffix
-            )
+            'max_attempts': retry_config['max_attempts'],
+            'backoff_seconds': retry_config['backoff_seconds'],
+            'dead_letter_suffix': retry_config['dead_letter_suffix']
         }
     };
 }
 
-impl _ws_positive(
-    ws_config: dict[str, any], key: str, fallback: (int | float)
-) -> float {
-    raw = ws_config.get(key, fallback);
+impl _ws_positive(ws_config: dict[str, any], key: str) -> float {
+    raw = ws_config[key];
     if isinstance(raw, bool) or not isinstance(raw, (int, float, str)) {
         raise ValueError(f"[scale.websocket].{key} must be a number, got {raw!r}.");
     }
@@ -353,26 +214,25 @@ impl _ws_positive(
 }
 
 impl JacScaleConfig.get_websocket_config(self: JacScaleConfig) -> dict[str, any] {
-    config = self.load();
-    ws_config: dict[str, any] = config.get('websocket', {});
-    backplane = ws_config.get('backplane');
+    ws_config: dict[str, any] = self.load()['websocket'];
+    backplane = ws_config['backplane'];
     if backplane is not None {
         backplane = str(backplane).lower();
     }
     return {
         'backplane': backplane,
-        'max_message_bytes': int(_ws_positive(ws_config, 'max_message_bytes', 65536)),
+        'max_message_bytes': int(_ws_positive(ws_config, 'max_message_bytes')),
         'max_connections_per_target': int(
-            _ws_positive(ws_config, 'max_connections_per_target', 5000)
+            _ws_positive(ws_config, 'max_connections_per_target')
         ),
         'max_connections_per_user': int(
-            _ws_positive(ws_config, 'max_connections_per_user', 10)
+            _ws_positive(ws_config, 'max_connections_per_user')
         ),
         'max_anonymous_per_target': int(
-            _ws_positive(ws_config, 'max_anonymous_per_target', 100)
+            _ws_positive(ws_config, 'max_anonymous_per_target')
         ),
-        'target_timeout_seconds': _ws_positive(ws_config, 'target_timeout_seconds', 30),
-        'messages_per_second': _ws_positive(ws_config, 'messages_per_second', 20)
+        'target_timeout_seconds': _ws_positive(ws_config, 'target_timeout_seconds'),
+        'messages_per_second': _ws_positive(ws_config, 'messages_per_second')
     };
 }
 
@@ -411,49 +271,44 @@ impl reset_scale_config -> None {
 }
 
 impl JacScaleConfig.get_telemetry_config(self: JacScaleConfig) -> dict[str, any] {
-    config = self.load();
-    telemetry_config = config.get('telemetry', {});
-    return {'max_traces': int(telemetry_config.get('max_traces', 1000))};
+    return {'max_traces': int(self.load()['telemetry']['max_traces'])};
 }
 
 impl JacScaleConfig.get_scheduler_config(self: JacScaleConfig) -> dict[str, any] {
-    config = self.load();
-    scheduler_config = config.get('scheduler', {});
-    floor: any = scheduler_min_interval(scheduler_config.get('min_interval', 1.0));
-    cap: any = scheduler_job_cap(scheduler_config.get('max_jobs_per_user', 25));
+    scheduler_config = self.load()['scheduler'];
+    defaults = _section_defaults('scheduler');
+    floor: any = scheduler_min_interval(scheduler_config['min_interval']);
+    cap: any = scheduler_job_cap(scheduler_config['max_jobs_per_user']);
     return {
-        'collection': scheduler_config.get('collection', 'scheduled_jobs'),
-        'thread_pool_size': int(scheduler_config.get('thread_pool_size', 10)),
-        'misfire_grace_time': int(scheduler_config.get('misfire_grace_time', 60)),
-        'shutdown_timeout': int(scheduler_config.get('shutdown_timeout', 10)),
-        'system_user_password': scheduler_config.get(
-            'system_user_password', '__no_login__'
-        ),
-        'user_exists_ttl': float(scheduler_config.get('user_exists_ttl', 30.0)),
-        'min_interval': floor if floor is not None else 1.0,
-        'max_jobs_per_user': cap if cap is not None else 25
+        'collection': scheduler_config['collection'],
+        'thread_pool_size': int(scheduler_config['thread_pool_size']),
+        'misfire_grace_time': int(scheduler_config['misfire_grace_time']),
+        'shutdown_timeout': int(scheduler_config['shutdown_timeout']),
+        'system_user_password': scheduler_config['system_user_password'],
+        'user_exists_ttl': float(scheduler_config['user_exists_ttl']),
+        'min_interval': floor if floor is not None else defaults['min_interval'],
+        'max_jobs_per_user': cap if cap is not None else defaults['max_jobs_per_user']
     };
 }
 
 impl JacScaleConfig.get_emailer_config(self: JacScaleConfig) -> dict[str, any] {
-    config = self.load();
-    emailer_config: any = config.get('emailer', {}) or {};
-    smtp_config = dict(emailer_config.get('smtp', {}) or {});
+    emailer_config = self.load()['emailer'];
+    smtp_config = dict(emailer_config['smtp']);
     smtp_password_env = os.environ.get('EMAILER_SMTP_PASSWORD');
     if smtp_password_env {
         smtp_config['password'] = smtp_password_env;
     }
     return {
-        'provider': emailer_config.get('provider', ''),
-        'enabled': bool(emailer_config.get('enabled', True)),
-        'from_address': emailer_config.get('from_address', ''),
+        'provider': emailer_config['provider'],
+        'enabled': bool(emailer_config['enabled']),
+        'from_address': emailer_config['from_address'],
         'smtp': {
-            'host': smtp_config.get('host', 'localhost'),
-            'port': int(smtp_config.get('port', 25)),
-            'username': smtp_config.get('username', ''),
-            'password': smtp_config.get('password', ''),
-            'use_tls': bool(smtp_config.get('use_tls', True)),
-            'timeout': float(smtp_config.get('timeout', 10.0))
+            'host': smtp_config['host'],
+            'port': int(smtp_config['port']),
+            'username': smtp_config['username'],
+            'password': smtp_config['password'],
+            'use_tls': bool(smtp_config['use_tls']),
+            'timeout': float(smtp_config['timeout'])
         }
     };
 }
@@ -526,38 +381,62 @@ impl app_scale_overrides(config: any, app_name: str) -> dict[str, any] {
 
 
 impl normalize_gateway_config(gateway_config: dict[str, any] | None) -> dict[str, any] {
+    defaults = _section_defaults('gateway');
     raw = dict(gateway_config or {});
+    cors_defaults = defaults['cors'];
     cors_config = dict(raw.get('cors', {}) or {});
     cors: dict[str, any] = {
-        'allow_origins': list(cors_config.get('allow_origins', ["*"])),
-        'allow_methods': list(cors_config.get('allow_methods', ["*"])),
-        'allow_headers': list(cors_config.get('allow_headers', ["*"])),
-        'allow_credentials': bool(cors_config.get('allow_credentials', False)),
-        'expose_headers': list(cors_config.get('expose_headers', [])),
-        'max_age': int(cors_config.get('max_age', 600))
+        'allow_origins': list(
+            cors_config.get('allow_origins', cors_defaults['allow_origins'])
+        ),
+        'allow_methods': list(
+            cors_config.get('allow_methods', cors_defaults['allow_methods'])
+        ),
+        'allow_headers': list(
+            cors_config.get('allow_headers', cors_defaults['allow_headers'])
+        ),
+        'allow_credentials': bool(
+            cors_config.get('allow_credentials', cors_defaults['allow_credentials'])
+        ),
+        'expose_headers': list(
+            cors_config.get('expose_headers', cors_defaults['expose_headers'])
+        ),
+        'max_age': int(cors_config.get('max_age', cors_defaults['max_age']))
     };
+    rl_defaults = defaults['rate_limit'];
     rl_config = dict(raw.get('rate_limit', {}) or {});
+    identity_config = dict(raw.get('identity', {}) or {});
     normalized = {
-        'colocate': bool(raw.get('colocate', True)),
-        'gateway_port': int(raw.get('gateway_port', 8000)),
-        'gateway_host': str(raw.get('gateway_host', '0.0.0.0')),
+        'colocate': bool(raw.get('colocate', defaults['colocate'])),
+        'gateway_port': int(raw.get('gateway_port', defaults['gateway_port'])),
+        'gateway_host': str(raw.get('gateway_host', defaults['gateway_host'])),
         'gateway_port_pinned': bool(raw.get('gateway_port_pinned', False)),
-        'http_forward_timeout': float(raw.get('http_forward_timeout', 30)),
+        'http_forward_timeout': float(
+            raw.get('http_forward_timeout', defaults['http_forward_timeout'])
+        ),
         'rate_limit': {
-            'enabled': bool(rl_config.get('enabled', False)),
-            'per_ip_rpm': int(rl_config.get('per_ip_rpm', 60)),
-            'per_user_rpm': int(rl_config.get('per_user_rpm', 0)),
-            'burst_multiplier': float(rl_config.get('burst_multiplier', 2.0)),
-            'exempt_paths': list(
-                rl_config.get('exempt_paths', ["/health", "/healthz", "/metrics"])
+            'enabled': bool(rl_config.get('enabled', rl_defaults['enabled'])),
+            'per_ip_rpm': int(rl_config.get('per_ip_rpm', rl_defaults['per_ip_rpm'])),
+            'per_user_rpm': int(
+                rl_config.get('per_user_rpm', rl_defaults['per_user_rpm'])
             ),
-            'shared': bool(rl_config.get('shared', True)),
-            'client_error_rpm': int(rl_config.get('client_error_rpm', 20))
+            'burst_multiplier': float(
+                rl_config.get('burst_multiplier', rl_defaults['burst_multiplier'])
+            ),
+            'exempt_paths': list(
+                rl_config.get('exempt_paths', rl_defaults['exempt_paths'])
+            ),
+            'shared': bool(rl_config.get('shared', rl_defaults['shared'])),
+            'client_error_rpm': int(
+                rl_config.get('client_error_rpm', rl_defaults['client_error_rpm'])
+            )
         },
         'cors': cors,
         'identity': {
             'gateway_owned': bool(
-                dict(raw.get('identity', {}) or {}).get('gateway_owned', True)
+                identity_config.get(
+                    'gateway_owned', defaults['identity']['gateway_owned']
+                )
             )
         },
         'ingress': dict(raw.get('ingress', {}) or {}),
@@ -588,18 +467,15 @@ impl normalize_gateway_config(gateway_config: dict[str, any] | None) -> dict[str
 }
 
 impl JacScaleConfig.get_admin_config(self: JacScaleConfig) -> dict[str, any] {
-    config = self.load();
-    admin_config = config.get('admin', {});
+    admin_config = self.load()['admin'];
     return {
-        'enabled': admin_config.get('enabled', True),
-        'username': admin_config.get('username', 'admin'),
-        'email': admin_config.get('email', 'admin@localhost'),
+        'enabled': admin_config['enabled'],
+        'username': admin_config['username'],
+        'email': admin_config['email'],
         'default_password': str(
-            os.environ.get(ADMIN_PASSWORD_ENV)
-                or admin_config.get('default_password')
-                or ''
+            os.environ.get(ADMIN_PASSWORD_ENV) or admin_config['default_password'] or ''
         ),
-        'session_expiry_hours': int(admin_config.get('session_expiry_hours', 24)),
-        'require_password_reset': admin_config.get('require_password_reset', True)
+        'session_expiry_hours': int(admin_config['session_expiry_hours']),
+        'require_password_reset': admin_config['require_password_reset']
     };
 }

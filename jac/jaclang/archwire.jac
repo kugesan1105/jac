@@ -13403,9 +13403,7 @@ graph import scale {
             get_scale_config,
             reset_scale_config
         },
-        tests.deploy.test_deployment_overlay
-            | tests.misc.test_config_loader
-            | tests.misc.test_config_validation {
+        tests.deploy.test_deployment_overlay | tests.misc.test_config_loader {
             JacScaleConfig,
             get_scale_config,
             reset_scale_config
@@ -13414,6 +13412,12 @@ graph import scale {
             | tests.server.test_firebase_auth_sso
             | tests.server.test_ws_hardening { reset_scale_config },
         tests.microservices.test_binary_injector { JacScaleConfig },
+        tests.misc.test_config_validation {
+            JacScaleConfig,
+            SELF_DEFAULTED_SECTIONS,
+            get_scale_config,
+            reset_scale_config
+        },
         tests.misc.test_log_emit {
             get_scale_config,
             peek_scale_config,
@@ -13481,7 +13485,10 @@ graph import scale {
             resolve_firebase_project_id
         },
     ]
-    config.plugin_config ++> tests.misc.test_config_validation { JacScalePluginConfig }
+    config.plugin_config ++> tests.misc.test_config_validation {
+        JacScalePluginConfig,
+        scale_defaults
+    }
     config.plugin_config --> tests.misc.test_config_loader { JacScalePluginConfig }
     config.project_env ++> plugin | runtime.realizer.kubernetes_realizer {
         load_project_env
@@ -13755,7 +13762,6 @@ graph import scale {
         tests.server.test_emailer_factory { create as create_emailer, register },
     ]
     events.broker ++> [
-        config.config_loader.JacScaleConfig.get_events_config { RetryPolicy },
         tests.data.test_local_stream | tests.data.test_pg_stream { Event },
         tests.misc.test_events {
             Event,
@@ -14625,6 +14631,7 @@ graph import scale.config {
         resolve_firebase_project_id
     }
     plugin_config ++> [
+        config_loader { scale_defaults },
         config_loader.JacScaleConfig.get_app_config_schema { app_scale_schema },
         validation { JacScalePluginConfig, app_scale_schema },
     ]

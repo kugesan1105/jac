@@ -40,6 +40,9 @@ impl NativeRefusal.message -> str {
 }
 
 impl NativeRefusal.headline -> str {
+    if self.text {
+        return self.text;
+    }
     return f"error[{self.code}]: {self.message()}";
 }
 

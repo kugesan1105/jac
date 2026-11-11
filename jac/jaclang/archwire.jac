@@ -6438,7 +6438,6 @@ graph import compiler {
             | driver.session_compile
             | driver.unit_products.dependency_span_rows
             | passes.access_check_pass.AccessCheckPass._module_app_facts
-            | passes.placement_pass.PlacementPass._run_decided
             | passes.static_analysis_pass.is_bootstrap_compiled_module
             | passes.variant_agreement_pass.VariantAgreementPass._parse_sibling
             | placement.placement_facts
@@ -6452,7 +6451,6 @@ graph import compiler {
             | driver.ifacecache.IfaceRegistry.analysis_profile
             | driver.program.JacProgram.execution_hubs
             | driver.progstate.ModuleHub.is_fresh
-            | passes.placement_pass.PlacementPass._run_undecided
             | placement.placement_solver._keep_native_scan
             | tools.jac_auto_lint_pass.JacAutoLintPass.__post_init__
             | types.type_evaluator.TypeEvaluator._client_npm_base { active_host },
@@ -7423,7 +7421,6 @@ graph import compiler {
             FuncCall,
             Import,
             Module,
-            ModuleCode,
             ModuleItem,
             ModulePath,
             Name,

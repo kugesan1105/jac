@@ -8,7 +8,8 @@ obj NativeRefusal {
         site: (UniNode | None) = None,
         help: (str | None) = None,
         code: str = "E5090",
-        noted: bool = False;
+        noted: bool = False,
+        text: str = "";
 
     def message -> str;
     def headline -> str;

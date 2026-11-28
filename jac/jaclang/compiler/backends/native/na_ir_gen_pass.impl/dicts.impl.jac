@@ -297,7 +297,26 @@ impl NaIRGenPass._unbox_from_jacval(jv: ir.Value, target_type: ir.Type) -> ir.Va
                 b.icmp_unsigned("==", _tag, ir.Constant(i8, 8))
             );
             if _unbox_clos in self._gradual_closure_sigs {
-                return self.builder.inttoptr(payload, target_type, name="jv.unbox.p");
+                _is_none = b.icmp_unsigned("==", _tag, ir.Constant(i8, 8));
+                self._emit_runtime_raise(
+                    b.not_(
+                        b.or_(
+                            _is_none,
+                            b.or_(
+                                b.icmp_unsigned("==", _tag, ir.Constant(i8, 2)),
+                                b.icmp_unsigned("==", _tag, ir.Constant(i8, 6))
+                            )
+                        )
+                    ),
+                    "TypeError",
+                    "object is not callable"
+                );
+                b = self.builder;
+                return b.inttoptr(
+                    b.select(_is_none, ir.Constant(i64, 0), payload),
+                    target_type,
+                    name="jv.unbox.p"
+                );
             }
             self._emit_runtime_raise(b.not_(_ok), "TypeError", _msg);
             if not self._nogc_headerless() {

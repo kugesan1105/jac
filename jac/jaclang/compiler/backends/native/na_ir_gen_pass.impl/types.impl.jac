@@ -2905,7 +2905,9 @@ impl NaIRGenPass._coerce_type_inner(val: ir.Value, target_type: ir.Type) -> ir.V
             );
             self.builder.store(_wenv, _wenv_slot);
             self.builder.store(
-                self._closure_boxed_slot_value(_real_sig),
+                self._closure_boxed_slot_value(
+                    _real_sig, val.name if isinstance(val, ir.Function) else ""
+                ),
                 self.builder.gep(
                     _wclos,
                     [ir.Constant(_wi32, 0), ir.Constant(_wi32, 2)],

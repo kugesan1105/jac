@@ -637,6 +637,7 @@ impl NaIRGenPass._codegen_ability(nd: uni.Ability) -> None {
     }
 
     _local_mark = len(self.ctx.errors_had);
+    self._fn_def_nodes[func.name] = nd;
     state = self._enter_function(func);
     try {
         self._attach_di_subprogram(

@@ -4783,6 +4783,26 @@ impl NaIRGenPass._codegen_boxed_call(
     i32 = ir.IntType(32);
     i64 = ir.IntType(64);
     jv = self.jacval_type;
+    held: list[str] = [];
+    target_held = self._hold_owned_temp(callee, "bcall.target");
+    if target_held is not None {
+        held.append(target_held);
+    }
+    args: list[ir.Value] = [];
+    unheld: list[ir.Value] = [];
+    for p in passed {
+        a = self._codegen_expr(p);
+        if a is None {
+            return None;
+        }
+        args.append(a);
+        arg_held = self._hold_owned_temp(a, "bcall.arg");
+        if arg_held is not None {
+            held.append(arg_held);
+        } else {
+            unheld.append(a);
+        }
+    }
     b = self.builder;
     raw: ir.Value;
     kind: ir.Value;
@@ -4791,7 +4811,8 @@ impl NaIRGenPass._codegen_boxed_call(
         self._emit_runtime_raise(
             b.icmp_unsigned("==", tag, ir.Constant(i8, 8), name="bcall.none"),
             "TypeError",
-            "'NoneType' object is not callable"
+            "'NoneType' object is not callable",
+            release_on_error=unheld
         );
         b = self.builder;
         is_str = b.icmp_unsigned("==", tag, ir.Constant(i8, 2), name="bcall.isstr");
@@ -4802,7 +4823,8 @@ impl NaIRGenPass._codegen_boxed_call(
                 name="bcall.bad"
             ),
             "TypeError",
-            "object is not callable"
+            "object is not callable",
+            release_on_error=unheld
         );
         b = self.builder;
         raw = b.inttoptr(
@@ -4819,7 +4841,8 @@ impl NaIRGenPass._codegen_boxed_call(
         self._emit_runtime_raise(
             b.icmp_unsigned("==", raw, ir.Constant(i8p, None), name="bcall.null"),
             "TypeError",
-            "'NoneType' object is not callable"
+            "'NoneType' object is not callable",
+            release_on_error=unheld
         );
         b = self.builder;
         _callee_clos = self._closure_struct_of(callee.type);
@@ -4831,15 +4854,6 @@ impl NaIRGenPass._codegen_boxed_call(
                 else BOXED_CALL_UNKNOWN
         );
     }
-    args: list[ir.Value] = [];
-    for p in passed {
-        a = self._codegen_expr(p);
-        if a is None {
-            return None;
-        }
-        args.append(a);
-    }
-    b = self.builder;
     arr = self._entry_alloca(ir.ArrayType(jv, max(len(args), 1)), "bcall.args");
     for (i, a) in enumerate(args) {
         b.store(
@@ -4857,8 +4871,11 @@ impl NaIRGenPass._codegen_boxed_call(
         ],
         name="bcall"
     );
-    self._release_owned_args(args, op="bcall_arg");
-    if self._is_owned(callee) {
+    for h in held {
+        self._drop_held_temp(h);
+    }
+    self._release_owned_args(unheld, op="bcall_arg");
+    if target_held is None and self._is_owned(callee) {
         self._release_owned_args([callee], op="bcall_target");
     }
     self._mark_owned(res);
@@ -4979,4 +4996,33 @@ impl NaIRGenPass._boxed_call_fn -> ir.Function {
         self._leave_function(state);
     }
     return fn;
+}
+
+impl NaIRGenPass._hold_owned_temp(value: ir.Value, prefix: str) -> (str | None) {
+    _gen = self._gen_ctx;
+    if not self._is_owned(value)
+        or self._nogc_headerless()
+        or (_gen is not None and self.builder.function is _gen.resume_fn)
+        or self._elem_kind(value.type) not in ("rc_ptr", "str", "jacval") {
+        return None;
+    }
+    name = f"{prefix}.{self._loop_coll_seq}";
+    self._loop_coll_seq += 1;
+    slot = self._entry_alloca(value.type, name);
+    self.local_vars[name] = slot;
+    self._release_owned_args(
+        [self._mark_owned(self.builder.load(slot, name=f"{name}.old"))], op="held_old"
+    );
+    self.builder.store(value, slot);
+    return name;
+}
+
+impl NaIRGenPass._drop_held_temp(name: str) -> None {
+    slot = self.local_vars.get(name);
+    if slot is None {
+        return;
+    }
+    held = self._mark_owned(self.builder.load(slot, name=f"{name}.end"));
+    self._release_owned_args([held], op="held_end");
+    self.builder.store(ir.Constant(slot.pointee_type, None), slot);
 }

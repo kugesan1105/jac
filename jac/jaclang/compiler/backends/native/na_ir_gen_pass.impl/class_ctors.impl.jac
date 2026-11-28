@@ -1471,6 +1471,7 @@ impl NaIRGenPass._emit_class_boxed_ctor(
                 mask,
                 name=f"bctor.mask.{p.name}"
             );
+            fallback = self._default_arg_fallback(p.type);
             pre = self.builder.block;
             load_bb = self.builder.append_basic_block(f"bctor.{p.name}.load");
             done_bb = self.builder.append_basic_block(f"bctor.{p.name}.done");
@@ -1486,7 +1487,7 @@ impl NaIRGenPass._emit_class_boxed_ctor(
             self.builder.position_at_end(done_bb);
             merged = self.builder.phi(p.type, name=f"bctor.v.{p.name}");
             merged.add_incoming(typed, load_end);
-            merged.add_incoming(self._default_arg_fallback(p.type), pre);
+            merged.add_incoming(fallback, pre);
             values[i] = merged;
         }
         call_args: list[ir.Value] = [mask];

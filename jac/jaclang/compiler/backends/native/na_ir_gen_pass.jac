@@ -528,6 +528,8 @@ walker NaIRGenPass(CompilerPass) {
         closure_thunks: dict[str, ir.Function] = {},
         _closure_boxed_fns: dict[str, ir.Function] = {},
         _gradual_closure_sigs: set[str] = set(),
+        _closure_boxed_specs: dict[str, tuple[str, str]] = {},
+        _fn_def_nodes: dict[str, uni.UniNode] = {},
         _closure_uid: int = 0,
         _fresh_fn_values: set[str] = set(),
         _nested_fn_frames: dict[str, ir.Function] = {},
@@ -1120,10 +1122,16 @@ walker NaIRGenPass(CompilerPass) {
     ) -> tuple[str, ir.IdentifiedStructType, ir.FunctionType];
 
     def _closure_struct_of(val_type: ir.Type) -> (str | None);
-    def _closure_boxed_fn(sig_name: str) -> (ir.Function | None);
-    def _closure_boxed_slot_value(sig_name: str) -> ir.Constant;
+    def _closure_boxed_fn(sig_name: str, target: str = "") -> (ir.Function | None);
+    def _closure_boxed_slot_value(sig_name: str, target: str = "") -> ir.Constant;
+    def _fn_param_defaults(fn_name: str) -> (list[(uni.Expr | None)] | None);
     def _emit_closure_boxed_adapters -> None;
-    def _emit_closure_boxed_body(sig_name: str, adapter: ir.Function) -> None;
+    def _emit_closure_boxed_body(
+        sig_name: str, target: str, adapter: ir.Function
+    ) -> None;
+
+    def _hold_owned_temp(value: ir.Value, prefix: str) -> (str | None);
+    def _drop_held_temp(name: str) -> None;
     def _jacval_crosses(t: ir.Type) -> bool;
     def _codegen_boxed_call(nd: uni.FuncCall, callee: ir.Value) -> (ir.Value | None);
     def _boxed_call_fn -> ir.Function;

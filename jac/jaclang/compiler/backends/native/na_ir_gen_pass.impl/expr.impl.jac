@@ -493,6 +493,7 @@ impl NaIRGenPass._codegen_lambda(nd: uni.LambdaExpr) -> (ir.Value | None) {
     anon_fn = ir.Function(self.llvm_module, fn_type, name=anon_name);
     anon_fn.linkage = "private";
     self._fresh_fn_values.add(anon_name);
+    self._fn_def_nodes[anon_name] = nd;
     self._register_pass_links(nd, anon_fn);
     for (i, arg) in enumerate(anon_fn.args) {
         if i < len(all_param_names) {

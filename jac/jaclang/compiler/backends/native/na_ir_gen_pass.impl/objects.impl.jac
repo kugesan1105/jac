@@ -1092,6 +1092,7 @@ impl NaIRGenPass._codegen_method(
         return;
     }
 
+    self._fn_def_nodes[func.name] = method;
     state = self._enter_function(func);
     try {
         self._self_arch = arch_name;
@@ -1434,6 +1435,7 @@ impl NaIRGenPass._codegen_no_sig_method(arch_name: str, method: uni.Ability) -> 
         return;
     }
 
+    self._fn_def_nodes[func.name] = method;
     state = self._enter_function(func);
     try {
         self._self_arch = arch_name;

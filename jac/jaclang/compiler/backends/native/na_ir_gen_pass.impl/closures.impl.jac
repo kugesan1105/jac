@@ -942,11 +942,23 @@ impl NaIRGenPass._jacval_crosses(t: ir.Type) -> bool {
 }
 
 impl NaIRGenPass._emit_closure_boxed_adapters -> None {
-    for (key, adapter) in list(self._closure_boxed_fns.items()) {
-        if adapter.is_declaration {
+    pending = [
+        key
+        for (key, adapter) in self._closure_boxed_fns.items()
+        if adapter.is_declaration
+    ];
+    while pending {
+        for key in pending {
             (sig_name, target) = self._closure_boxed_specs[key];
-            self._emit_closure_boxed_body(sig_name, target, adapter);
+            self._emit_closure_boxed_body(
+                sig_name, target, self._closure_boxed_fns[key]
+            );
         }
+        pending = [
+            key
+            for (key, adapter) in self._closure_boxed_fns.items()
+            if adapter.is_declaration
+        ];
     }
 }
 
@@ -1009,7 +1021,7 @@ impl NaIRGenPass._emit_closure_boxed_body(
             name="boxed.env"
         );
         call_args: list[ir.Value] = [];
-        owned_defaults: list[tuple[ir.Value, int]] = [];
+        held_defaults: list[str] = [];
         for (i, pt) in enumerate(params) {
             if i < required {
                 jv = self.builder.load(
@@ -1055,6 +1067,10 @@ impl NaIRGenPass._emit_closure_boxed_body(
                 dv = fallback;
             } else {
                 dv = self._coerce_type(dv, pt);
+                dflt_held = self._hold_owned_temp(dv, f"boxed.d{i}");
+                if dflt_held is not None {
+                    held_defaults.append(dflt_held);
+                }
             }
             dflt_end = self.builder.block;
             self.builder.branch(done_bb);
@@ -1062,9 +1078,6 @@ impl NaIRGenPass._emit_closure_boxed_body(
             merged = self.builder.phi(pt, name=f"boxed.v{i}");
             merged.add_incoming(given_v, given_end);
             merged.add_incoming(dv, dflt_end);
-            if self._is_owned(dv) {
-                owned_defaults.append((merged, i));
-            }
             call_args.append(merged);
         }
         fn_ptr = self.builder.inttoptr(fn_i64, fnty_env.as_pointer(), name="boxed.fn");
@@ -1074,18 +1087,8 @@ impl NaIRGenPass._emit_closure_boxed_body(
         } else {
             res = self.builder.call(fn_ptr, call_args + [env], name="boxed.res");
         }
-        for (merged_v, idx) in owned_defaults {
-            rel_bb = self.builder.append_basic_block(f"boxed.a{idx}.rel");
-            after_bb = self.builder.append_basic_block(f"boxed.a{idx}.after");
-            self.builder.cbranch(
-                self.builder.icmp_signed(">=", ir.Constant(i64, idx), n),
-                rel_bb,
-                after_bb
-            );
-            self.builder.position_at_end(rel_bb);
-            self._release_owned_args([self._mark_owned(merged_v)], op="boxed_default");
-            self.builder.branch(after_bb);
-            self.builder.position_at_end(after_bb);
+        for name in held_defaults {
+            self._drop_held_temp(name);
         }
         self.builder.ret(none_jv if res is None else self._box_to_jacval(res));
     } finally {

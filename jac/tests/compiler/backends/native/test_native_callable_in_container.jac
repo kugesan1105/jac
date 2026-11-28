@@ -100,6 +100,7 @@ test "untyped callables: function and class values with no call signature run na
     assert out.startswith(
         "870 4 11\nHI! u 5\n2 TypeError TypeError TypeError TypeError\n"
         "7 1 TypeError TypeError [7] 30\n"
+        "101 30\n"
     ) , out[:400];
     assert "RC LIVE OBJECTS at exit" in out , out[-400:];
     assert "<- LEAK" not in out , out[-1500:];

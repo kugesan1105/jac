@@ -90,6 +90,31 @@ def bad_arity -> int {
     return fails;
 }
 
+def nested_default(x: int, f: type = lambda (v: int, g: type = lambda (w: int) -> int { w + 100 }) -> int { g(v) }) -> int {
+    return f(x);
+}
+
+def boom(x: int, acc: list[int] = []) -> int {
+    acc.append(x);
+    if x >= 0 {
+        raise ValueError("no");
+    }
+    return len(acc);
+}
+
+def raising_default -> int {
+    cb: any = boom;
+    n = 0;
+    for i in range(30) {
+        try {
+            cb(i);
+        } except ValueError {
+            n += 1;
+        }
+    }
+    return n;
+}
+
 def outcome(f: any, args: list[int]) -> str {
     try {
         if len(args) == 1 {
@@ -115,6 +140,7 @@ def main {
     print(outcome(inc, [1]), outcome(inc, [1, 2]), outcome(None, [1]), outcome(5, [1]), outcome("Thing", [1]));
     seen: list[int] = [];
     print(via_bare(add, 4), via_bare(grow, 1), call_int(1), call_none_arg(seen), seen, bad_arity());
+    print(nested_default(1), raising_default());
 }
 
 with entry {

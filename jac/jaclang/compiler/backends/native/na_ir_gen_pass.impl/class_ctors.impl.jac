@@ -1442,7 +1442,7 @@ impl NaIRGenPass._emit_class_boxed_ctor(
         return None;
     }
     fn = self._define_function(
-        f"{name}.__boxed_ctor", ir.FunctionType(jv, [i8p, jv.as_pointer(), i64])
+        f"{name}.__boxed_ctor", ir.FunctionType(i8p, [i8p, jv.as_pointer(), i64])
     );
     fn.linkage = "internal";
     state = self._enter_function(fn);
@@ -1498,13 +1498,7 @@ impl NaIRGenPass._emit_class_boxed_ctor(
             );
         }
         made = self.builder.call(ctor, call_args, name="bctor.obj");
-        self.builder.ret(
-            self._box_to_jacval(
-                self.builder.bitcast(
-                    made, self.struct_types[name].as_pointer(), name="bctor.typed"
-                )
-            )
-        );
+        self.builder.ret(made);
     } finally {
         self._leave_function(state);
     }

@@ -4943,13 +4943,22 @@ impl NaIRGenPass._boxed_call_fn -> ir.Function {
             "this class cannot be constructed natively through an untyped reference"
         );
         b = self.builder;
-        b.ret(
-            b.call(
-                b.bitcast(bctor, entry_ty.as_pointer(), name="bcall.bctor.fn"),
-                [raw, argv, n],
-                name="bcall.new"
-            )
+        made = b.call(
+            b.bitcast(
+                bctor,
+                ir.FunctionType(i8p, [i8p, jv.as_pointer(), i64]).as_pointer(),
+                name="bcall.bctor.fn"
+            ),
+            [raw, argv, n],
+            name="bcall.new"
         );
+        boxed_obj = b.insert_value(
+            ir.Constant(jv, [ir.Constant(ir.IntType(8), 6), ir.Constant(i64, 0)]),
+            b.ptrtoint(made, i64, name="bcall.new.i"),
+            1,
+            name="bcall.new.jv"
+        );
+        b.ret(boxed_obj);
         b.position_at_end(notcls_bb);
         self._emit_runtime_raise(
             b.icmp_unsigned(

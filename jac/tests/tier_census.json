@@ -1,7 +1,7 @@
 {
   "summary": {
-    "same": 52,
-    "refused": 76,
+    "same": 55,
+    "refused": 73,
     "fails": 0,
     "differs": 1,
     "hangs": 0,
@@ -515,8 +515,7 @@
       "reason": "E5090 Native pathway does not yet support decorator 'on A'"
     },
     "tests/language/fixtures/lambda_default_arg.jac": {
-      "class": "refused",
-      "reason": "E5092 Native lowering failed for print argument 'FuncCall'"
+      "class": "same"
     },
     "tests/language/fixtures/lambda_enum_decorator.jac": {
       "class": "refused",
@@ -527,12 +526,10 @@
       "reason": "E5092 Native lowering failed for print argument 'FuncCall'"
     },
     "tests/language/fixtures/lambda_has_default.jac": {
-      "class": "refused",
-      "reason": "E5092 Native lowering failed for print argument 'FuncCall'"
+      "class": "same"
     },
     "tests/language/fixtures/lambda_method_body.jac": {
-      "class": "refused",
-      "reason": "E5092 Native lowering failed for print argument 'FuncCall'"
+      "class": "same"
     },
     "tests/language/fixtures/lambda_per_instance_default.jac": {
       "class": "same"

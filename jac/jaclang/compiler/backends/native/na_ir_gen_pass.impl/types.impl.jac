@@ -2873,9 +2873,9 @@ impl NaIRGenPass._coerce_type_inner(val: ir.Value, target_type: ir.Type) -> ir.V
             _wfn = val;
 
             _wenv: ir.Value = ir.Constant(_wi8p, None);
-            _real_fnty: ir.FunctionType = _wfn.type
+            _real_fnty: any = _wfn.type
                 if isinstance(_wfn.type, ir.FunctionType)
-                else _wfn.type.pointee;
+                else _wfn.type?.pointee;
             _real_sig = self._closure_sig_struct(_real_fnty)[0];
             if isinstance(val, ir.Function) {
                 _fn_env = self._fn_value_env(val);

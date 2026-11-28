@@ -902,7 +902,7 @@ impl NaIRGenPass._closure_boxed_fn(
 
 impl NaIRGenPass._closure_boxed_slot_value(
     sig_name: str, target: str = ""
-) -> ir.Constant {
+) -> ir.Value {
     adapter = self._closure_boxed_fn(sig_name, target);
     if adapter is None {
         return ir.Constant(ir.IntType(64), 0);

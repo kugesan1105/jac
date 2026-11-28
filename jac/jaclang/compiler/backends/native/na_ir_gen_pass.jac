@@ -1123,7 +1123,7 @@ walker NaIRGenPass(CompilerPass) {
 
     def _closure_struct_of(val_type: ir.Type) -> (str | None);
     def _closure_boxed_fn(sig_name: str, target: str = "") -> (ir.Function | None);
-    def _closure_boxed_slot_value(sig_name: str, target: str = "") -> ir.Constant;
+    def _closure_boxed_slot_value(sig_name: str, target: str = "") -> ir.Value;
     def _fn_param_defaults(fn_name: str) -> (list[(uni.Expr | None)] | None);
     def _emit_closure_boxed_adapters -> None;
     def _emit_closure_boxed_body(

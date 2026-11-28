@@ -29,9 +29,8 @@ def compile_na(label: str, code: str) -> tuple[any, ...] {
 
 glob SEAM_SRC = (
          "def seam(n: int) -> int {\n"
-         "    def same(x: int) -> int { return x; }\n"
-         "    f: any = same;\n"
-         "    return f(n);\n"
+         "    mixed = {n, \"a\"};\n"
+         "    return n if len(mixed) == 2 else 0;\n"
          "}\n"
      );
 

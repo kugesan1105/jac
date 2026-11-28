@@ -234,6 +234,7 @@ impl NaIRGenPass._lower_module -> None {
     self._codegen_entry(_entry_nodes);
     self._finalize_trace_lookup();
     self._finish_osp_reclaim_hook();
+    self._emit_closure_boxed_adapters();
 
     if self.has_native_code {
         if self.ctx.errors_had or self._internal_errors {
@@ -242,6 +243,7 @@ impl NaIRGenPass._lower_module -> None {
         if not self.scope.binds_function("__jac_glob_init") {
             self._emit_glob_init_func();
         }
+        self._emit_closure_boxed_adapters();
         self._apply_list_tbaa();
         self._volatilize_setjmp_locals();
         self._fold_direct_c_entries();

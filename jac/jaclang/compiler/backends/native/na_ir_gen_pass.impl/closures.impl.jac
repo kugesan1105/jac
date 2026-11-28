@@ -63,7 +63,7 @@ impl NaIRGenPass._closure_sig_struct(
     name = f"JacClosure.{self._closure_uid}";
     i64 = ir.IntType(64);
     i8p: any = ir.IntType(8).as_pointer();
-    self._register_iter_struct(name, ["fn", "env"], [i64, i8p]);
+    self._register_iter_struct(name, ["fn", "env", "boxed"], [i64, i8p, i64]);
     fnty_env = ir.FunctionType(fnty.return_type, list(fnty.args) + [i8p]);
     st = self.struct_types[name];
     self.closure_sig_registry[name] = (st, fnty_env);
@@ -97,7 +97,9 @@ impl NaIRGenPass._closure_struct_of(val_type: ir.Type) -> (str | None) {
     return None;
 }
 
-impl NaIRGenPass._static_fn_closure(closure_name: str, fn: ir.Function) -> ir.Value {
+impl NaIRGenPass._static_fn_closure(
+    closure_name: str, fn: ir.Function, boxed_sig: str = ""
+) -> ir.Value {
     i8p = ir.IntType(8).as_pointer();
     i32 = ir.IntType(32);
     i64 = ir.IntType(64);
@@ -117,7 +119,14 @@ impl NaIRGenPass._static_fn_closure(closure_name: str, fn: ir.Function) -> ir.Va
                 ir.Constant(i8p, None),
                 ir.Constant(i64, RC_SENTINEL),
                 ir.Constant(i64, 0),
-                ir.Constant(st, [fn.ptrtoint(i64), ir.Constant(i8p, None)])
+                ir.Constant(
+                    st,
+                    [
+                        fn.ptrtoint(i64),
+                        ir.Constant(i8p, None),
+                        self._closure_boxed_slot_value(boxed_sig or closure_name)
+                    ]
+                )
             ]
         );
     }
@@ -441,6 +450,12 @@ impl NaIRGenPass._emit_closure_pair(
         clos, [ir.Constant(i32, 0), ir.Constant(i32, 1)], name="clos.env.slot"
     );
     self.builder.store(self.builder.bitcast(env, i8p, name="clos.env.i8"), env_slot);
+    self.builder.store(
+        self._closure_boxed_slot_value(sig_name),
+        self.builder.gep(
+            clos, [ir.Constant(i32, 0), ir.Constant(i32, 2)], name="clos.boxed.slot"
+        )
+    );
     self._mark_owned(clos);
     return clos;
 }
@@ -486,6 +501,14 @@ impl NaIRGenPass._codegen_closure_call(
     (_st, fnty_env) = self.closure_sig_registry[struct_name];
     i32 = ir.IntType(32);
     declared = list(fnty_env.args)[:-1];
+    _passed0 = list(nd.params or []);
+    if (len(_passed0) > len(declared) or struct_name in self._gradual_closure_sigs)
+        and not any(isinstance(p, uni.KWPair) for p in _passed0) {
+        _boxed = self._codegen_boxed_call(nd, clos_val);
+        if _boxed is not None {
+            return _boxed;
+        }
+    }
     held: (str | None) = None;
     _gen = self._gen_ctx;
     if isinstance(clos_val.type, ir.PointerType)
@@ -689,6 +712,12 @@ impl NaIRGenPass._emit_bound_method_value(
     );
     self._emit_take_ref(receiver, op="bound_method");
     self.builder.store(self.builder.bitcast(receiver, i8p, name="bound.env"), env_slot);
+    self.builder.store(
+        self._closure_boxed_slot_value(sig_name),
+        self.builder.gep(
+            clos, [ir.Constant(i32, 0), ir.Constant(i32, 2)], name="bound.boxed.slot"
+        )
+    );
     self._mark_owned(clos);
     return clos;
 }
@@ -838,4 +867,121 @@ impl NaIRGenPass._binding_slot(var_type: ir.Type, var_name: str) -> ir.Value {
         return self._emit_closure_cell(var_name, var_type);
     }
     return self._entry_alloca(var_type, var_name);
+}
+
+impl NaIRGenPass._closure_boxed_fn(sig_name: str) -> (ir.Function | None) {
+    if self?.jacval_type is None {
+        return None;
+    }
+    found = self._closure_boxed_fns.get(sig_name);
+    if found is not None {
+        return found;
+    }
+    jv = self.jacval_type;
+    fnty = ir.FunctionType(
+        jv, [ir.IntType(8).as_pointer(), jv.as_pointer(), ir.IntType(64)]
+    );
+    adapter = ir.Function(self.llvm_module, fnty, name=f"__jac_clos_boxed.{sig_name}");
+    adapter.linkage = "private";
+    self._closure_boxed_fns[sig_name] = adapter;
+    return adapter;
+}
+
+impl NaIRGenPass._closure_boxed_slot_value(sig_name: str) -> ir.Constant {
+    i64 = ir.IntType(64);
+    adapter = self._closure_boxed_fn(sig_name);
+    if adapter is None {
+        return ir.Constant(i64, 0);
+    }
+    return adapter.ptrtoint(i64);
+}
+
+impl NaIRGenPass._jacval_crosses(t: ir.Type) -> bool {
+    if self?.jacval_type is not None and t == self.jacval_type {
+        return True;
+    }
+    if self._str_desc_ty is not None and t == self._str_desc_ty {
+        return True;
+    }
+    return isinstance(t, (ir.IntType, ir.DoubleType, ir.FloatType, ir.PointerType));
+}
+
+impl NaIRGenPass._emit_closure_boxed_adapters -> None {
+    for (sig_name, adapter) in list(self._closure_boxed_fns.items()) {
+        if adapter.is_declaration {
+            self._emit_closure_boxed_body(sig_name, adapter);
+        }
+    }
+}
+
+impl NaIRGenPass._emit_closure_boxed_body(sig_name: str, adapter: ir.Function) -> None {
+    (st, fnty_env) = self.closure_sig_registry[sig_name];
+    params = list(fnty_env.args)[:-1];
+    ret_ty = fnty_env.return_type;
+    i32 = ir.IntType(32);
+    i64 = ir.IntType(64);
+    saved_builder = self._builder;
+    saved_locals = self.local_vars;
+    saved_gen = self._gen_ctx;
+    self._builder = ir.IRBuilder(adapter.append_basic_block("entry"));
+    self.local_vars = {};
+    self._gen_ctx = None;
+    try {
+        none_jv = ir.Constant(
+            self.jacval_type, [ir.Constant(ir.IntType(8), 8), ir.Constant(i64, 0)]
+        );
+        crosses = all(self._jacval_crosses(p) for p in params)
+            and (isinstance(ret_ty, ir.VoidType) or self._jacval_crosses(ret_ty));
+        if not crosses {
+            self._emit_runtime_raise(
+                ir.Constant(ir.IntType(1), 1),
+                "TypeError",
+                "this function's signature cannot be called through an untyped reference"
+            );
+            self.builder.ret(none_jv);
+            return;
+        }
+        self._emit_runtime_raise(
+            self.builder.icmp_signed(
+                "!=", adapter.args[2], ir.Constant(i64, len(params)), name="boxed.arity"
+            ),
+            "TypeError",
+            f"function takes {len(params)} positional argument{''
+                if len(params) == 1
+                else 's'} but a different number were given"
+        );
+        clos = self.builder.bitcast(
+            adapter.args[0], st.as_pointer(), name="boxed.clos"
+        );
+        fn_i64 = self.builder.load(
+            self.builder.gep(clos, [ir.Constant(i32, 0), ir.Constant(i32, 0)]),
+            name="boxed.fn.i64"
+        );
+        env = self.builder.load(
+            self.builder.gep(clos, [ir.Constant(i32, 0), ir.Constant(i32, 1)]),
+            name="boxed.env"
+        );
+        call_args: list[ir.Value] = [];
+        for (i, pt) in enumerate(params) {
+            jv = self.builder.load(
+                self.builder.gep(adapter.args[1], [ir.Constant(i64, i)]),
+                name=f"boxed.a{i}"
+            );
+            call_args.append(
+                jv if pt == self.jacval_type else self._coerce_type(jv, pt)
+            );
+        }
+        fn_ptr = self.builder.inttoptr(fn_i64, fnty_env.as_pointer(), name="boxed.fn");
+        if isinstance(ret_ty, ir.VoidType) {
+            self.builder.call(fn_ptr, call_args + [env]);
+            self.builder.ret(none_jv);
+            return;
+        }
+        res = self.builder.call(fn_ptr, call_args + [env], name="boxed.res");
+        self.builder.ret(self._box_to_jacval(res));
+    } finally {
+        self._builder = saved_builder;
+        self.local_vars = saved_locals;
+        self._gen_ctx = saved_gen;
+    }
 }

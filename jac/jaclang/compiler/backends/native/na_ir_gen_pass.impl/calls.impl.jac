@@ -1,3 +1,8 @@
+glob BOXED_CALL_UNKNOWN: int = 0,
+     BOXED_CALL_STR: int = 1,
+     BOXED_CALL_OBJ: int = 2,
+     BOXED_CALL_CLOSURE: int = 3;
+
 glob _RC_THREAD_SPAWN_FNS: frozenset[str] = frozenset(
          {"pthread_create", "thrd_create", "CreateThread", "_beginthreadex"}
      );
@@ -2862,6 +2867,7 @@ impl NaIRGenPass._codegen_call(nd: uni.FuncCall) -> (ir.Value | None) {
             if _gclos_name is not None {
                 return self._codegen_closure_call(nd, _gloaded, _gclos_name);
             }
+            return self._codegen_callable_value(nd, _gloaded, []);
         }
 
         if _call_kind != "builtin" {
@@ -4558,6 +4564,10 @@ impl NaIRGenPass._codegen_callable_value(
     }
     if not isinstance(value.type, ir.PointerType)
         or not isinstance(value.type.pointee, ir.FunctionType) {
+        _boxed = self._codegen_boxed_call(nd, value);
+        if _boxed is not None {
+            return _boxed;
+        }
         self.emit(
             E5092,
             node_override=nd,
@@ -4746,4 +4756,227 @@ impl NaIRGenPass._field_call_convention(nd: uni.FuncCall) -> str {
         return "";
     }
     return self._calling_convention_of(arch.decorators);
+}
+
+impl NaIRGenPass._codegen_boxed_call(
+    nd: uni.FuncCall, callee: ir.Value
+) -> (ir.Value | None) {
+    if self?.jacval_type is None or self._nogc_headerless() {
+        return None;
+    }
+    is_jv = callee.type == self.jacval_type;
+    if not is_jv and not isinstance(callee.type, ir.PointerType) {
+        return None;
+    }
+    passed = list(nd.params or []);
+    for p in passed {
+        if isinstance(p, uni.KWPair)
+            or (
+                isinstance(p, uni.UnaryExpr)
+                and p.op.name in (Tok.STAR_MUL, Tok.STAR_POW)
+            ) {
+            return None;
+        }
+    }
+    i8 = ir.IntType(8);
+    i8p = i8.as_pointer();
+    i32 = ir.IntType(32);
+    i64 = ir.IntType(64);
+    jv = self.jacval_type;
+    b = self.builder;
+    raw: ir.Value;
+    kind: ir.Value;
+    if is_jv {
+        tag = b.extract_value(callee, 0, name="bcall.tag");
+        self._emit_runtime_raise(
+            b.icmp_unsigned("==", tag, ir.Constant(i8, 8), name="bcall.none"),
+            "TypeError",
+            "'NoneType' object is not callable"
+        );
+        b = self.builder;
+        is_str = b.icmp_unsigned("==", tag, ir.Constant(i8, 2), name="bcall.isstr");
+        self._emit_runtime_raise(
+            b.and_(
+                b.not_(is_str),
+                b.icmp_unsigned("!=", tag, ir.Constant(i8, 6), name="bcall.notobj"),
+                name="bcall.bad"
+            ),
+            "TypeError",
+            "object is not callable"
+        );
+        b = self.builder;
+        raw = b.inttoptr(
+            b.extract_value(callee, 1, name="bcall.pay"), i8p, name="bcall.raw"
+        );
+        kind = b.select(
+            is_str,
+            ir.Constant(i64, BOXED_CALL_STR),
+            ir.Constant(i64, BOXED_CALL_OBJ),
+            name="bcall.kind"
+        );
+    } else {
+        raw = b.bitcast(callee, i8p, name="bcall.raw");
+        self._emit_runtime_raise(
+            b.icmp_unsigned("==", raw, ir.Constant(i8p, None), name="bcall.null"),
+            "TypeError",
+            "'NoneType' object is not callable"
+        );
+        b = self.builder;
+        _callee_clos = self._closure_struct_of(callee.type);
+        kind = ir.Constant(
+            i64,
+            BOXED_CALL_CLOSURE
+                if _callee_clos is not None
+                    and _callee_clos not in self._gradual_closure_sigs
+                else BOXED_CALL_UNKNOWN
+        );
+    }
+    args: list[ir.Value] = [];
+    for p in passed {
+        a = self._codegen_expr(p);
+        if a is None {
+            return None;
+        }
+        args.append(a);
+    }
+    b = self.builder;
+    arr = self._entry_alloca(ir.ArrayType(jv, max(len(args), 1)), "bcall.args");
+    for (i, a) in enumerate(args) {
+        b.store(
+            self._box_to_jacval(a),
+            b.gep(arr, [ir.Constant(i32, 0), ir.Constant(i32, i)], name=f"bcall.a{i}")
+        );
+    }
+    res: any = b.call(
+        self._boxed_call_fn(),
+        [
+            raw,
+            kind,
+            b.gep(arr, [ir.Constant(i32, 0), ir.Constant(i32, 0)], name="bcall.argv"),
+            ir.Constant(i64, len(args))
+        ],
+        name="bcall"
+    );
+    self._release_owned_args(args, op="bcall_arg");
+    if self._is_owned(callee) {
+        self._release_owned_args([callee], op="bcall_target");
+    }
+    self._mark_owned(res);
+    expected = self._lower_type(nd.type) if isinstance(nd, uni.Expr) else None;
+    if expected is not None
+        and expected != jv
+        and not isinstance(expected, ir.VoidType)
+        and self._jacval_crosses(expected) {
+        out = self._coerce_type(res, expected);
+        if isinstance(out.type, ir.PointerType) {
+            self._mark_owned(out);
+        }
+        return out;
+    }
+    return res;
+}
+
+impl NaIRGenPass._boxed_call_fn -> ir.Function {
+    found = self.llvm_module.globals.get("__jac_boxed_call");
+    if isinstance(found, ir.Function) {
+        return found;
+    }
+    i32 = ir.IntType(32);
+    i64 = ir.IntType(64);
+    i8p = ir.IntType(8).as_pointer();
+    jv = self.jacval_type;
+    entry_ty = ir.FunctionType(jv, [i8p, jv.as_pointer(), i64]);
+    fn = self._define_function(
+        "__jac_boxed_call", ir.FunctionType(jv, [i8p, i64, jv.as_pointer(), i64])
+    );
+    fn.linkage = "private";
+    (raw, kind, argv, n) = fn.args;
+    state = self._enter_function(fn);
+    try {
+        b = self.builder;
+        cls_bb = b.append_basic_block("bcall.cls");
+        rec_bb = b.append_basic_block("bcall.rec");
+        notcls_bb = b.append_basic_block("bcall.notcls");
+        clos_bb = b.append_basic_block("bcall.clos");
+        b.cbranch(
+            b.icmp_unsigned(
+                "<", kind, ir.Constant(i64, BOXED_CALL_OBJ), name="bcall.maycls"
+            ),
+            cls_bb,
+            clos_bb
+        );
+        b.position_at_end(cls_bb);
+        rec = b.call(self._emit_class_record_lookup_fn(), [raw], name="bcall.record");
+        b.cbranch(
+            b.icmp_unsigned("!=", rec, ir.Constant(i8p, None), name="bcall.iscls"),
+            rec_bb,
+            notcls_bb
+        );
+        b.position_at_end(rec_bb);
+        record = b.bitcast(
+            rec, self._class_record_type().as_pointer(), name="bcall.recp"
+        );
+        bctor = b.load(
+            b.gep(record, [ir.Constant(i32, 0), ir.Constant(i32, 9)]),
+            name="bcall.bctor"
+        );
+        self._emit_runtime_raise(
+            b.icmp_unsigned("==", bctor, ir.Constant(i8p, None), name="bcall.nobctor"),
+            "TypeError",
+            "this class cannot be constructed natively through an untyped reference"
+        );
+        b = self.builder;
+        b.ret(
+            b.call(
+                b.bitcast(bctor, entry_ty.as_pointer(), name="bcall.bctor.fn"),
+                [raw, argv, n],
+                name="bcall.new"
+            )
+        );
+        b.position_at_end(notcls_bb);
+        self._emit_runtime_raise(
+            b.icmp_unsigned(
+                "==", kind, ir.Constant(i64, BOXED_CALL_STR), name="bcall.str"
+            ),
+            "TypeError",
+            "'str' object is not callable"
+        );
+        b = self.builder;
+        b.branch(clos_bb);
+        b.position_at_end(clos_bb);
+        known = b.icmp_unsigned(
+            "==", kind, ir.Constant(i64, BOXED_CALL_CLOSURE), name="bcall.known"
+        );
+        is_clos = self._emit_hdr_tag_is(b, raw, ["JacClosure"], untagged=True);
+        b = self.builder;
+        self._emit_runtime_raise(
+            b.not_(b.or_(known, is_clos), name="bcall.notclos"),
+            "TypeError",
+            "object is not callable"
+        );
+        b = self.builder;
+        clos = b.bitcast(
+            raw, ir.LiteralStructType([i64, i8p, i64]).as_pointer(), name="bcall.c"
+        );
+        adapter = b.load(
+            b.gep(clos, [ir.Constant(i32, 0), ir.Constant(i32, 2)]),
+            name="bcall.adapter"
+        );
+        self._emit_runtime_raise(
+            b.icmp_unsigned("==", adapter, ir.Constant(i64, 0), name="bcall.noadapter"),
+            "TypeError",
+            "object is not callable"
+        );
+        b = self.builder;
+        b.ret(
+            b.call(
+                b.inttoptr(adapter, entry_ty.as_pointer(), name="bcall.fn"),
+                [raw, argv, n],
+                name="bcall.res"
+            )
+        );
+    } finally {
+        self._leave_function(state);
+    }
+    return fn;
 }

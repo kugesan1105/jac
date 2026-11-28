@@ -519,7 +519,7 @@ impl NaIRGenPass._class_ctor_registry -> ir.GlobalVariable {
 impl NaIRGenPass._class_record_type -> ir.LiteralStructType {
     i64 = ir.IntType(64);
     i8p = ir.IntType(8).as_pointer();
-    return ir.LiteralStructType([i8p, i64, i8p, i64, i8p, i64, i8p, i64, i8p]);
+    return ir.LiteralStructType([i8p, i64, i8p, i64, i8p, i64, i8p, i64, i8p, i8p]);
 }
 
 impl NaIRGenPass._class_static_entry_type -> ir.LiteralStructType {
@@ -1360,6 +1360,9 @@ impl NaIRGenPass._emit_class_ctor_entries(archetypes: list[uni.Archetype]) -> No
             table = table_gv.bitcast(i8p);
         }
         (statics_count, statics_table) = self._class_static_table(name);
+        boxed_ctor = self._emit_class_boxed_ctor(name, signature, fn)
+            if fn is not None and signature is not None
+            else None;
         record = ir.GlobalVariable(
             self.llvm_module, record_ty, name=f"{name}.__classrec"
         );
@@ -1375,7 +1378,10 @@ impl NaIRGenPass._emit_class_ctor_entries(archetypes: list[uni.Archetype]) -> No
                 ir.Constant(i64, tag),
                 self._emit_vtable_ancestry(name).bitcast(i8p),
                 ir.Constant(i64, statics_count),
-                statics_table
+                statics_table,
+                boxed_ctor.bitcast(i8p)
+                    if boxed_ctor is not None
+                    else ir.Constant(i8p, None)
             ]
         );
         self._class_ctor_records.append((record, self._static_str_hash(name)));
@@ -1415,4 +1421,91 @@ impl NaIRGenPass._emit_class_ctor_registrations -> None {
         );
         self.builder.store(record.bitcast(i8p), bucket);
     }
+}
+
+impl NaIRGenPass._emit_class_boxed_ctor(
+    name: str, params: list[NativeCtorParam], ctor: ir.Function
+) -> (ir.Function | None) {
+    if self?.jacval_type is None or self._nogc_headerless() {
+        return None;
+    }
+    i1 = ir.IntType(1);
+    i64 = ir.IntType(64);
+    i8p = ir.IntType(8).as_pointer();
+    jv = self.jacval_type;
+    positional = [
+        i
+        for (i, p) in enumerate(params)
+        if p.positional
+    ];
+    if not all(self._jacval_crosses(p.type) for p in params) {
+        return None;
+    }
+    fn = self._define_function(
+        f"{name}.__boxed_ctor", ir.FunctionType(jv, [i8p, jv.as_pointer(), i64])
+    );
+    fn.linkage = "internal";
+    state = self._enter_function(fn);
+    try {
+        n = fn.args[2];
+        display = self._arch_display(name);
+        self._emit_runtime_raise(
+            self.builder.icmp_unsigned(
+                ">", n, ir.Constant(i64, len(positional)), name="bctor.many"
+            ),
+            "TypeError",
+            f"{display}() takes at most {len(positional)} positional argument{''
+                if len(positional) == 1
+                else 's'}"
+        );
+        mask: ir.Value = ir.Constant(i64, 0);
+        values: dict[int, ir.Value] = {};
+        for (slot, i) in enumerate(positional) {
+            p = params[i];
+            given = self.builder.icmp_unsigned(
+                "<", ir.Constant(i64, slot), n, name=f"bctor.has.{p.name}"
+            );
+            mask = self.builder.select(
+                given,
+                self.builder.or_(mask, ir.Constant(i64, 1 << i)),
+                mask,
+                name=f"bctor.mask.{p.name}"
+            );
+            pre = self.builder.block;
+            load_bb = self.builder.append_basic_block(f"bctor.{p.name}.load");
+            done_bb = self.builder.append_basic_block(f"bctor.{p.name}.done");
+            self.builder.cbranch(given, load_bb, done_bb);
+            self.builder.position_at_end(load_bb);
+            arg = self.builder.load(
+                self.builder.gep(fn.args[1], [ir.Constant(i64, slot)]),
+                name=f"bctor.a.{p.name}"
+            );
+            typed = arg if p.type == jv else self._coerce_type(arg, p.type);
+            load_end = self.builder.block;
+            self.builder.branch(done_bb);
+            self.builder.position_at_end(done_bb);
+            merged = self.builder.phi(p.type, name=f"bctor.v.{p.name}");
+            merged.add_incoming(typed, load_end);
+            merged.add_incoming(self._default_arg_fallback(p.type), pre);
+            values[i] = merged;
+        }
+        call_args: list[ir.Value] = [mask];
+        for (i, p) in enumerate(params) {
+            given_v = values.get(i);
+            call_args.append(
+                given_v if given_v is not None else self._default_arg_fallback(p.type)
+            );
+        }
+        made = self.builder.call(ctor, call_args, name="bctor.obj");
+        self.builder.ret(
+            self._box_to_jacval(
+                self.builder.bitcast(
+                    made, self.struct_types[name].as_pointer(), name="bctor.typed"
+                )
+            )
+        );
+    } finally {
+        self._leave_function(state);
+    }
+    return fn;
 }

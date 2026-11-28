@@ -983,6 +983,9 @@ impl NaIRGenPass._lower_class_type(t: ClassType) -> (ir.Type | None) {
 impl NaIRGenPass._lower_function_type(t: SemanticFunctionType) -> ir.PointerType {
     signature = self._lower_function_signature(t);
     (_sig_name, sig_st, _fnty_env) = self._closure_sig_struct(signature);
+    if t.is_gradual_callable_form() {
+        self._gradual_closure_sigs.add(_sig_name);
+    }
     return sig_st.as_pointer();
 }
 
@@ -2870,10 +2873,14 @@ impl NaIRGenPass._coerce_type_inner(val: ir.Value, target_type: ir.Type) -> ir.V
             _wfn = val;
 
             _wenv: ir.Value = ir.Constant(_wi8p, None);
+            _real_fnty: ir.FunctionType = _wfn.type
+                if isinstance(_wfn.type, ir.FunctionType)
+                else _wfn.type.pointee;
+            _real_sig = self._closure_sig_struct(_real_fnty)[0];
             if isinstance(val, ir.Function) {
                 _fn_env = self._fn_value_env(val);
                 if _fn_env is None {
-                    return self._static_fn_closure(_clos_tgt, val);
+                    return self._static_fn_closure(_clos_tgt, val, _real_sig);
                 }
                 _wenv = _fn_env;
             }
@@ -2897,6 +2904,14 @@ impl NaIRGenPass._coerce_type_inner(val: ir.Value, target_type: ir.Type) -> ir.V
                 name="clos.wrap.env.slot"
             );
             self.builder.store(_wenv, _wenv_slot);
+            self.builder.store(
+                self._closure_boxed_slot_value(_real_sig),
+                self.builder.gep(
+                    _wclos,
+                    [ir.Constant(_wi32, 0), ir.Constant(_wi32, 2)],
+                    name="clos.wrap.boxed.slot"
+                )
+            );
             self._mark_owned(_wclos);
             return _wclos;
         }
@@ -2966,6 +2981,19 @@ impl NaIRGenPass._coerce_type_inner(val: ir.Value, target_type: ir.Type) -> ir.V
                     );
                     return val;
                 }
+            }
+        }
+        if isinstance(val.type.pointee, ir.FunctionType)
+            and target_type == ir.IntType(8).as_pointer() {
+            _as_clos = self._wrap_fn_as_closure_value(val);
+            if _as_clos is not val {
+                _clos_i8 = self.builder.bitcast(
+                    _as_clos, target_type, name="fn.as.obj"
+                );
+                if self._is_owned(_as_clos) {
+                    self._mark_owned(_clos_i8);
+                }
+                return _clos_i8;
             }
         }
         return self.builder.bitcast(val, target_type, name="ptrcast");

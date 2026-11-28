@@ -287,7 +287,8 @@ impl NaIRGenPass._unbox_from_jacval(jv: ir.Value, target_type: ir.Type) -> ir.Va
             _addr.add_incoming(_code, _clos_bb);
             return b.inttoptr(_addr, target_type, name="jv.unbox.fn");
         }
-        if self._closure_struct_of(target_type) is not None {
+        _unbox_clos = self._closure_struct_of(target_type);
+        if _unbox_clos is not None {
             i8 = ir.IntType(8);
             _msg = "only a function stored in `any` can be called natively through a Callable";
             _tag = b.extract_value(jv, 0, name="jv.unbox.tag");
@@ -295,6 +296,9 @@ impl NaIRGenPass._unbox_from_jacval(jv: ir.Value, target_type: ir.Type) -> ir.Va
                 b.icmp_unsigned("==", _tag, ir.Constant(i8, 6)),
                 b.icmp_unsigned("==", _tag, ir.Constant(i8, 8))
             );
+            if _unbox_clos in self._gradual_closure_sigs {
+                return self.builder.inttoptr(payload, target_type, name="jv.unbox.p");
+            }
             self._emit_runtime_raise(b.not_(_ok), "TypeError", _msg);
             if not self._nogc_headerless() {
                 b = self.builder;

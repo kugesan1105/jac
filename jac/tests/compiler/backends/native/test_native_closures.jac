@@ -305,8 +305,8 @@ test "closure escape: capture borrowed from an outer frame stays rejected" {
     );
 }
 
-test "closure escape: calling a closure through an any-typed value stays rejected" {
-    (prog, ir) = compile_na_inline_ir(
+test "closure escape: a closure called through an any-typed value runs natively" {
+    (prog, module) = compile_na_inline_ir(
         "any_closure_call",
         "def outer(y: int) -> int {\n"
         "    def inner(x: int) -> int { return x * y; }\n"
@@ -314,15 +314,9 @@ test "closure escape: calling a closure through an any-typed value stays rejecte
         "    return f(3);\n"
         "}\n"
     );
-    assert not prog.errors_had , (
-        f"the any-typed closure call refusal is owned by outer(), which must "
-        f"demote to a seam, got: {[str(e) for e in prog.errors_had]}"
-    );
-    assert ir.gen.native_layout is not None , "whole-module native compile aborted";
-    assert "outer" not in ir.gen.native_layout.functions , (
-        "an any-typed closure call site must demote its function out of the "
-        "native layout, never lower wrongly"
-    );
+    assert not prog.errors_had , [str(e) for e in prog.errors_had];
+    outer = get_func(module.gen.native_engine, "outer", ctypes.c_int64, ctypes.c_int64);
+    assert outer(5) == 15;
 }
 
 test "native getattr alias calls resolve a literal module member" {

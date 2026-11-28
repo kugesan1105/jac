@@ -526,6 +526,8 @@ walker NaIRGenPass(CompilerPass) {
         _pass_link_slots: dict[str, tuple[ir.Value, str, str]] = {},
         _helper_structs: set[str] = set(),
         closure_thunks: dict[str, ir.Function] = {},
+        _closure_boxed_fns: dict[str, ir.Function] = {},
+        _gradual_closure_sigs: set[str] = set(),
         _closure_uid: int = 0,
         _fresh_fn_values: set[str] = set(),
         _nested_fn_frames: dict[str, ir.Function] = {},
@@ -1118,7 +1120,17 @@ walker NaIRGenPass(CompilerPass) {
     ) -> tuple[str, ir.IdentifiedStructType, ir.FunctionType];
 
     def _closure_struct_of(val_type: ir.Type) -> (str | None);
-    def _static_fn_closure(closure_name: str, fn: ir.Function) -> ir.Value;
+    def _closure_boxed_fn(sig_name: str) -> (ir.Function | None);
+    def _closure_boxed_slot_value(sig_name: str) -> ir.Constant;
+    def _emit_closure_boxed_adapters -> None;
+    def _emit_closure_boxed_body(sig_name: str, adapter: ir.Function) -> None;
+    def _jacval_crosses(t: ir.Type) -> bool;
+    def _codegen_boxed_call(nd: uni.FuncCall, callee: ir.Value) -> (ir.Value | None);
+    def _boxed_call_fn -> ir.Function;
+    def _static_fn_closure(
+        closure_name: str, fn: ir.Function, boxed_sig: str = ""
+    ) -> ir.Value;
+
     def _fn_identity_struct -> str;
     def _fn_identity_slot(fn: ir.Function) -> (str | None);
     def _fn_value_env(fn: ir.Function) -> (ir.Value | None);
@@ -2485,6 +2497,10 @@ walker NaIRGenPass(CompilerPass) {
     def _class_tagless_record -> ir.GlobalVariable;
     def _class_ctor_registry -> ir.GlobalVariable;
     def _emit_class_ctor_entries(archetypes: list[uni.Archetype]) -> None;
+    def _emit_class_boxed_ctor(
+        name: str, params: list[NativeCtorParam], ctor: ir.Function
+    ) -> (ir.Function | None);
+
     def _emit_class_ctor(
         arch: uni.Archetype, params: list[NativeCtorParam], symbol: str = ""
     ) -> (ir.Function | None);

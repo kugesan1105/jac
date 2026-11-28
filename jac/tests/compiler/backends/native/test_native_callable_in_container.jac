@@ -93,22 +93,35 @@ test "callable-in-any: functions read out of dict and list of any dispatch" {
     assert f(3) == 303;
 }
 
-test "callable-in-any: a call with no native signature is refused with a hint" {
+test "untyped callables: function and class values with no call signature run natively and match Python" {
+    out_bin = os.path.join(tempfile.mkdtemp(), "callable_untyped");
+    native_build(str(FIXTURES / "callable_untyped.jac"), out_bin, extra=["--debug"]);
+    out = native_run(out_bin);
+    assert out.startswith(
+        "870 4 11\nHI! u 5\n2 TypeError TypeError TypeError TypeError\n"
+    ) , out[:400];
+    assert "RC LIVE OBJECTS at exit" in out , out[-400:];
+    assert "<- LEAK" not in out , out[-1500:];
+}
+
+test "callable-in-any: a keyword call with no native signature is refused with a hint" {
     out = native_build_fails(str(FIXTURES / "call_through_value_refused.jac"));
-    for fn_name in ["call_any", "call_bare_keyword", "call_bare_positional"] {
+    for fn_name in ["call_any", "call_bare_keyword"] {
         assert f"demoting {fn_name} to Python-only" in out , out[-1500:];
     }
     assert "E9003" not in out , out[-1500:];
     assert "help: The callee's native type carries no call signature" in out , out[-1500:];
-    assert out.count("keywords or extra arguments would be lost") == 2 , out[-1500:];
+    assert out.count("keywords or extra arguments would be lost") == 1 , out[-1500:];
 }
 
-test "callable-in-any: a class or instance raises TypeError, a boxed function keeps its identity, and a boxed closure is released" {
+test "callable-in-any: a class or instance raises TypeError through a typed Callable and a bare Callable constructs the class, a boxed function keeps its identity, and a boxed closure is released" {
     out_bin = os.path.join(tempfile.mkdtemp(), "any_callable");
     native_build(str(FIXTURES / "any_callable.jac"), out_bin, extra=["--debug"]);
     out = native_run(out_bin);
     err = "TypeError: only a function stored in `any` can be called natively through a Callable\n";
-    assert out.startswith(err * 2 + "1275\nTrue False False\n") , out[:400];
+    assert out.startswith(
+        err * 2 + "b\nTypeError: object is not callable\n1275\nTrue False False\n"
+    ) , out[:400];
     assert "RC LIVE OBJECTS at exit" in out , out[-400:];
     assert "<- LEAK" not in out , out[-1500:];
 }

@@ -21,6 +21,19 @@ def call_each {
     }
 }
 
+def call_bare {
+    tags: dict[str, any] = {"thing": Thing, "obj": Thing(key="x")};
+    for k in ["thing", "obj"] {
+        try {
+            ctor: Callable = tags[k];
+            made: Thing = ctor("b");
+            print(made.key);
+        } except TypeError as e {
+            print("TypeError:", e);
+        }
+    }
+}
+
 def boxed_identity {
     def inc(x: int) -> int {
         return x + 1;
@@ -45,6 +58,7 @@ def run -> int {
 
 with entry {
     call_each();
+    call_bare();
     print(run());
     boxed_identity();
     __rc_collect_cycles();
